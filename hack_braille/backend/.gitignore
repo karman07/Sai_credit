@@ -1,0 +1,13 @@
+venv/
+data/raw/
+data/converted/
+data/synthetic/
+data/augmented/
+data/final/
+runs/
+__pycache__/
+*.pyc
+.DS_Store
+exports/
+results/
+yolo11n.pt

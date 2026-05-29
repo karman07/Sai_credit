@@ -55,9 +55,11 @@ export default function Footer() {
       <div className="max-w-[1440px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-12 mb-24">
         {/* Brand Column */}
         <div className="col-span-2 md:col-span-3 lg:col-span-2 pr-12">
-          <h2 className="font-serif text-3xl tracking-[0.2em] uppercase mb-8" style={{ color: THEME.colors.secondary }}>
-            RKM Jewellers
-          </h2>
+          <div className="mb-8">
+            <div className="w-28 h-28 flex items-center justify-start origin-left">
+              <img src="/RKM LOGO SVG.svg" alt="RKM Jewellers" className="w-full h-full object-contain" />
+            </div>
+          </div>
           <p className="opacity-60 text-[11px] uppercase tracking-[0.3em] leading-[2.2] mb-10 text-balance">
             A trusted legacy in Mohali & Chandigarh, specializing in handcrafted 22K Hallmarked gold and certified diamond jewellery. Combining traditional Punjabi artistry with modern elegance for your most precious moments.
           </p>
@@ -114,7 +116,16 @@ export default function Footer() {
             <Link href="/products" className="text-[10px] font-bold uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors">Fine Collections</Link>
             <Link href="/about" className="text-[10px] font-bold uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors">The RKM Story</Link>
             <Link href="/blogs" className="text-[10px] font-bold uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors">Artisan Journal</Link>
+            <Link href="/gold-investment" className="text-[10px] font-bold uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors">Gold Investments</Link>
             <Link href="/wishlist" className="text-[10px] font-bold uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors">Wishlist</Link>
+            <a 
+              href={process.env.NEXT_PUBLIC_FEEDBACK_URL || "http://localhost:3003"} 
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#B8975A] hover:text-white transition-colors"
+            >
+              Client Feedback
+            </a>
             <address className="not-italic opacity-50 text-[9px] leading-loose mt-4 uppercase tracking-[0.3em] font-medium transition-opacity hover:opacity-100">
               Phase 3B2, Mohali<br/>Punjab 160059<br/>Serving Chandigarh & Tri-city
             </address>

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { THEME, API_BASE_URL } from "../app/constants";
+import { STATIC_BASE_URL, THEME, API_BASE_URL } from "../app/constants";
 import { FadeIn } from "./FadeIn";
 import { useAppDispatch, useAppSelector } from "../store/store";
 import { toggleWishlist } from "../store/wishlistSlice";
 import { addToCart, updateQuantity } from "../store/cartSlice";
+import { openAuthDialog } from "../store/authSlice";
 import { trackEvent } from "../app/analytics";
 
 interface Product {
@@ -21,6 +22,9 @@ interface Product {
   pricing_breakdown?: {
     final_price: number;
     tax_amount?: number;
+    subtotal?: number;
+    discount_amount?: number;
+    discount_percentage?: number;
   };
 }
 
@@ -35,13 +39,14 @@ export default function ProductCard({ product, index, badge }: ProductCardProps)
   const router = useRouter();
   const wishlistItems = useAppSelector(state => state.wishlist.items);
   const cartItems = useAppSelector(state => state.cart.items);
+  const authState = useAppSelector(state => state.auth);
   const isWishlisted = wishlistItems.some(item => item._id === product._id);
   const cartItem = cartItems.find(item => item._id === product._id);
 
   const imageUrl = product.images && product.images.length > 0 
     ? (product.images[0].startsWith('http') 
         ? product.images[0] 
-        : `${API_BASE_URL.replace('/api', '')}${product.images[0].startsWith('/static') ? product.images[0] : '/static' + product.images[0]}`)
+        : `${STATIC_BASE_URL}${product.images[0].startsWith('/static') ? product.images[0] : '/static' + product.images[0]}`)
     : "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?q=80&w=1500&auto=format&fit=crop";
 
   const handleCardClick = () => {
@@ -127,6 +132,10 @@ export default function ProductCard({ product, index, badge }: ProductCardProps)
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  if (!authState.token) {
+                    dispatch(openAuthDialog());
+                    return;
+                  }
                   trackEvent('add_to_cart', { productId: product._id, productName: product.name, price: product.pricing_breakdown?.final_price });
                   dispatch(addToCart(product));
                 }}
@@ -160,10 +169,26 @@ export default function ProductCard({ product, index, badge }: ProductCardProps)
               <h4 className="font-serif text-2xl tracking-wide text-[#1A2E26] leading-snug group-hover:text-[#B8975A] transition-colors duration-500 truncate">
                 {product.name}
               </h4>
-              <span className="font-serif text-xl font-light text-[#B8975A] whitespace-nowrap">
-                ₹{((product.pricing_breakdown?.final_price || 0) - (product.pricing_breakdown?.tax_amount || 0)).toLocaleString('en-IN')}
-                <span className="text-[7px] uppercase tracking-tighter ml-1 opacity-60">Excl. Tax</span>
-              </span>
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-2">
+                  {(product.pricing_breakdown?.discount_amount ?? 0) > 0 && (
+                    <span className="text-xs line-through opacity-40 font-light text-[#1A2E26]">
+                      ₹{product.pricing_breakdown?.subtotal?.toLocaleString('en-IN')}
+                    </span>
+                  )}
+                  <span className="font-serif text-xl font-bold text-[#B8975A] whitespace-nowrap">
+                    ₹{product.pricing_breakdown?.final_price?.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                   <span className="text-[7px] uppercase tracking-wider opacity-60 font-black text-[#1A2E26]">Inc. all taxes</span>
+                   {(product.pricing_breakdown?.discount_amount ?? 0) > 0 && (
+                     <span className="text-[7px] px-1.5 py-0.5 bg-[#B8975A] text-white font-black uppercase tracking-widest rounded-sm animate-pulse">
+                        {Math.round(((product.pricing_breakdown?.discount_amount ?? 0) / (product.pricing_breakdown?.subtotal ?? 1)) * 100)}% OFF
+                     </span>
+                   )}
+                </div>
+              </div>
             </div>
             
             <div className="flex items-center gap-3 text-[10px] font-sans font-bold uppercase tracking-[0.2em] text-[#7A8C85] group-hover:text-[#1A2E26] transition-colors duration-500">
