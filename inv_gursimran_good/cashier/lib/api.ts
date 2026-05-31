@@ -222,6 +222,8 @@ export interface StaffAttendanceRecord {
   check_out?: string;
   notes?: string;
   createdAt: string;
+  /** System automatically checked out this user at shift end because they never signed out */
+  auto_checked_out?: boolean;
 }
 
 export const getMyAttendance = (userId: string, start?: string, end?: string) =>
@@ -296,3 +298,57 @@ export const getMyNotifications = () => request<SentNotification[]>('/notificati
 
 export const markNotificationRead = (id: string) => request(`/notifications/${id}/read`, { method: 'POST' });
 export const markAllNotificationsRead = () => request('/notifications/read-all', { method: 'POST' });
+
+// ─── Holidays ─────────────────────────────────────────────────────────────────
+
+export interface Holiday {
+  _id: string;
+  name: string;
+  /** "MM-DD" for yearly recurring, "YYYY-MM-DD" for one-time */
+  date: string;
+  is_yearly: boolean;
+  description?: string;
+  color?: string;
+  createdAt: string;
+}
+
+export const getHolidays = (year?: number) =>
+  request<Holiday[]>(`/holidays${year ? `?year=${year}` : ''}`);
+
+// ── Customer Management ───────────────────────────────────────────────────────
+
+export interface FullCustomer {
+  _id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  isPhoneVerified: boolean;
+  isEmailVerified: boolean;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export const getCustomers = (page = 1, limit = 24) =>
+  request<{ data: FullCustomer[]; meta: { total: number; page: number; limit: number; total_pages: number } }>(
+    `/customers?page=${page}&limit=${limit}`
+  );
+
+export const searchCustomerByPhone = (phone: string) =>
+  request<{ data: FullCustomer[] }>(`/customers/search?phone=${encodeURIComponent(phone)}`);
+
+export const sendCustomerOtp = (phone: string) =>
+  request<{ otp: string; message: string }>('/customers/otp/send', { method: 'POST', body: JSON.stringify({ phone }) });
+
+export const verifyCustomerOtp = (phone: string, otp: string) =>
+  request<{ verified: boolean }>('/customers/otp/verify', { method: 'POST', body: JSON.stringify({ phone, otp }) });
+
+export const createCustomer = (data: {
+  name: string; phone: string; email?: string; gender?: string;
+  address?: string; city?: string; state?: string; pincode?: string; country?: string;
+}) => request<FullCustomer>('/customers', { method: 'POST', body: JSON.stringify(data) });

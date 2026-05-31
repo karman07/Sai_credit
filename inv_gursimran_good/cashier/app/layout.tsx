@@ -10,6 +10,11 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 export const metadata: Metadata = {
   title: 'RKM Jewellers — Cashier Portal',
   description: 'Cashier portal for RKM Jewellers — inventory, attendance, leaves & reimbursements',
+  icons: {
+    icon: "/rkm-logo-cropped.png",
+    shortcut: "/rkm-logo-cropped.png",
+    apple: "/rkm-logo-cropped.png",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

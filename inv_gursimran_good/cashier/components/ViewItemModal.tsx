@@ -11,6 +11,10 @@ export default function ViewItemModal({ item, onClose }: ViewItemModalProps) {
   const img = staticUrl(product?.images?.[0]);
 
   const fmt = (n: number | undefined | null) => (n || 0).toLocaleString('en-IN');
+  const fmtAmt = (n: number | undefined | null) => {
+    const v = Math.abs(n || 0);
+    return v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -102,7 +106,28 @@ export default function ViewItemModal({ item, onClose }: ViewItemModalProps) {
             </div>
             <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Current Selling Price</span>
-              <span className="text-xl font-black text-emerald-700">₹{fmt(item.live_selling_price ?? item.selling_price)}</span>
+              {item.pricing_breakdown && (item.pricing_breakdown.discount_amount > 0 || item.manager_discount > 0) ? (
+                <div className="space-y-1">
+                  <span className="text-sm line-through text-slate-400 block">
+                    ₹{fmt(item.pricing_breakdown.final_price + item.pricing_breakdown.discount_amount)}
+                  </span>
+                  {item.pricing_breakdown.discount_amount > 0 && (
+                    <div className="flex items-center justify-between text-[11px] font-black text-amber-600">
+                      <span className="flex items-center gap-1"><span>⚡</span><span>{item.admin_discount > 0 ? item.admin_discount : (product?.discount_percentage || 0)}% ADMIN OFF</span></span>
+                      <span>-₹{fmtAmt(item.pricing_breakdown.discount_amount)}</span>
+                    </div>
+                  )}
+                  {item.manager_discount > 0 && (
+                    <div className="flex items-center justify-between text-[11px] font-black text-blue-600">
+                      <span className="flex items-center gap-1"><span>🏷</span><span>{item.manager_discount}% MANAGER OFF</span></span>
+                      <span>-₹{fmtAmt(item.pricing_breakdown.final_price * item.manager_discount / 100)}</span>
+                    </div>
+                  )}
+                  <span className="text-xl font-black text-emerald-700 block">₹{fmt(item.live_selling_price ?? item.selling_price)}</span>
+                </div>
+              ) : (
+                <span className="text-xl font-black text-emerald-700">₹{fmt(item.live_selling_price ?? item.selling_price)}</span>
+              )}
             </div>
           </div>
 
