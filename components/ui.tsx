@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { X, ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle, CheckCircle2, Info, XCircle, Loader2, Search, Inbox } from "lucide-react";
 
 // ── Utility ──────────────────────────────────────────────────────────────────
@@ -139,18 +140,20 @@ export function Badge({ tone = "neutral", dot, className, children }: {
 
 // Case-status specific badge
 export type CaseStatus =
-  | "Sales" | "Pending" | "In Credit" | "Approved"
+  | "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved"
   | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
 
 const caseStatusTones: Record<CaseStatus, BadgeTone> = {
-  "Sales":     "info",
-  "Pending":   "warning",
-  "In Credit": "purple",
-  "Approved":  "teal",
-  "Disbursed": "success",
-  "Hold":      "orange",
-  "Rejected":  "danger",
-  "Cancelled": "neutral",
+  "Draft":      "neutral",
+  "Sales":      "info",
+  "Pending":    "warning",
+  "In Credit":  "purple",
+  "Incomplete": "orange",
+  "Approved":   "teal",
+  "Disbursed":  "success",
+  "Hold":       "warning",
+  "Rejected":   "danger",
+  "Cancelled":  "neutral",
 };
 
 export function CaseStatusBadge({ status }: { status: CaseStatus }) {
@@ -332,8 +335,8 @@ export function Drawer({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex">
+  const content = (
+    <div className="fixed inset-0 z-[100] flex">
       <div
         className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn"
         onClick={onClose}
@@ -360,6 +363,9 @@ export function Drawer({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -389,8 +395,8 @@ export function Modal({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  const content = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
       <div className={cn("relative w-full card animate-slideUp p-0 overflow-hidden", sizeClass)}>
         {(title || description) && (
@@ -408,6 +414,9 @@ export function Modal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -489,7 +498,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => {
           const Icon = toastIcons[t.type];
           return (
@@ -580,7 +589,7 @@ export function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="pl-8"
+        className="!pl-8 bg-surface-2 focus:bg-surface transition-colors"
       />
     </div>
   );
