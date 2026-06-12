@@ -39,6 +39,7 @@ export const metadata: Metadata = {
 import ChatAssistant from "../components/ChatAssistant";
 import AnalyticsTracker from "../components/AnalyticsTracker";
 import AuthDialog from "../components/AuthDialog";
+import { Toaster } from "sonner";
 
 export default function RootLayout({
   children,
@@ -51,7 +52,7 @@ export default function RootLayout({
       className={`${cormorant.variable} ${jost.variable} h-full antialiased scroll-smooth`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-sans selection:bg-[#064E3B]/20" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col font-sans selection:bg-[#5C0828]/20" suppressHydrationWarning>
         <AnalyticsTracker />
         <script
           type="application/ld+json"
@@ -108,6 +109,7 @@ export default function RootLayout({
           <Footer />
           <AuthDialog />
           <ChatAssistant />
+          <Toaster position="top-center" richColors />
         </StoreProvider>
       </body>
     </html>

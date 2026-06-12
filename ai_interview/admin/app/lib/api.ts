@@ -159,3 +159,110 @@ export const jobsApi = {
     syncNow: () => fetchApi('jobs/sync-now'),
     syncCountry: (country: string) => fetchApi(`jobs/sync-country/${country}`),
 };
+
+// AI Config / Keys (Admin)
+export const aiConfigApi = {
+    getKeys:         () => fetchApi('ai-config/keys'),
+    addKey:          (data: any) => fetchApi('ai-config/keys', { method: 'POST', body: JSON.stringify(data) }),
+    setActive:       (id: string) => fetchApi(`ai-config/keys/${id}/activate`, { method: 'PATCH' }),
+    deleteKey:       (id: string) => fetchApi(`ai-config/keys/${id}`, { method: 'DELETE' }),
+    getModels:       () => fetchApi('ai-config/models'),
+    setActiveModel:  (provider: string, modelId: string) => fetchApi('ai-config/models/activate', { method: 'PATCH', body: JSON.stringify({ provider, modelId }) }),
+};
+
+// Company Rounds (Admin)
+export const companyRoundsApi = {
+    getAllAdmin: () => fetchApi('company-rounds/admin/all'),
+    create:     (data: any) => fetchApi('company-rounds', { method: 'POST', body: JSON.stringify(data) }),
+    update:     (id: string, data: any) => fetchApi(`company-rounds/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete:     (id: string) => fetchApi(`company-rounds/${id}`, { method: 'DELETE' }),
+    uploadLogo: (id: string, file: File) => {
+        const fd = new FormData();
+        fd.append('logo', file);
+        return fetchApiFormData(`company-rounds/${id}/logo`, fd, 'POST');
+    },
+};
+
+// Discounts / Coupons (Admin)
+export const discountsApi = {
+    getAll:       () => fetchApi('discounts/admin/coupons'),
+    getAnalytics: () => fetchApi('discounts/admin/analytics'),
+    getStats:     (id: string) => fetchApi(`discounts/admin/coupons/${id}/stats`),
+    create:       (data: any) => fetchApi('discounts/admin/coupons', { method: 'POST', body: JSON.stringify(data) }),
+    update:       (id: string, data: any) => fetchApi(`discounts/admin/coupons/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    toggle:       (id: string) => fetchApi(`discounts/admin/coupons/${id}/toggle`, { method: 'PATCH' }),
+    delete:       (id: string) => fetchApi(`discounts/admin/coupons/${id}`, { method: 'DELETE' }),
+};
+
+// Notifications (Admin)
+export const notificationsApi = {
+    sendToAll:  (title: string, body: string) => fetchApi('admin/notifications/send-all',  { method: 'POST', body: JSON.stringify({ title, body }) }),
+    sendToUser: (userId: string, title: string, body: string) => fetchApi(`admin/notifications/send-user/${userId}`, { method: 'POST', body: JSON.stringify({ title, body }) }),
+};
+
+// Resources (Admin)
+export const resourcesApi = {
+    getAll:  () => fetchApi('resources/admin/all'),
+    create:  (formData: FormData) => fetchApiFormData('resources', formData),
+    update:  (id: string, formData: FormData) => fetchApiFormData(`resources/${id}`, formData, 'PATCH'),
+    delete:  (id: string) => fetchApi(`resources/${id}`, { method: 'DELETE' }),
+};
+
+// Interview results (Admin)
+export const resultsApi = {
+    getAllAdmin: (params: { page?: number; limit?: number; roundType?: string; search?: string }) => {
+        const q = new URLSearchParams();
+        if (params.page)      q.set('page',      String(params.page));
+        if (params.limit)     q.set('limit',     String(params.limit));
+        if (params.roundType) q.set('roundType', params.roundType);
+        if (params.search)    q.set('search',    params.search);
+        return fetchApi(`results/admin/all?${q.toString()}`);
+    },
+};
+
+// Reviews (Admin)
+export const reviewsApi = {
+    getStats: () => fetchApi('reviews/admin/stats'),
+    getAll: (params: { page?: number; limit?: number; rating?: number; flag?: string; search?: string }) => {
+        const q = new URLSearchParams();
+        if (params.page)   q.set('page',   String(params.page));
+        if (params.limit)  q.set('limit',  String(params.limit));
+        if (params.rating) q.set('rating', String(params.rating));
+        if (params.flag)   q.set('flag',   params.flag);
+        if (params.search) q.set('search', params.search);
+        return fetchApi(`reviews/admin/all?${q.toString()}`);
+    },
+    flag:   (id: string, flag: string) => fetchApi(`reviews/admin/${id}/flag`,  { method: 'PATCH', body: JSON.stringify({ flag }) }),
+    pin:    (id: string, isPinned: boolean) => fetchApi(`reviews/admin/${id}/pin`, { method: 'PATCH', body: JSON.stringify({ isPinned }) }),
+    delete: (id: string) => fetchApi(`reviews/admin/${id}`, { method: 'DELETE' }),
+};
+
+// Hackathon (Admin)
+export const hackathonApi = {
+    getConfig: () => fetchApi('hackathon/config'),
+    updateConfig: (data: any) => fetchApi('hackathon/admin/config', { method: 'POST', body: JSON.stringify(data) }),
+    getLeaderboard: (limit = 200) => fetchApi(`hackathon/admin/leaderboard?limit=${limit}`),
+    getEmails: (page = 1, limit = 100) => fetchApi(`hackathon/admin/emails?page=${page}&limit=${limit}`),
+    addEmail: (email: string) => fetchApi('hackathon/admin/add-email', { method: 'POST', body: JSON.stringify({ email }) }),
+    uploadEmails: (formData: FormData) => fetchApiFormData('hackathon/admin/upload-emails', formData),
+    removeEmail:    (email: string) => fetchApi(`hackathon/admin/emails/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+    clearEmails:    () => fetchApi('hackathon/admin/emails', { method: 'DELETE' }),
+    resetInterview: (email: string) => fetchApi(`hackathon/admin/emails/${encodeURIComponent(email)}/reset`, { method: 'POST' }),
+    forceSyncResult: (email: string) => fetchApi(`hackathon/admin/emails/${encodeURIComponent(email)}/force-sync`, { method: 'POST' }),
+    getForms: (page = 1, limit = 50) => fetchApi(`hackathon/admin/forms?page=${page}&limit=${limit}`),
+};
+
+// Topic interviews (Admin)
+export const topicInterviewsApi = {
+    getAll: () => fetchApi('topic-interviews/admin/all'),
+    getAllPublic: () => fetchApi('topic-interviews'),
+    getById: (id: string) => fetchApi(`topic-interviews/${id}`),
+    create: (data: any) => fetchApi('topic-interviews', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => fetchApi(`topic-interviews/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => fetchApi(`topic-interviews/${id}`, { method: 'DELETE' }),
+    uploadLogo: (id: string, file: File) => {
+        const fd = new FormData();
+        fd.append('logo', file);
+        return fetchApiFormData(`topic-interviews/${id}/logo`, fd, 'POST');
+    },
+};

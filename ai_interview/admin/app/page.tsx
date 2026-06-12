@@ -10,8 +10,24 @@ import SubjectsPage from './components/SubjectsPage';
 import LessonsPage from './components/LessonsPage';
 import QuizzesPage from './components/QuizzesPage';
 import PaymentsPage from './components/PaymentsPage';
+import ResourcesPage from './components/ResourcesPage';
+import TokenUsagePage from './components/TokenUsagePage';
+import DiscountsPage from './components/DiscountsPage';
+import InterviewChatsPage from './components/InterviewChatsPage';
+import ReviewsPage from './components/ReviewsPage';
+import EmailPage from './components/EmailPage';
+import AIKeysPage from './components/AIKeysPage';
+import UniversitiesPage from './components/UniversitiesPage';
+import UniversityPortalPage from './components/UniversityPortalPage';
+import BlogsPage from './components/BlogsPage';
 import JobListingPage from './components/JobListingPage';
+import AIUsagePage from './components/AIUsagePage';
+import NotificationsPage from './components/NotificationsPage';
+import PaygPricingPage from './components/PaygPricingPage';
+import CompanyRoundsPage from './components/CompanyRoundsPage';
 import LoginPage from './components/LoginPage';
+import TopicInterviewsPage from './components/TopicInterviewsPage';
+import HackathonPage from './components/HackathonPage';
 import { getAccessToken, clearAuth } from './lib/api';
 
 const pages: Record<Page, React.ReactNode> = {
@@ -19,12 +35,28 @@ const pages: Record<Page, React.ReactNode> = {
   analytics: <AnalyticsPage />,
   visitors: <VisitorsPage />,
   users: <UsersPage />,
+  notifications: <NotificationsPage />,
   subscriptions: <SubscriptionsPage />,
+  'payg-pricing': <PaygPricingPage />,
   subjects: <SubjectsPage />,
   lessons: <LessonsPage />,
   quizzes: <QuizzesPage />,
   payments: <PaymentsPage />,
-  job_listings: <JobListingPage />,
+  resources: <ResourcesPage />,
+  'ai-usage': <TokenUsagePage />,
+  interviews: <InterviewChatsPage />,
+  discounts: <DiscountsPage />,
+  reviews: <ReviewsPage />,
+  email: <EmailPage />,
+  'ai-keys': <AIKeysPage />,
+  universities: <UniversitiesPage />,
+  'university-portal': <UniversityPortalPage />,
+  blogs: <BlogsPage />,
+  'job-listings': <JobListingPage />,
+  'ai-stats': <AIUsagePage />,
+  'company-rounds': <CompanyRoundsPage />,
+  'topic-interviews': <TopicInterviewsPage />,
+  hackathon: <HackathonPage />,
 };
 
 export default function Home() {

@@ -377,13 +377,18 @@ async def stream_interview_endpoint(
                         await manager.send_json({"type": "stream_end"}, user_id)
                         
                         await manager.save_session_to_cache(user_id)
+                    except WebSocketDisconnect:
+                        # Client navigated away during initialization — clean exit, no traceback
+                        print(f"[WS] Client disconnected during init for {user_id}")
+                        await manager.clear_session(user_id)
+                        return
                     except Exception as e:
                         print(f"[WS] Initialization error for {user_id}: {str(e)}")
                         import traceback
                         traceback.print_exc()
                         try:
                             await manager.send_json({"type": "error", "content": f"AI Engine failed to initialize: {str(e)}"}, user_id)
-                        except Exception:
+                        except (WebSocketDisconnect, Exception):
                             pass
                         await manager.clear_session(user_id)
                         return  # ← EXIT: do NOT fall into the main message loop after init failure
@@ -440,10 +445,17 @@ async def stream_interview_endpoint(
 
                         await manager.clear_session(user_id)
                         break 
+                except WebSocketDisconnect:
+                    print(f"[WS] Client disconnected mid-response for {user_id}")
+                    await manager.clear_session(user_id)
+                    return
                 except Exception as e:
                     print(f"[WS] Error during response for {user_id}: {str(e)}")
-                    await manager.send_json({"type": "error", "content": f"AI Engine error: {str(e)}"}, user_id)
-                    await manager.send_json({"type": "stream_end"}, user_id)
+                    try:
+                        await manager.send_json({"type": "error", "content": f"AI Engine error: {str(e)}"}, user_id)
+                        await manager.send_json({"type": "stream_end"}, user_id)
+                    except (WebSocketDisconnect, Exception):
+                        pass
             
             elif payload.get("type") == "end_session":
                 print(f"[WS] Manual/auto end session for {user_id}")

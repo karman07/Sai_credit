@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ════════════════════════════════════════════════════════════════════
+   LIGHT — cream base, white cards, deep-navy/slate-blue accent
+   ════════════════════════════════════════════════════════════════════ */
+:root {
+  --background: #FEFEF0;
+  --background-subtle: #F9F9E6;
+  --surface: #FFFFFF;
+  --surface-2: #F8F8F0;
+  --surface-3: #F1F1E8;
+
+  --border: #E0E0CC;
+  --border-subtle: #E8E8DA;
+  --border-strong: #C8C8B4;
+
+  --foreground: #0F0F1E;
+  --foreground-secondary: #3A3A58;
+  --muted: #7070A0;
+  --disabled: #A8A8C0;
+
+  --primary: #1E3A8A;
+  --primary-hover: #1E40AF;
+  --primary-subtle: #EEF2FF;
+  --primary-foreground: #FFFFFF;
+
+  --success: #15803D;
+  --success-subtle: #F0FDF4;
+  --success-border: #86EFAC;
+  --warning: #B45309;
+  --warning-subtle: #FFFBEB;
+  --warning-border: #FDE68A;
+  --danger: #DC2626;
+  --danger-subtle: #FEF2F2;
+  --danger-border: #FECACA;
+  --info: #0E7490;
+  --info-subtle: #ECFEFF;
+  --info-border: #67E8F9;
+  --purple: #6D28D9;
+  --purple-subtle: #F5F3FF;
+  --purple-border: #C4B5FD;
+  --orange: #C2410C;
+  --orange-subtle: #FFF7ED;
+  --orange-border: #FDBA74;
+  --teal: #0F766E;
+  --teal-subtle: #F0FDFA;
+  --teal-border: #99F6E4;
+
+  --sidebar: #FFFFFF;
+  --sidebar-border: #E4E4D4;
+  --sidebar-active: #EEF2FF;
+  --sidebar-active-text: #1E3A8A;
+
+  --ring: rgba(30, 58, 138, 0.18);
+  --overlay: rgba(15, 15, 30, 0.48);
+  --radius: 0.5rem;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   DARK — near-black canvas, glowing slate accents
+   ════════════════════════════════════════════════════════════════════ */
+.dark {
+  --background: #0A0A0F;
+  --background-subtle: #0D0D16;
+  --surface: #111119;
+  --surface-2: #191926;
+  --surface-3: #212134;
+
+  --border: #28283C;
+  --border-subtle: #1C1C2C;
+  --border-strong: #363650;
+
+  --foreground: #EEEEF8;
+  --foreground-secondary: #B0B0CC;
+  --muted: #6868A0;
+  --disabled: #404060;
+
+  --primary: #6683FF;
+  --primary-hover: #8099FF;
+  --primary-subtle: #10142A;
+  --primary-foreground: #FFFFFF;
+
+  --success: #4ADE80;
+  --success-subtle: #071810;
+  --success-border: #14532D;
+  --warning: #FBBF24;
+  --warning-subtle: #161008;
+  --warning-border: #713F12;
+  --danger: #F87171;
+  --danger-subtle: #180808;
+  --danger-border: #7F1D1D;
+  --info: #38BDF8;
+  --info-subtle: #071014;
+  --info-border: #0C4A6E;
+  --purple: #A78BFA;
+  --purple-subtle: #120C24;
+  --purple-border: #4C1D95;
+  --orange: #FB923C;
+  --orange-subtle: #180A04;
+  --orange-border: #7C2D12;
+  --teal: #2DD4BF;
+  --teal-subtle: #061412;
+  --teal-border: #134E4A;
+
+  --sidebar: #0C0C18;
+  --sidebar-border: #1A1A28;
+  --sidebar-active: #14142A;
+  --sidebar-active-text: #818CF8;
+
+  --ring: rgba(102, 131, 255, 0.28);
+  --overlay: rgba(0, 0, 0, 0.72);
+}
+
+/* ── Tailwind token mapping ── */
+@theme inline {
+  --color-background: var(--background);
+  --color-background-subtle: var(--background-subtle);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-muted: var(--muted);
+  --color-disabled: var(--disabled);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-border: var(--danger-border);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-border: var(--info-border);
+  --color-purple: var(--purple);
+  --color-purple-subtle: var(--purple-subtle);
+  --color-purple-border: var(--purple-border);
+  --color-orange: var(--orange);
+  --color-orange-subtle: var(--orange-subtle);
+  --color-orange-border: var(--orange-border);
+  --color-teal: var(--teal);
+  --color-teal-subtle: var(--teal-subtle);
+  --color-teal-border: var(--teal-border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-text: var(--sidebar-active-text);
+}
+
+/* ── Base reset ── */
+*, *::before, *::after { box-sizing: border-box; }
+html { height: 100%; }
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans, 'Inter', system-ui, sans-serif);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100%;
+}
+
+/* ── Card ── */
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+}
+.dark .card {
+  box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,.5);
+}
+
+/* ── Input ── */
+.input-base {
+  height: 2.25rem;
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--foreground);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.input-base:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.input-base::placeholder { color: var(--muted); }
+.input-base:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: var(--surface-2);
+}
+
+/* ── Table ── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.data-table thead th {
+  background-color: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.6rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  user-select: none;
+}
+.data-table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color 100ms;
+}
+.data-table tbody tr:nth-child(even) { background-color: var(--surface-2); }
+.dark .data-table tbody tr:nth-child(even) { background-color: rgba(255,255,255,.015); }
+.data-table tbody tr:hover { background-color: var(--primary-subtle) !important; }
+.data-table tbody tr:last-child { border-bottom: none; }
+.data-table tbody td { padding: 0.7rem 1rem; vertical-align: middle; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Keyframes ── */
+@keyframes fadeIn   { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
+@keyframes slideIn  { from { opacity:0; transform:translateX(28px) } to { opacity:1; transform:none } }
+@keyframes slideUp  { from { opacity:0; transform:translateY(20px) scale(.97) } to { opacity:1; transform:none scale(1) } }
+@keyframes skeleton { 0%,100%{opacity:.5} 50%{opacity:1} }
+@keyframes spin     { to { transform:rotate(360deg) } }
+@keyframes toastIn  { from{opacity:0;transform:translateX(110%)} to{opacity:1;transform:none} }
+@keyframes pulseRing{ 0%{box-shadow:0 0 0 0 var(--ring)} 70%{box-shadow:0 0 0 8px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+
+.animate-fadeIn   { animation: fadeIn 220ms ease both; }
+.animate-slideIn  { animation: slideIn 280ms cubic-bezier(.22,.68,0,1.15) both; }
+.animate-slideUp  { animation: slideUp 260ms cubic-bezier(.22,.68,0,1.15) both; }
+.animate-skeleton { animation: skeleton 1.5s ease-in-out infinite; }
+.animate-spin     { animation: spin 0.65s linear infinite; }
+.animate-toastIn  { animation: toastIn 300ms cubic-bezier(.22,.68,0,1.15) both; }

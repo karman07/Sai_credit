@@ -1,4 +1,5 @@
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from app.services.ai.streaming_session import StreamingInterviewSession
 from app.services.ai.gemini_client import GeminiClient
 from app.services.redis_cache import redis_cache
@@ -21,10 +22,21 @@ class ConnectionManager:
         if user_id in self.active_connections:
             del self.active_connections[user_id]
 
-    async def send_json(self, data: dict, user_id: str):
+    async def send_json(self, data: dict, user_id: str) -> bool:
+        """Send JSON to the user. Returns False (and cleans up) if the socket is gone."""
         ws = self.active_connections.get(user_id)
-        if ws:
+        if not ws:
+            return False
+        try:
+            if ws.client_state == WebSocketState.DISCONNECTED:
+                self.disconnect(user_id)
+                return False
             await ws.send_json(data)
+            return True
+        except (WebSocketDisconnect, RuntimeError, Exception) as exc:
+            # RuntimeError covers "Cannot call send on a closed WebSocket"
+            self.disconnect(user_id)
+            raise WebSocketDisconnect(code=1006) from exc
 
     async def get_or_create_session(self, user_id: str) -> tuple[StreamingInterviewSession, bool]:
         """

@@ -3,7 +3,8 @@ import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   getCustomers, searchCustomerByPhone, sendCustomerOtp, verifyCustomerOtp, createCustomer,
-  type FullCustomer,
+  getInventory, getGoldBalance,
+  type FullCustomer, type InventoryItem, type GoldBalance,
 } from '../../../lib/api';
 
 const PRIMARY   = '#7A1C2A';
@@ -371,11 +372,221 @@ function AddCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
+// ── Customer Drawer ───────────────────────────────────────────────────────────
+
+function CustomerDrawer({ customer, onClose }: { customer: FullCustomer; onClose: () => void }) {
+  const [tab, setTab] = useState<'purchases' | 'plans'>('purchases');
+  const [purchases, setPurchases] = useState<InventoryItem[]>([]);
+  const [plans, setPlans] = useState<GoldBalance[]>([]);
+  const [loadingPurchases, setLoadingPurchases] = useState(true);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
+
+  const statusColor = (s: string) => {
+    if (s === 'active') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    if (s === 'completed') return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (s === 'cancelled') return 'bg-rose-100 text-rose-700 border-rose-200';
+    if (s === 'halted') return 'bg-amber-100 text-amber-700 border-amber-200';
+    return 'bg-slate-100 text-slate-500 border-slate-200';
+  };
+
+  useEffect(() => {
+    if (!customer.phone) { setLoadingPurchases(false); setLoadingPlans(false); return; }
+    setLoadingPurchases(true);
+    getInventory({ status: 'sold', sold_customer_phone: customer.phone, limit: '200' })
+      .then(res => setPurchases(res.data ?? []))
+      .catch(() => setPurchases([]))
+      .finally(() => setLoadingPurchases(false));
+    setLoadingPlans(true);
+    getGoldBalance(customer.phone)
+      .then(data => setPlans(Array.isArray(data) ? data : []))
+      .catch(() => setPlans([]))
+      .finally(() => setLoadingPlans(false));
+  }, [customer.phone]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+      <div className="flex-1 bg-black/30 backdrop-blur-sm" />
+      <div className="w-full max-w-xl bg-white h-full overflow-y-auto shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black text-white flex-shrink-0" style={{ background: PRIMARY }}>
+              {initials(customer.name)}
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-900">{customer.name}</h2>
+              <p className="text-[11px] text-slate-400 font-medium">{customer.phone}{customer.email ? ` · ${customer.email}` : ''}</p>
+              {(customer.city || customer.state) && (
+                <p className="text-[10px] text-slate-400 mt-0.5">{[customer.city, customer.state].filter(Boolean).join(', ')} · Joined {fmt(customer.createdAt)}</p>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors flex-shrink-0">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 px-6 py-3 border-b border-slate-100 bg-white sticky top-[77px] z-10">
+          {(['purchases', 'plans'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              style={tab === t ? { background: PRIMARY, color: 'white' } : { color: '#94a3b8' }}>
+              {t === 'purchases' ? 'Purchase History' : 'Investment Plans'}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 p-6">
+
+          {/* PURCHASES */}
+          {tab === 'purchases' && (
+            loadingPurchases ? (
+              <div className="flex justify-center py-16">
+                <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: `${PRIMARY}30`, borderTopColor: PRIMARY }} />
+              </div>
+            ) : purchases.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-slate-400 font-bold text-sm">No purchase history found</p>
+                <p className="text-slate-300 text-xs mt-1">This customer has not made any store purchases yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3">{purchases.length} purchase{purchases.length !== 1 ? 's' : ''}</p>
+                {purchases.map(item => {
+                  const product = typeof item.product_id === 'object' ? item.product_id as any : null;
+                  const name = product?.name || item.unique_item_code;
+                  const price = (item as any).sold_price ?? item.selling_price;
+                  return (
+                    <div key={item._id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 hover:border-slate-200 transition-colors">
+                      {product?.images?.[0] ? (
+                        <img src={product.images[0]} alt={name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0 border border-slate-100" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center flex-shrink-0">
+                          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#cbd5e1" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                          </svg>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm text-slate-900 truncate">{name}</p>
+                        <p className="text-[10px] text-slate-400 font-medium">{item.unique_item_code}</p>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {product?.category && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 bg-slate-50 border border-slate-200 text-slate-400 rounded uppercase">{product.category}</span>
+                          )}
+                          {product?.metal && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 bg-amber-50 border border-amber-100 text-amber-600 rounded uppercase">{product.metal}</span>
+                          )}
+                          {item.payment_mode && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 bg-blue-50 border border-blue-100 text-blue-600 rounded uppercase">{item.payment_mode}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <p className="text-sm font-black text-slate-900">{fmtMoney(price)}</p>
+                        {item.sold_at && (
+                          <p className="text-[10px] text-slate-400 mt-0.5">{new Date(item.sold_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+
+          {/* INVESTMENT PLANS */}
+          {tab === 'plans' && (
+            loadingPlans ? (
+              <div className="flex justify-center py-16">
+                <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: `${PRIMARY}30`, borderTopColor: PRIMARY }} />
+              </div>
+            ) : plans.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-slate-400 font-bold text-sm">No investment plans found</p>
+                <p className="text-slate-300 text-xs mt-1">This customer is not enrolled in any gold savings plan.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3">{plans.length} plan{plans.length !== 1 ? 's' : ''}</p>
+                {plans.map(plan => {
+                  const totalMonths = plan.plan?.durationMonths || 0;
+                  const paid = plan.installmentsPaid || 0;
+                  const ipm = ((plan.plan as any)?.monthlyAmount || 0) * ((plan.plan as any)?.interestRate || 0) / 100;
+                  const cm = paid >= totalMonths ? paid : Math.max(0, paid - 1);
+                  const interest = plan.interestStopped ? 0 : cm * ipm;
+                  const balance = Math.max(0, paid * ((plan.plan as any)?.monthlyAmount || 0) + interest - (plan.amountRedeemed || 0));
+                  return (
+                    <div key={plan._id} className="border border-slate-200 rounded-2xl overflow-hidden">
+                      <div className="px-5 py-4 flex items-start justify-between" style={{ background: `linear-gradient(135deg, ${PRIMARY_D} 0%, ${PRIMARY} 100%)` }}>
+                        <div>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-rose-200 mb-0.5">Gold Savings Plan</p>
+                          <p className="text-base font-black text-white">{plan.plan?.name || 'Gold Plan'}</p>
+                          <p className="text-[10px] text-rose-200 mt-0.5">{(plan.plan as any)?.interestRate}% p.a. · {totalMonths} months</p>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[8px] font-black uppercase border ${statusColor(plan.status)}`}>{plan.status}</span>
+                      </div>
+                      <div className="p-4 space-y-3">
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { l: 'Monthly', v: fmtMoney((plan.plan as any)?.monthlyAmount || 0) },
+                            { l: 'Paid', v: `${paid} / ${totalMonths}` },
+                            { l: 'Balance', v: fmtMoney(balance), green: true },
+                          ].map((x, i) => (
+                            <div key={i} className={`rounded-xl p-3 border ${x.green ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                              <p className={`text-[8px] font-black uppercase mb-1 ${x.green ? 'text-emerald-400' : 'text-slate-300'}`}>{x.l}</p>
+                              <p className={`text-xs font-bold ${x.green ? 'text-emerald-700' : 'text-slate-800'}`}>{x.v}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1">
+                            <span>Progress</span><span>{paid}/{totalMonths} months</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${totalMonths ? (paid / totalMonths) * 100 : 0}%` }} />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs border-t border-slate-100 pt-2">
+                          <span className="text-slate-400 font-medium">Total paid in</span>
+                          <span className="font-black text-slate-900">{fmtMoney(paid * ((plan.plan as any)?.monthlyAmount || 0))}</span>
+                        </div>
+                        {(plan.amountRedeemed || 0) > 0 && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400 font-medium">Redeemed</span>
+                            <span className="font-black text-blue-600">{fmtMoney(plan.amountRedeemed)}</span>
+                          </div>
+                        )}
+                        {interest > 0 && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400 font-medium">Interest earned</span>
+                            <span className="font-black text-amber-600">{fmtMoney(interest)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Customer Card ─────────────────────────────────────────────────────────────
 
-function CustomerCard({ customer }: { customer: FullCustomer }) {
+function CustomerCard({ customer, onClick }: { customer: FullCustomer; onClick: () => void }) {
   return (
-    <div className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div onClick={onClick} className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm hover:shadow-md hover:border-slate-200 cursor-pointer transition-all">
       <div className="flex items-start gap-3 mb-3">
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-black text-white flex-shrink-0"
           style={{ background: PRIMARY }}>
@@ -429,8 +640,9 @@ function CustomersPageInner() {
   const [total, setTotal]         = useState(0);
   const [page, setPage]           = useState(1);
   const [q, setQ]                 = useState('');
-  const [toast, setToast]         = useState<{ msg: string; ok: boolean } | null>(null);
-  const [showAdd, setShowAdd]     = useState(false);
+  const [toast, setToast]              = useState<{ msg: string; ok: boolean } | null>(null);
+  const [showAdd, setShowAdd]          = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<FullCustomer | null>(null);
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -478,6 +690,10 @@ function CustomersPageInner() {
             load(1);
           }}
         />
+      )}
+
+      {selectedCustomer && (
+        <CustomerDrawer customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
       )}
 
       {/* Header */}
@@ -538,7 +754,7 @@ function CustomersPageInner() {
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(c => <CustomerCard key={c._id} customer={c} />)}
+            {filtered.map(c => <CustomerCard key={c._id} customer={c} onClick={() => setSelectedCustomer(c)} />)}
           </div>
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 pt-2">

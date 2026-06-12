@@ -13,6 +13,21 @@ import {
     LogOut,
     ChevronLeft,
     ChevronRight,
+    FileText,
+    Cpu,
+    Ticket,
+    Star,
+    MessageSquare,
+    Mail,
+    Key,
+    Building2,
+    Briefcase,
+    Newspaper,
+    Activity,
+    Bell,
+    Zap,
+    Database,
+    Trophy,
 } from 'lucide-react';
 
 export type Page =
@@ -21,23 +36,55 @@ export type Page =
     | 'visitors'
     | 'users'
     | 'subscriptions'
+    | 'payg-pricing'
     | 'payments'
     | 'subjects'
     | 'lessons'
     | 'quizzes'
-    | 'job_listings';
+    | 'resources'
+    | 'ai-usage'
+    | 'interviews'
+    | 'discounts'
+    | 'reviews'
+    | 'email'
+    | 'ai-keys'
+    | 'universities'
+    | 'university-portal'
+    | 'blogs'
+    | 'job-listings'
+    | 'notifications'
+    | 'company-rounds'
+    | 'topic-interviews'
+    | 'ai-stats'
+    | 'hackathon';
 
 const navItems: { id: Page; label: string; icon: React.ReactNode; group: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} />, group: 'Overview' },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} />, group: 'Overview' },
     { id: 'visitors', label: 'Visitors', icon: <Users size={18} />, group: 'Overview' },
     { id: 'users', label: 'Users', icon: <UserCog size={18} />, group: 'Management' },
+    { id: 'notifications', label: 'Notifications', icon: <Bell size={18} />, group: 'Management' },
     { id: 'subscriptions', label: 'Subscriptions', icon: <CreditCard size={18} />, group: 'Management' },
+    { id: 'payg-pricing', label: 'PAYG Pricing', icon: <Zap size={18} />, group: 'Management' },
     { id: 'payments', label: 'Payments', icon: <CreditCard size={18} />, group: 'Management' },
-    { id: 'job_listings', label: 'Job Listings', icon: <BookOpen size={18} />, group: 'Operations' },
+    { id: 'discounts', label: 'Discounts', icon: <Ticket size={18} />, group: 'Management' },
+    { id: 'reviews',   label: 'Reviews',   icon: <Star size={18} />,   group: 'Management' },
     { id: 'subjects', label: 'Subjects', icon: <BookOpen size={18} />, group: 'Content' },
     { id: 'lessons', label: 'Lessons', icon: <GraduationCap size={18} />, group: 'Content' },
     { id: 'quizzes', label: 'Quizzes', icon: <HelpCircle size={18} />, group: 'Content' },
+    { id: 'resources', label: 'Resources', icon: <FileText size={18} />, group: 'Content' },
+    { id: 'blogs', label: 'Blogs', icon: <Newspaper size={18} />, group: 'Content' },
+    { id: 'company-rounds', label: 'Company Rounds', icon: <Database size={18} />, group: 'Content' },
+    { id: 'job-listings', label: 'Job Listings', icon: <Briefcase size={18} />, group: 'Management' },
+    { id: 'ai-stats', label: 'AI Stats', icon: <Activity size={18} />, group: 'Overview' },
+    { id: 'ai-usage',   label: 'AI Usage',   icon: <Cpu size={18} />,           group: 'Overview' },
+    { id: 'interviews', label: 'Interviews', icon: <MessageSquare size={18} />,  group: 'Overview' },
+    { id: 'email',      label: 'Email',       icon: <Mail size={18} />,           group: 'Management' },
+    { id: 'ai-keys',    label: 'AI Keys',     icon: <Key size={18} />,            group: 'Management' },
+    { id: 'universities', label: 'Universities', icon: <GraduationCap size={18} />,   group: 'Management' },
+    { id: 'university-portal', label: 'University Portal', icon: <Building2 size={18} />, group: 'Management' },
+    { id: 'topic-interviews', label: 'Topic Interviews', icon: <BookOpen size={18} />, group: 'Content' },
+    { id: 'hackathon', label: 'Hackathon', icon: <Trophy size={18} />, group: 'Management' },
 ];
 
 export default function Sidebar({
@@ -77,31 +124,24 @@ export default function Sidebar({
             {/* Logo */}
             <div
                 style={{
-                    padding: collapsed ? '20px 12px' : '20px 20px',
+                    padding: collapsed ? '16px 12px' : '16px 20px',
                     borderBottom: '1px solid var(--card-border)',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 12,
+                    justifyContent: collapsed ? 'center' : 'flex-start',
                     minHeight: 72,
                 }}
             >
-                {!collapsed && (
-                    <div style={{ overflow: 'hidden' }}>
-                        <div
-                            style={{
-                                fontSize: 16,
-                                fontWeight: 700,
-                                color: '#6c63ff',
-                                whiteSpace: 'nowrap',
-                            }}
-                        >
-                            AI for Job
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>
-                            Admin Panel
-                        </div>
-                    </div>
-                )}
+                <img
+                    src="/logo.png"
+                    alt="AI for Job"
+                    style={{
+                        height: collapsed ? 32 : 40,
+                        width: 'auto',
+                        objectFit: 'contain',
+                        transition: 'height 0.2s ease',
+                    }}
+                />
             </div>
 
             {/* Navigation */}

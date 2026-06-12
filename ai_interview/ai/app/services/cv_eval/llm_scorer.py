@@ -68,8 +68,9 @@ class LLMScorer:
                     config=types.GenerateContentConfig(
                         system_instruction="You are a strict JSON generator. Your output must be valid JSON only. Always escape double quotes and special characters within strings. Do not include trailing commas. Do not include markdown block tokens like ```json at the start or end of your response — return ONLY the raw JSON string.",
                         temperature=self.temperature,
-                        max_output_tokens=4096,
+                        max_output_tokens=8192,
                         response_mime_type="application/json",
+                        thinking_config=types.ThinkingConfig(thinking_budget=0),
                     )
                 )
                 # Accumulate Gemini token usage

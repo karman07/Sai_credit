@@ -29,8 +29,7 @@ export function isSessionExpired(): boolean {
 export function checkSessionExpiry(): boolean {
   if (isSessionExpired()) {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('cashier_session');
-      window.location.href = '/login';
+      window.dispatchEvent(new CustomEvent('rkm:session-expired'));
     }
     return true;
   }
@@ -50,8 +49,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (res.status === 401) {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('cashier_session');
-      window.location.href = '/login';
+      window.dispatchEvent(new CustomEvent('rkm:session-expired'));
     }
     throw new Error('Unauthorized');
   }
@@ -138,8 +136,41 @@ export interface InventoryItem {
   image_url?: string;
   pricing_breakdown?: Record<string, number>;
   sale_reference?: string;
+  payment_mode?: string;
+  sale_request_status?: 'none' | 'pending' | 'approved' | 'rejected';
+  sale_request_at?: string;
+  sale_request_by_name?: string;
+  sale_request_notes?: string;
+  sale_request_data?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PaymentSplit {
+  mode: string;
+  amount: number;
+  reference?: string;
+}
+
+export interface SaleRequestData {
+  sold_customer_name: string;
+  sold_customer_phone: string;
+  sold_customer_email?: string;
+  shipping_address?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_pincode?: string;
+  sale_channel?: string;
+  payment_mode?: string;
+  is_emi?: boolean;
+  emi_provider?: string;
+  emi_tenure_months?: number;
+  emi_down_payment?: number;
+  selling_price?: number;
+  sold_at_branch_id?: string;
+  sold_by_user_id?: string;
+  notes?: string;
+  payment_splits?: PaymentSplit[];
 }
 
 export interface PaginatedResponse<T> {
@@ -352,3 +383,48 @@ export const createCustomer = (data: {
   name: string; phone: string; email?: string; gender?: string;
   address?: string; city?: string; state?: string; pincode?: string; country?: string;
 }) => request<FullCustomer>('/customers', { method: 'POST', body: JSON.stringify(data) });
+
+// ── Gold Investment Balance ───────────────────────────────────────────────────
+
+export interface GoldSubscriptionBasic {
+  _id: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  status: string;
+  plan: { name: string; durationMonths: number };
+}
+
+export const getGoldSubscriptions = (params?: { status?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  return request<GoldSubscriptionBasic[]>(`/gold-investment/subscriptions?${q.toString()}`);
+};
+
+export interface GoldBalance {
+  _id: string;
+  customerName: string;
+  customerPhone: string;
+  status: string;
+  amountAccumulated: number;
+  interestAccumulated: number;
+  amountRedeemed: number;
+  interestStopped: boolean;
+  availableBalance: number;
+  plan: {
+    name: string;
+    redemptionDiscount: number;
+    durationMonths: number;
+  };
+  installmentsPaid: number;
+}
+
+export const getGoldBalance = (phone: string) =>
+  request<GoldBalance[]>(`/gold-investment/balance?phone=${encodeURIComponent(phone)}`);
+
+export const redeemGoldBalance = (subscriptionId: string, data: { amount: number; saleReference?: string; note?: string; staffId?: string }) =>
+  request<any>(`/gold-investment/subscriptions/${subscriptionId}/redeem`, { method: 'POST', body: JSON.stringify(data) });
+
+// ── Sale Requests ─────────────────────────────────────────────────────────────
+
+export const submitSaleRequest = (itemId: string, data: Record<string, any>) =>
+  request<any>(`/inventory/${itemId}/sale-request`, { method: 'POST', body: JSON.stringify(data) });

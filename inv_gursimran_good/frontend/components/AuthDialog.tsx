@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from '../store/store';
 import { closeAuthDialog, setAuth } from '../store/authSlice';
 import { auth } from '../lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult, updateEmail, sendEmailVerification, reload } from 'firebase/auth';
-import { X, CheckCircle2, ChevronRight, MapPin, User as UserIcon, Phone, Search, ChevronDown, Mail, Loader2 } from 'lucide-react';
+import { X, CheckCircle2, ChevronRight, MapPin, User as UserIcon, Phone, Search, ChevronDown, Mail, Loader2, AlertCircle } from 'lucide-react';
 
 export default function AuthDialog() {
   const dispatch = useAppDispatch();
@@ -45,6 +45,7 @@ export default function AuthDialog() {
 
   const recaptchaContainerRef = useRef<HTMLDivElement>(null);
   const dialCodeRef = useRef<HTMLDivElement>(null);
+  const isSendingOtp = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -147,86 +148,113 @@ export default function AuthDialog() {
     return countryCode?.toUpperCase() || '-';
   };
 
-  const setupRecaptcha = () => {
-    if (!recaptchaContainerRef.current) return;
-    
-    // Clear existing if any to avoid "element removed" issues
-    if ((window as any).recaptchaVerifier) {
-      try {
-        (window as any).recaptchaVerifier.clear();
-      } catch (e) {}
-    }
 
-    try {
-      (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-        size: 'invisible',
-        callback: () => {
-          // reCAPTCHA solved
-        }
-      });
-    } catch (e) {
-      console.log("Recaptcha init failed", e);
+  useEffect(() => {
+    if (!isOpen) {
+      destroyRecaptcha();
+      resetRecaptchaContainer();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => { destroyRecaptcha(); };
+  }, []);
+
+  const destroyRecaptcha = () => {
+    if ((window as any).recaptchaVerifier) {
+      try { (window as any).recaptchaVerifier.clear(); } catch (_) {}
+      (window as any).recaptchaVerifier = null;
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if ((window as any).recaptchaVerifier) {
-        try {
-          (window as any).recaptchaVerifier.clear();
-        } catch (e) {}
-        (window as any).recaptchaVerifier = null;
-      }
-    };
-  }, []);
+  const resetRecaptchaContainer = () => {
+    // Only wipe the container BEFORE mounting a new widget, never while one is alive.
+    if (recaptchaContainerRef.current) {
+      recaptchaContainerRef.current.innerHTML = '';
+    }
+  };
+
+  const friendlyFirebaseError = (err: any): string => {
+    const raw: string = err?.message || err?.code || '';
+    console.error('[AuthDialog] Firebase phone auth error:', raw, err);
+    if (raw.includes('app-not-authorized') || raw.includes('APP_NOT_AUTHORIZED'))
+      return 'This domain is not authorised for phone sign-in. Ask the admin to add it in Firebase → Authentication → Authorised Domains.';
+    if (raw.includes('hostname') || raw.includes('Hostname') || raw.includes('HOSTNAME') || raw.includes('hostname_mismatch') || raw.includes('unauthorized-domain') || raw.includes('UNAUTHORIZED_DOMAIN'))
+      return 'This website domain is not authorised for Firebase sign-in. Please ask the admin to add this hostname in Firebase Console → Authentication → Settings → Authorised Domains.';
+    if (raw.includes('captcha-check-failed') || raw.includes('CAPTCHA_CHECK_FAILED'))
+      return 'reCAPTCHA verification failed. Please refresh the page and try again.';
+    if (raw.includes('invalid-phone-number') || raw.includes('INVALID_PHONE_NUMBER'))
+      return 'Invalid phone number. Please include the country code (e.g. +91 98765 43210).';
+    if (raw.includes('too-many-requests') || raw.includes('QUOTA_EXCEEDED'))
+      return 'Too many attempts. Please wait a few minutes and try again.';
+    if (raw.includes('already-rendered') || raw.includes('Already Been Rendered'))
+      return 'reCAPTCHA error. Please refresh the page and try again.';
+    if (raw.includes('network-request-failed') || raw.includes('NETWORK_REQUEST_FAILED'))
+      return 'Network error. Please check your internet connection and try again.';
+    return raw.replace(/Firebase: /gi, '').split('(')[0].trim() || 'Failed to send OTP. Please try again.';
+  };
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSendingOtp.current) return;
+    isSendingOtp.current = true;
     setError('');
-    
-    // Check if test mode or no firebase config
-    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'dummy') {
-      console.log('Dummy Firebase: Skipping OTP, going to details directly for testing');
-      setFirebaseToken('TEST_TOKEN_123');
-      await verifyBackend('TEST_TOKEN_123');
-      return;
-    }
-
     setLoading(true);
-    setupRecaptcha();
-    const appVerifier = (window as any).recaptchaVerifier;
 
     try {
-      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `${selectedDialCode.dial_code}${phoneNumber}`;
-      const result = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+      // Destroy any existing verifier first, then wipe the container so the
+      // new widget has a clean mount point.
+      destroyRecaptcha();
+      resetRecaptchaContainer();
+
+      if (!recaptchaContainerRef.current) throw new Error('reCAPTCHA container not ready');
+
+      const verifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
+        size: 'invisible',
+        callback: () => {},
+        'expired-callback': () => {
+          console.warn('[AuthDialog] reCAPTCHA token expired');
+          destroyRecaptcha();
+        },
+      });
+      (window as any).recaptchaVerifier = verifier;
+
+      const formattedPhone = phoneNumber.startsWith('+')
+        ? phoneNumber
+        : `${selectedDialCode.dial_code}${phoneNumber}`;
+
+      const result = await signInWithPhoneNumber(auth, formattedPhone, verifier);
       setConfirmationResult(result);
       setStep('otp');
     } catch (err: any) {
-      setError(err.message || 'Failed to send OTP');
-      if (appVerifier) appVerifier.clear();
-      (window as any).recaptchaVerifier = null;
+      // Do NOT wipe innerHTML here — the reCAPTCHA widget may still have live
+      // async callbacks referencing its internal DOM nodes. Wiping now causes
+      // "Cannot read properties of null (reading 'style')". Only destroy the
+      // verifier reference; the container is cleaned on the next Send OTP click.
+      destroyRecaptcha();
+      setError(friendlyFirebaseError(err));
+    } finally {
+      isSendingOtp.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!confirmationResult && firebaseToken !== 'TEST_TOKEN_123') return;
+    if (!confirmationResult) return;
     setError('');
     setLoading(true);
     try {
-      let token = firebaseToken;
-      if (confirmationResult && firebaseToken !== 'TEST_TOKEN_123') {
-        const result = await confirmationResult.confirm(otp);
-        token = await result.user.getIdToken();
-        setFirebaseToken(token);
-        setFirebaseEmail(result.user.email || '');
-      }
+      const result = await confirmationResult.confirm(otp);
+      const token = await result.user.getIdToken();
+      setFirebaseToken(token);
+      setFirebaseEmail(result.user.email || '');
       await verifyBackend(token);
     } catch (err: any) {
       setError('Invalid OTP or Verification Failed');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const verifyBackend = async (token: string) => {
@@ -322,8 +350,17 @@ export default function AuthDialog() {
             .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
           `}} />
           {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 text-red-600 text-xs font-bold border border-red-100 flex items-start">
-              {error.replace(/Firebase: /gi, '').split('(')[0].trim().replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
+            <div className="mb-6 p-4 rounded-2xl bg-red-50 text-red-700 text-xs font-semibold border border-red-200 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+              <AlertCircle size={16} className="shrink-0 mt-0.5 text-red-500" />
+              <div className="flex-1 leading-relaxed">{error}</div>
+              <button
+                type="button"
+                onClick={() => setError('')}
+                className="shrink-0 text-red-400 hover:text-red-600 transition-colors"
+                aria-label="Dismiss error"
+              >
+                <X size={14} />
+              </button>
             </div>
           )}
 
@@ -344,7 +381,7 @@ export default function AuthDialog() {
                     >
                       <span className="text-xs font-black text-slate-400 bg-slate-50 px-2 py-1 rounded-md">{getFlagEmoji(selectedDialCode.code)}</span>
                       <span className="text-sm font-black text-slate-800 tracking-tight">{selectedDialCode.dial_code}</span>
-                      <ChevronDown size={14} className={`text-slate-400 transition-transform duration-500 ${isDialCodeOpen ? 'rotate-180 text-[#1A6B3A]' : ''}`} />
+                      <ChevronDown size={14} className={`text-slate-400 transition-transform duration-500 ${isDialCodeOpen ? 'rotate-180 text-[#7A1238]' : ''}`} />
                     </button>
 
                     {isDialCodeOpen && (
@@ -357,7 +394,7 @@ export default function AuthDialog() {
                               value={dialCodeSearch}
                               onChange={(e) => setDialCodeSearch(e.target.value)}
                               placeholder="Search your country..."
-                              className="w-full pl-10 pr-4 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-[#1A6B3A]/10 transition-all"
+                              className="w-full pl-10 pr-4 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-[#7A1238]/10 transition-all"
                               onClick={(e) => e.stopPropagation()}
                               autoFocus
                             />
@@ -379,11 +416,11 @@ export default function AuthDialog() {
                                 <div className="flex items-center gap-4">
                                   <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-1 rounded-md">{getFlagEmoji(c.code)}</span>
                                   <div className="flex flex-col gap-0.5">
-                                    <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider group-hover:text-[#1A6B3A]">{c.name}</span>
+                                    <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider group-hover:text-[#7A1238]">{c.name}</span>
                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">{c.code}</span>
                                   </div>
                                 </div>
-                                <span className="text-xs font-black text-[#1A6B3A] bg-emerald-50 px-2.5 py-1 rounded-lg">{c.dial_code}</span>
+                                <span className="text-xs font-black text-[#5C0828] bg-[#FDF4F6] px-2.5 py-1 rounded-lg">{c.dial_code}</span>
                               </button>
                             ))
                           ) : (
@@ -403,13 +440,13 @@ export default function AuthDialog() {
                       value={phoneNumber}
                       onChange={e => setPhoneNumber(e.target.value)}
                       placeholder="e.g. 9876543210"
-                      className="w-full h-[60px] px-6 bg-slate-50/50 border border-slate-200 rounded-2xl outline-none focus:border-[#1A6B3A] focus:ring-4 focus:ring-[#1A6B3A]/5 transition-all text-base font-black tracking-widest placeholder:text-slate-300 placeholder:font-medium placeholder:tracking-normal"
+                      className="w-full h-[60px] px-6 bg-slate-50/50 border border-slate-200 rounded-2xl outline-none focus:border-[#7A1238] focus:ring-4 focus:ring-[#7A1238]/5 transition-all text-base font-black tracking-widest placeholder:text-slate-300 placeholder:font-medium placeholder:tracking-normal"
                       required
                     />
                   </div>
                 </div>
               </div>
-                <button disabled={loading} className="w-full py-4 bg-[#1A6B3A] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-emerald-900/20 hover:bg-[#14532d] hover:-translate-y-0.5 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
+                <button disabled={loading} className="w-full py-4 bg-[#7A1238] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-[#5C0828]/20 hover:bg-[#3A0418] hover:-translate-y-0.5 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
                 {loading ? 'Sending OTP...' : 'Send OTP'} <ChevronRight size={14} />
               </button>
             </form>
@@ -418,7 +455,7 @@ export default function AuthDialog() {
           {step === 'otp' && (
             <form onSubmit={handleVerifyOtp} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="space-y-2 text-center mb-4">
-                <p className="text-sm font-bold text-slate-700">We sent a code to <span className="text-[#1A6B3A]">{phoneNumber}</span></p>
+                <p className="text-sm font-bold text-slate-700">We sent a code to <span className="text-[#7A1238]">{phoneNumber}</span></p>
                 <div onClick={() => setStep('phone')} className="text-[11px] font-bold uppercase tracking-widest text-blue-600 cursor-pointer hover:underline">Change Number</div>
               </div>
               <div className="space-y-2">
@@ -428,11 +465,11 @@ export default function AuthDialog() {
                   value={otp}
                   onChange={e => setOtp(e.target.value)}
                   placeholder="• • • • • •"
-                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-[#1A6B3A] focus:ring-1 focus:ring-[#1A6B3A] transition-all text-center text-2xl tracking-[0.5em] font-black"
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-[#7A1238] focus:ring-1 focus:ring-[#7A1238] transition-all text-center text-2xl tracking-[0.5em] font-black"
                   required
                 />
               </div>
-              <button disabled={loading} className="w-full py-4 bg-[#1A6B3A] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-emerald-900/20 hover:bg-[#14532d] hover:-translate-y-0.5 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
+              <button disabled={loading} className="w-full py-4 bg-[#7A1238] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-[#5C0828]/20 hover:bg-[#3A0418] hover:-translate-y-0.5 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
                 {loading ? 'Verifying...' : 'Verify Identity'} <CheckCircle2 size={14} />
               </button>
             </form>
@@ -448,17 +485,17 @@ export default function AuthDialog() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5 col-span-2">
                   <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Full Name</label>
-                  <input required value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1A6B3A] focus:ring-1 focus:ring-[#1A6B3A]" placeholder="e.g. Karman Singh" />
+                  <input required value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#7A1238] focus:ring-1 focus:ring-[#7A1238]" placeholder="e.g. Karman Singh" />
                 </div>
 
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Email</label>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1A6B3A] focus:ring-1 focus:ring-[#1A6B3A]" placeholder="hello@example.com" />
+                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#7A1238] focus:ring-1 focus:ring-[#7A1238]" placeholder="hello@example.com" />
                 </div>
                 
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Gender</label>
-                  <select required value={gender} onChange={e => setGender(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1A6B3A] appearance-none">
+                  <select required value={gender} onChange={e => setGender(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#7A1238] appearance-none">
                     <option value="">Select Gender</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -468,13 +505,13 @@ export default function AuthDialog() {
               </div>
 
               <div className="space-y-4 pt-2 border-t border-slate-100">
-                <div className="flex items-center gap-2 text-[#1A6B3A]">
+                <div className="flex items-center gap-2 text-[#7A1238]">
                   <MapPin size={14} /> <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Delivery Information</span>
                 </div>
                 
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Address Line</label>
-                  <input required value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1A6B3A]" placeholder="House No, Street, Landmark" />
+                  <input required value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#7A1238]" placeholder="House No, Street, Landmark" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -483,7 +520,7 @@ export default function AuthDialog() {
                     <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Country</label>
                     <div 
                       onClick={() => setActiveDropdown(activeDropdown === 'country' ? null : 'country')}
-                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'country' ? 'border-[#1A6B3A] ring-1 ring-[#1A6B3A]' : 'border-slate-200'} rounded-xl cursor-pointer flex items-center justify-between transition-all`}
+                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'country' ? 'border-[#7A1238] ring-1 ring-[#7A1238]' : 'border-slate-200'} rounded-xl cursor-pointer flex items-center justify-between transition-all`}
                     >
                       <span className={country ? 'text-slate-900' : 'text-slate-400'}>
                         {country || 'Select Country'}
@@ -501,7 +538,7 @@ export default function AuthDialog() {
                               placeholder="Search country..."
                               value={countrySearch}
                               onChange={e => setCountrySearch(e.target.value)}
-                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-emerald-200"
+                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-[#C07090]"
                               onClick={e => e.stopPropagation()}
                             />
                           </div>
@@ -518,7 +555,7 @@ export default function AuthDialog() {
                                   setCountrySearch('');
                                   setActiveDropdown(null);
                                 }}
-                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${country === c.name ? 'bg-emerald-50 text-[#1A6B3A] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${country === c.name ? 'bg-[#FDF4F6] text-[#5C0828] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                               >
                                 {c.name}
                               </div>
@@ -536,7 +573,7 @@ export default function AuthDialog() {
                     <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">State</label>
                     <div 
                       onClick={() => !country ? null : setActiveDropdown(activeDropdown === 'state' ? null : 'state')}
-                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'state' ? 'border-[#1A6B3A] ring-1 ring-[#1A6B3A]' : 'border-slate-200'} rounded-xl transition-all ${!country ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between`}
+                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'state' ? 'border-[#7A1238] ring-1 ring-[#7A1238]' : 'border-slate-200'} rounded-xl transition-all ${!country ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between`}
                     >
                       <span className={stateName ? 'text-slate-900' : 'text-slate-400'}>
                         {stateName || 'Select State'}
@@ -554,7 +591,7 @@ export default function AuthDialog() {
                               placeholder="Search state..."
                               value={stateSearch}
                               onChange={e => setStateSearch(e.target.value)}
-                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-emerald-200"
+                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-[#C07090]"
                               onClick={e => e.stopPropagation()}
                             />
                           </div>
@@ -570,7 +607,7 @@ export default function AuthDialog() {
                                   setStateSearch('');
                                   setActiveDropdown(null);
                                 }}
-                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${stateName === s.name ? 'bg-emerald-50 text-[#1A6B3A] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${stateName === s.name ? 'bg-[#FDF4F6] text-[#5C0828] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                               >
                                 {s.name}
                               </div>
@@ -588,7 +625,7 @@ export default function AuthDialog() {
                     <label className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">City</label>
                     <div 
                       onClick={() => !stateName ? null : setActiveDropdown(activeDropdown === 'city' ? null : 'city')}
-                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'city' ? 'border-[#1A6B3A] ring-1 ring-[#1A6B3A]' : 'border-slate-200'} rounded-xl transition-all ${!stateName ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between`}
+                      className={`w-full px-4 py-3 text-sm bg-slate-50 border ${activeDropdown === 'city' ? 'border-[#7A1238] ring-1 ring-[#7A1238]' : 'border-slate-200'} rounded-xl transition-all ${!stateName ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between`}
                     >
                       <span className={city ? 'text-slate-900' : 'text-slate-400'}>
                         {city || 'Select City'}
@@ -606,7 +643,7 @@ export default function AuthDialog() {
                               placeholder="Search city..."
                               value={citySearch}
                               onChange={e => setCitySearch(e.target.value)}
-                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-emerald-200"
+                              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-[#C07090]"
                               onClick={e => e.stopPropagation()}
                             />
                           </div>
@@ -621,7 +658,7 @@ export default function AuthDialog() {
                                   setCitySearch('');
                                   setActiveDropdown(null);
                                 }}
-                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${city === cityName ? 'bg-emerald-50 text-[#1A6B3A] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                                className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center gap-2 ${city === cityName ? 'bg-[#FDF4F6] text-[#5C0828] font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                               >
                                 {cityName}
                               </div>
@@ -636,7 +673,7 @@ export default function AuthDialog() {
                 </div>
               </div>
 
-              <button disabled={loading} className="w-full mt-4 py-4 bg-[#1A6B3A] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-emerald-900/20 hover:bg-[#14532d] hover:-translate-y-0.5 transition-all active:scale-95 disabled:opacity-50">
+              <button disabled={loading} className="w-full mt-4 py-4 bg-[#7A1238] text-white text-[11px] font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-[#5C0828]/20 hover:bg-[#3A0418] hover:-translate-y-0.5 transition-all active:scale-95 disabled:opacity-50">
                 {loading ? 'Creating Profile...' : 'Complete Registration'}
               </button>
             </form>
@@ -644,7 +681,7 @@ export default function AuthDialog() {
 
         {step === 'success' && (
             <div className="text-center py-10 animate-in zoom-in duration-500 flex flex-col items-center">
-              <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-inner">
+              <div className="w-20 h-20 bg-[#FDF4F6] text-[#5C0828] rounded-full flex items-center justify-center mb-6 shadow-inner">
                 <CheckCircle2 size={40} />
               </div>
               <h3 className="text-2xl font-serif font-bold text-slate-900">Welcome to RKM</h3>
@@ -652,7 +689,7 @@ export default function AuthDialog() {
             </div>
           )}
         </div>
-        <div ref={recaptchaContainerRef} className="hidden"></div>
+        <div ref={recaptchaContainerRef} id="recaptcha-container" style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}></div>
       </div>
     </div>
   );
