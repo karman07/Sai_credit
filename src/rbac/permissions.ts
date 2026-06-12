@@ -1,0 +1,106 @@
+import { UserRole } from '../common/enums';
+
+// ════════════════════════════════════════════════════════════════════
+// Permission catalogue. Format: `<module>.<action>`.
+// `*.read` for sales roles is row-scoped to assigned records at the
+// service layer (see ScopeGuard / service-level scope injection).
+// ════════════════════════════════════════════════════════════════════
+
+export type Permission =
+  | 'customers.create' | 'customers.read' | 'customers.update' | 'customers.delete' | 'customers.export' | 'customers.assign'
+  | 'vehicles.create' | 'vehicles.read' | 'vehicles.update'
+  | 'policies.create' | 'policies.read' | 'policies.update' | 'policies.delete'
+  | 'renewals.create' | 'renewals.read' | 'renewals.update'
+  | 'followups.create' | 'followups.read' | 'followups.update' | 'followups.delete'
+  | 'documents.upload' | 'documents.read' | 'documents.delete' | 'documents.verify'
+  | 'cases.create' | 'cases.read' | 'cases.update' | 'cases.delete' | 'cases.assign' | 'cases.export'
+  | 'banks.create' | 'banks.read' | 'banks.update' | 'banks.delete'
+  | 'dealers.create' | 'dealers.read' | 'dealers.update' | 'dealers.delete'
+  | 'coordinators.create' | 'coordinators.read' | 'coordinators.update' | 'coordinators.delete'
+  | 'payout.read' | 'payout.create' | 'payout.update'
+  | 'insurance.read' | 'insurance.create' | 'insurance.update'
+  | 'rto.read' | 'rto.update'
+  | 'users.manage'
+  | 'master.manage'
+  | 'reports.view'
+  | 'audit.view'
+  | 'dashboard.admin' | 'dashboard.sales';
+
+const ALL: Permission[] = [
+  'customers.create','customers.read','customers.update','customers.delete','customers.export','customers.assign',
+  'vehicles.create','vehicles.read','vehicles.update',
+  'policies.create','policies.read','policies.update','policies.delete',
+  'renewals.create','renewals.read','renewals.update',
+  'followups.create','followups.read','followups.update','followups.delete',
+  'documents.upload','documents.read','documents.delete','documents.verify',
+  'cases.create','cases.read','cases.update','cases.delete','cases.assign','cases.export',
+  'banks.create','banks.read','banks.update','banks.delete',
+  'dealers.create','dealers.read','dealers.update','dealers.delete',
+  'coordinators.create','coordinators.read','coordinators.update','coordinators.delete',
+  'payout.read','payout.create','payout.update',
+  'insurance.read','insurance.create','insurance.update',
+  'rto.read','rto.update',
+  'users.manage','master.manage','reports.view','audit.view',
+  'dashboard.admin','dashboard.sales',
+];
+
+// Operations: everything except user management, audit, and hard deletes.
+const OPERATIONS: Permission[] = [
+  'customers.create','customers.read','customers.update','customers.export','customers.assign',
+  'vehicles.create','vehicles.read','vehicles.update',
+  'policies.create','policies.read','policies.update',
+  'renewals.create','renewals.read','renewals.update',
+  'followups.create','followups.read','followups.update','followups.delete',
+  'documents.upload','documents.read','documents.delete','documents.verify',
+  'cases.create','cases.read','cases.update','cases.assign','cases.export',
+  'banks.read','banks.create','banks.update',
+  'dealers.read','dealers.create','dealers.update',
+  'coordinators.read','coordinators.create','coordinators.update',
+  'payout.read','payout.create','payout.update',
+  'insurance.read','insurance.create','insurance.update',
+  'rto.read','rto.update',
+  'master.manage','reports.view','dashboard.admin',
+];
+
+// Senior sales (executive / RM): can create cases, log insurance & RTO.
+const SALES_SENIOR: Permission[] = [
+  'customers.create','customers.read','customers.update',
+  'vehicles.create','vehicles.read','vehicles.update',
+  'policies.create','policies.read','policies.update',
+  'renewals.create','renewals.read','renewals.update',
+  'followups.create','followups.read','followups.update',
+  'documents.upload','documents.read',
+  'cases.create','cases.read','cases.update','cases.assign',
+  'banks.read','dealers.read','coordinators.read',
+  'insurance.read','insurance.create','insurance.update',
+  'rto.read','rto.update',
+  'payout.read',
+  'dashboard.sales',
+];
+
+// Telecaller: read cases, follow-ups & notes only.
+const TELECALLER: Permission[] = [
+  'customers.read','customers.update',
+  'vehicles.read',
+  'policies.read',
+  'renewals.read','renewals.update',
+  'followups.create','followups.read','followups.update',
+  'documents.upload','documents.read',
+  'cases.read','cases.update',
+  'banks.read','dealers.read',
+  'payout.read',
+  'dashboard.sales',
+];
+
+export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  [UserRole.Owner]: ALL,
+  [UserRole.Admin]: ALL.filter((p) => p !== 'dashboard.sales'),
+  [UserRole.Operations]: OPERATIONS,
+  [UserRole.SalesExecutive]: SALES_SENIOR,
+  [UserRole.RelationshipManager]: SALES_SENIOR,
+  [UserRole.Telecaller]: TELECALLER,
+};
+
+export function hasPermission(role: UserRole, perm: Permission): boolean {
+  return ROLE_PERMISSIONS[role]?.includes(perm) ?? false;
+}
