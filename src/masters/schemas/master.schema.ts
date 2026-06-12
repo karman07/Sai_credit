@@ -55,4 +55,7 @@ export class Master {
 
 export const MasterSchema = SchemaFactory.createForClass(Master);
 MasterSchema.index({ type: 1, sortOrder: 1 });
-MasterSchema.index({ type: 1, code: 1 }, { unique: true, sparse: true });
+MasterSchema.index(
+  { type: 1, code: 1 },
+  { unique: true, partialFilterExpression: { code: { $type: 'string' } } }
+);

@@ -18,6 +18,7 @@ export const SLUG_TO_TYPE: Record<string, MasterType> = {
   'addon-types': MasterType.AddonType,
   'lead-sources': MasterType.LeadSource,
   'renewal-statuses': MasterType.RenewalStatus,
+  'document-types': MasterType.DocumentType,
 };
 
 export const CreateMasterSchema = z.object({

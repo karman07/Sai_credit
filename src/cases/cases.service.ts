@@ -1,9 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { LoanCase } from './schemas/case.schema';
-import { CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto } from './cases.dto';
-import { ActivityType, CaseStatus, PRODUCT_CODE_PREFIX, ProductType } from '../common/enums';
+import {
+  CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto,
+  AssignCaseDto, RequestDocsDto, UploadDocDto, EditDocDto,
+} from './cases.dto';
+import { ActivityType, CaseStatus, isSalesRole, PRODUCT_CODE_PREFIX, ProductType } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CounterService } from '../common/counter/counter.service';
 import { ActivitiesService } from '../activities/activities.service';
@@ -30,11 +33,24 @@ export class CasesService {
     const { page = 1, limit = 25, search, status, bankId, dealerId, coordinatorId, product, userId, scopeToUser } = params;
     const filter: Record<string, any> = { isActive: true };
 
-    if (scopeToUser && userId) filter.createdBy = new Types.ObjectId(userId);
+    // Sales users see cases they created OR were assigned to
+    if (scopeToUser && userId) {
+      const uid = new Types.ObjectId(userId);
+      filter.$or = [{ createdBy: uid }, { assignedTo: uid }];
+    }
+
     if (search) {
       const re = new RegExp(search, 'i');
-      filter.$or = [{ caseCode: re }, { 'customer.firstName': re }, { 'customer.lastName': re }, { 'customer.contact': re }];
+      const searchOr = [{ caseCode: re }, { 'customer.firstName': re }, { 'customer.lastName': re }, { 'customer.contact': re }];
+      if (filter.$or) {
+        // Combine with existing $or using $and
+        filter.$and = [{ $or: filter.$or }, { $or: searchOr }];
+        delete filter.$or;
+      } else {
+        filter.$or = searchOr;
+      }
     }
+
     if (status && status !== 'All') filter.status = status;
     if (bankId) filter.bankId = new Types.ObjectId(bankId);
     if (dealerId) filter.dealerId = new Types.ObjectId(dealerId);
@@ -59,7 +75,46 @@ export class CasesService {
   }
 
   async create(dto: CreateCaseDto, actor: AuthUser) {
-    const prefix = PRODUCT_CODE_PREFIX[dto.product as ProductType] ?? 'CASE';
+    const status = dto.status ?? CaseStatus.Sales;
+
+    if (status === CaseStatus.Draft) {
+      if (!dto.customer?.firstName || dto.customer.firstName.trim().length === 0) {
+        throw new BadRequestException('First Name (or name) is required to save draft');
+      }
+      if (!dto.customer?.contact || dto.customer.contact.trim().length === 0) {
+        throw new BadRequestException('Contact number is required to save draft');
+      }
+      if (!dto.dealerId) {
+        throw new BadRequestException('Dealer is required to save draft');
+      }
+    } else {
+      if (!dto.customer?.firstName || dto.customer.firstName.trim().length === 0) {
+        throw new BadRequestException('First Name is required');
+      }
+      if (!dto.customer?.lastName || dto.customer.lastName.trim().length === 0) {
+        throw new BadRequestException('Last Name is required');
+      }
+      if (!dto.customer?.contact || dto.customer.contact.trim().length === 0) {
+        throw new BadRequestException('Contact number is required');
+      }
+      if (!dto.customer?.location || dto.customer.location.trim().length === 0) {
+        throw new BadRequestException('Location is required');
+      }
+      if (!dto.product) {
+        throw new BadRequestException('Product Type is required');
+      }
+      if (!dto.loanAmount) {
+        throw new BadRequestException('Loan Amount is required');
+      }
+      if (!dto.bankId) {
+        throw new BadRequestException('Bank is required');
+      }
+      if (!dto.dealerId) {
+        throw new BadRequestException('Dealer is required');
+      }
+    }
+
+    const prefix = dto.product ? (PRODUCT_CODE_PREFIX[dto.product as ProductType] ?? 'CASE') : 'CASE';
     const caseCode = await this.counter.code(prefix, `case:${prefix.toLowerCase()}`);
 
     // Denormalize names for fast display
@@ -77,14 +132,24 @@ export class CasesService {
       try { const c = await this.coordinators.findById(dto.coordinatorId); coordinatorName = c.name; } catch {}
     }
 
+    // Auto-assign to creator if they are a sales user
+    let assignedTo: Types.ObjectId | undefined;
+    let assignedToName: string | undefined;
+    if (isSalesRole(actor.role)) {
+      assignedTo = new Types.ObjectId(actor.id);
+      assignedToName = `${actor.firstName} ${actor.lastName}`.trim();
+    }
+
     const created = await this.model.create({
-      ...dto, caseCode, bankName, dealerName, coordinatorName,
+      ...dto, status, caseCode, bankName, dealerName, coordinatorName,
+      assignedTo, assignedToName,
       createdBy: actor.id, isActive: true,
+      documents: [], docRequests: [],
     });
 
     await this.activities.log({
       caseId: created._id, type: ActivityType.Created,
-      description: `Case ${caseCode} created`, actor,
+      description: `Case ${caseCode} created` + (status === CaseStatus.Draft ? ' as Draft' : ''), actor,
     });
 
     return created.toObject();
@@ -93,6 +158,52 @@ export class CasesService {
   async update(id: string, dto: UpdateCaseDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+
+    const merged = {
+      customer: { ...existing.customer, ...dto.customer },
+      product: dto.product !== undefined ? dto.product : existing.product,
+      loanAmount: dto.loanAmount !== undefined ? dto.loanAmount : existing.loanAmount,
+      bankId: dto.bankId !== undefined ? dto.bankId : existing.bankId,
+      dealerId: dto.dealerId !== undefined ? dto.dealerId : existing.dealerId,
+      status: dto.status !== undefined ? dto.status : existing.status,
+    };
+
+    if (merged.status === CaseStatus.Draft) {
+      if (!merged.customer.firstName || merged.customer.firstName.trim().length === 0) {
+        throw new BadRequestException('First Name (or name) is required to save draft');
+      }
+      if (!merged.customer.contact || merged.customer.contact.trim().length === 0) {
+        throw new BadRequestException('Contact number is required to save draft');
+      }
+      if (!merged.dealerId) {
+        throw new BadRequestException('Dealer is required to save draft');
+      }
+    } else if (merged.status !== CaseStatus.Incomplete) {
+      if (!merged.customer.firstName || merged.customer.firstName.trim().length === 0) {
+        throw new BadRequestException('First Name is required');
+      }
+      if (!merged.customer.lastName || merged.customer.lastName.trim().length === 0) {
+        throw new BadRequestException('Last Name is required');
+      }
+      if (!merged.customer.contact || merged.customer.contact.trim().length === 0) {
+        throw new BadRequestException('Contact number is required');
+      }
+      if (!merged.customer.location || merged.customer.location.trim().length === 0) {
+        throw new BadRequestException('Location is required');
+      }
+      if (!merged.product) {
+        throw new BadRequestException('Product Type is required');
+      }
+      if (!merged.loanAmount) {
+        throw new BadRequestException('Loan Amount is required');
+      }
+      if (!merged.bankId) {
+        throw new BadRequestException('Bank is required');
+      }
+      if (!merged.dealerId) {
+        throw new BadRequestException('Dealer is required');
+      }
+    }
 
     // Re-denormalize if references changed
     const update: Record<string, any> = { ...dto };
@@ -129,6 +240,168 @@ export class CasesService {
       caseId: id, type: ActivityType.StatusChange,
       description: `Status changed from ${oldStatus} to ${dto.status}`,
       note: dto.note, oldStatus, newStatus: dto.status, actor,
+    });
+    return updated;
+  }
+
+  async assign(id: string, dto: AssignCaseDto, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      { assignedTo: new Types.ObjectId(dto.userId), assignedToName: dto.userName },
+      { new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Assigned,
+      description: `Case assigned to ${dto.userName}`, actor,
+    });
+    return updated;
+  }
+
+  async requestDocs(id: string, dto: RequestDocsDto, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const oldStatus = existing.status;
+    const docRequest = {
+      _id: new Types.ObjectId(),
+      docTypes: dto.docTypes,
+      remarks: dto.remarks,
+      requestedBy: new Types.ObjectId(actor.id),
+      requestedByName: `${actor.firstName} ${actor.lastName}`.trim(),
+      requestedAt: new Date(),
+      isResolved: false,
+    };
+
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      {
+        status: CaseStatus.Incomplete,
+        $push: { docRequests: docRequest },
+      },
+      { new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.DocumentRequested,
+      description: `Document deficiency raised: ${dto.docTypes.join(', ')}`,
+      note: dto.remarks, oldStatus, newStatus: CaseStatus.Incomplete, actor,
+    });
+    return updated;
+  }
+
+  async uploadDoc(id: string, dto: UploadDocDto, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const doc = {
+      _id: new Types.ObjectId(),
+      docType: dto.docType,
+      fileName: dto.fileName,
+      url: dto.url ?? '',
+      remarks: dto.remarks,
+      uploadedBy: new Types.ObjectId(actor.id),
+      uploadedByName: `${actor.firstName} ${actor.lastName}`.trim(),
+      uploadedAt: new Date(),
+    };
+
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      { $push: { documents: doc } },
+      { new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.DocumentUploaded,
+      description: `Document uploaded: ${dto.docType} — ${dto.fileName}`, actor,
+    });
+    return updated;
+  }
+
+  async editDoc(id: string, docId: string, dto: EditDocDto, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const updateFields: any = {};
+    if (dto.fileName) updateFields['documents.$[doc].fileName'] = dto.fileName;
+    if (dto.remarks !== undefined) updateFields['documents.$[doc].remarks'] = dto.remarks;
+
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      { $set: updateFields },
+      { arrayFilters: [{ 'doc._id': new Types.ObjectId(docId) }], new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Remark,
+      description: `Document updated`, actor,
+    });
+    return updated;
+  }
+
+  async deleteDoc(id: string, docId: string, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const doc = existing.documents.find(d => String((d as any)._id) === docId);
+
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      { $pull: { documents: { _id: new Types.ObjectId(docId) } } },
+      { new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Remark,
+      description: `Document deleted: ${doc?.fileName || 'Unknown'}`, actor,
+    });
+    return updated;
+  }
+
+  async resolveDocRequest(caseId: string, requestId: string, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: caseId, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    const updated = await this.model.findByIdAndUpdate(
+      caseId,
+      {
+        $set: {
+          'docRequests.$[req].isResolved': true,
+          'docRequests.$[req].resolvedAt': new Date(),
+        },
+      },
+      { arrayFilters: [{ 'req._id': new Types.ObjectId(requestId) }], new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId, type: ActivityType.Remark,
+      description: `Document request marked as resolved`, actor,
+    });
+    return updated;
+  }
+
+  async submitForVerification(id: string, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+
+    if (existing.status !== CaseStatus.Incomplete) {
+      throw new BadRequestException('Case must be in Incomplete status to submit for verification');
+    }
+
+    const oldStatus = existing.status;
+    const updated = await this.model.findByIdAndUpdate(
+      id,
+      { status: CaseStatus.Pending },
+      { new: true },
+    ).lean();
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Resubmitted,
+      description: `Documents resubmitted for verification`,
+      oldStatus, newStatus: CaseStatus.Pending, actor,
     });
     return updated;
   }

@@ -103,6 +103,7 @@ export enum MasterType {
   AddonType = 'addon_type',
   LeadSource = 'lead_source',
   RenewalStatus = 'renewal_status',
+  DocumentType = 'document_type',
 }
 
 export enum EntityType {
@@ -117,9 +118,11 @@ export enum EntityType {
 // ════════════════════════════════════════════════════════════════════
 
 export enum CaseStatus {
+  Draft = 'Draft',
   Sales = 'Sales',
   Pending = 'Pending',
   InCredit = 'In Credit',
+  Incomplete = 'Incomplete',
   Approved = 'Approved',
   Disbursed = 'Disbursed',
   Hold = 'Hold',
@@ -171,6 +174,10 @@ export enum ActivityType {
   Created = 'created',
   BankAssigned = 'bank_assigned',
   DealerAssigned = 'dealer_assigned',
+  Assigned = 'assigned',
+  DocumentRequested = 'document_requested',
+  DocumentUploaded = 'document_uploaded',
+  Resubmitted = 'resubmitted',
 }
 
 /** Maps ProductType to the caseCode prefix. */

@@ -1,10 +1,21 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { CasesService } from './cases.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
-import { CreateCaseSchema, CreateCaseDto, UpdateCaseSchema, UpdateCaseDto, UpdateCaseStatusSchema, UpdateCaseStatusDto } from './cases.dto';
+import {
+  CreateCaseSchema, CreateCaseDto,
+  UpdateCaseSchema, UpdateCaseDto,
+  UpdateCaseStatusSchema, UpdateCaseStatusDto,
+  AssignCaseSchema, AssignCaseDto,
+  RequestDocsSchema, RequestDocsDto,
+  UploadDocSchema, UploadDocDto,
+  EditDocSchema, EditDocDto,
+} from './cases.dto';
 import { isSalesRole } from '../common/enums';
 
 @Controller('cases')
@@ -72,6 +83,90 @@ export class CasesController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.svc.updateStatus(id, dto, actor);
+  }
+
+  @Put(':id/assign')
+  @RequirePermissions('cases.update')
+  assign(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AssignCaseSchema)) dto: AssignCaseDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.assign(id, dto, actor);
+  }
+
+  @Post(':id/request-docs')
+  @RequirePermissions('cases.update')
+  requestDocs(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RequestDocsSchema)) dto: RequestDocsDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.requestDocs(id, dto, actor);
+  }
+
+  @Post(':id/upload-doc')
+  @RequirePermissions('cases.update')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: './uploads',
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const ext = extname(file.originalname);
+        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+      },
+    }),
+  }))
+  uploadDoc(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UploadDocSchema)) dto: UploadDocDto,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    if (file) {
+      dto.url = `/uploads/${file.filename}`;
+    }
+    return this.svc.uploadDoc(id, dto, actor);
+  }
+
+  @Delete(':id/docs/:docId')
+  @RequirePermissions('cases.update')
+  deleteDoc(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.deleteDoc(id, docId, actor);
+  }
+
+  @Put(':id/docs/:docId')
+  @RequirePermissions('cases.update')
+  editDoc(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body(new ZodValidationPipe(EditDocSchema)) dto: EditDocDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.editDoc(id, docId, dto, actor);
+  }
+
+  @Put(':id/resolve-doc-request/:reqId')
+  @RequirePermissions('cases.update')
+  resolveDocRequest(
+    @Param('id') id: string,
+    @Param('reqId') reqId: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.resolveDocRequest(id, reqId, actor);
+  }
+
+  @Put(':id/submit-for-verification')
+  @RequirePermissions('cases.update')
+  submitForVerification(
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.submitForVerification(id, actor);
   }
 
   @Delete(':id')

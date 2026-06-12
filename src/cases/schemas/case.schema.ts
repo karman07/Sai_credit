@@ -4,10 +4,10 @@ import { CaseStatus, ProductType, LoanType } from '../../common/enums';
 
 @Schema({ _id: false })
 class CustomerInfo {
-  @Prop({ required: true }) firstName: string;
-  @Prop({ required: true }) lastName: string;
+  @Prop() firstName?: string;
+  @Prop() lastName?: string;
   @Prop() fatherName?: string;
-  @Prop({ required: true }) contact: string;
+  @Prop() contact?: string;
   @Prop() altContact?: string;
   @Prop() location?: string;
   @Prop() pinCode?: string;
@@ -16,6 +16,30 @@ class CustomerInfo {
 }
 const CustomerInfoSchema = SchemaFactory.createForClass(CustomerInfo);
 
+@Schema({ _id: true, timestamps: false })
+class CaseDocument {
+  @Prop({ required: true }) docType: string;
+  @Prop({ required: true }) fileName: string;
+  @Prop({ default: '' }) url: string;
+  @Prop() remarks?: string;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) uploadedBy: Types.ObjectId;
+  @Prop({ required: true }) uploadedByName: string;
+  @Prop({ required: true }) uploadedAt: Date;
+}
+const CaseDocumentSchema = SchemaFactory.createForClass(CaseDocument);
+
+@Schema({ _id: true, timestamps: false })
+class DocRequest {
+  @Prop({ type: [String], required: true }) docTypes: string[];
+  @Prop({ required: true }) remarks: string;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) requestedBy: Types.ObjectId;
+  @Prop({ required: true }) requestedByName: string;
+  @Prop({ required: true }) requestedAt: Date;
+  @Prop() resolvedAt?: Date;
+  @Prop({ default: false }) isResolved: boolean;
+}
+const DocRequestSchema = SchemaFactory.createForClass(DocRequest);
+
 @Schema({ timestamps: true, collection: 'cases' })
 export class LoanCase extends Document {
   @Prop({ required: true, unique: true, index: true }) caseCode: string;
@@ -23,7 +47,7 @@ export class LoanCase extends Document {
 
   @Prop({ type: CustomerInfoSchema, required: true }) customer: CustomerInfo;
 
-  @Prop({ required: true, enum: Object.values(ProductType) }) product: string;
+  @Prop({ enum: Object.values(ProductType) }) product?: string;
   @Prop({ enum: Object.values(LoanType) }) loanType?: string;
   @Prop() vehicleModel?: string;
   @Prop() regNumber?: string;
@@ -57,6 +81,16 @@ export class LoanCase extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'Coordinator', index: true }) coordinatorId?: Types.ObjectId;
   @Prop() coordinatorName?: string;
+
+  // Assignment
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true }) assignedTo?: Types.ObjectId;
+  @Prop() assignedToName?: string;
+
+  // Documents
+  @Prop({ type: [CaseDocumentSchema], default: [] }) documents: CaseDocument[];
+
+  // Document deficiency requests
+  @Prop({ type: [DocRequestSchema], default: [] }) docRequests: DocRequest[];
 
   @Prop() remarks?: string;
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) createdBy: Types.ObjectId;
