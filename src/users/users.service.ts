@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { User } from './schemas/user.schema';
 import { CreateUserDto, UpdateUserDto, ListUsersQuery } from './users.dto';
@@ -13,12 +12,14 @@ import { buildMeta, Paginated } from '../common/dto/pagination';
 import { AuditService } from '../common/audit/audit.service';
 import { AuditAction } from '../common/enums';
 import { AuthUser } from '../common/types';
+import { PayrollService } from '../payroll/payroll.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private readonly users: Model<User>,
     private readonly audit: AuditService,
+    private readonly payrollSvc: PayrollService,
   ) {}
 
   async list(q: ListUsersQuery): Promise<Paginated<any>> {
@@ -65,6 +66,11 @@ export class UsersService {
       entityId: created._id,
       after: created.toObject(),
     });
+
+    // Auto-generate a draft payroll for the current month so the user appears in the dashboard immediately
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    await this.payrollSvc.generateForUser(String(created._id), currentMonth, actor.id).catch(() => {});
+
     return this.findById(String(created._id));
   }
 
@@ -99,21 +105,18 @@ export class UsersService {
     return { id, isActive: user.isActive };
   }
 
-  /** Admin-forced password reset → returns a temporary password. */
-  async adminResetPassword(id: string, actor: AuthUser) {
+  /** Admin sets a new plain-text password for any user. */
+  async setPassword(id: string, newPassword: string, actor: AuthUser) {
     const user = await this.users.findById(id);
     if (!user) throw new NotFoundException('User not found');
-    const temp = randomBytes(6).toString('base64url');
-    user.set('passwordHash', await bcrypt.hash(temp, 12));
+    user.set('passwordHash', await bcrypt.hash(newPassword, 12));
     await user.save();
     await this.audit.log({
-      user: actor,
-      action: AuditAction.Update,
-      entityType: 'user',
-      entityId: id,
-      changes: { password: { old: '••••', new: 'reset' } } as any,
+      user: actor, action: AuditAction.Update,
+      entityType: 'user', entityId: id,
+      changes: { password: { old: '••••', new: '••••' } } as any,
     });
-    return { id, temporaryPassword: temp };
+    return { id, success: true };
   }
 }
 

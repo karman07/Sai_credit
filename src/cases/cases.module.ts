@@ -6,8 +6,9 @@ import { CasesController } from './cases.controller';
 import { ActivitiesModule } from '../activities/activities.module';
 import { BanksModule } from '../banks/banks.module';
 import { DealersModule } from '../dealers/dealers.module';
-import { CoordinatorsModule } from '../coordinators/coordinators.module';
 import { CounterModule } from '../common/counter/counter.module';
+import { CustomersModule } from '../customers/customers.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -15,8 +16,9 @@ import { CounterModule } from '../common/counter/counter.module';
     ActivitiesModule,
     BanksModule,
     DealersModule,
-    CoordinatorsModule,
     CounterModule,
+    CustomersModule,
+    NotificationsModule,
   ],
   controllers: [CasesController],
   providers: [CasesService],

@@ -56,13 +56,16 @@ export class Customer {
   @Prop({ type: [AddressSchema], default: [] }) addresses!: Address[];
   @Prop({ type: [ContactSchema], default: [] }) contacts!: Contact[];
 
-  @Prop({ type: Types.ObjectId, ref: 'Master' }) leadSourceId?: Types.ObjectId;
-
   @Prop({ type: Types.ObjectId, ref: 'User', index: true })
   assignedTo?: Types.ObjectId;
 
   @Prop({ type: [String], default: [] }) tags!: string[];
   @Prop() notes?: string;
+
+  // Denormalized from latest linked case for fast list display
+  @Prop() latestCaseStatus?: string;
+  @Prop() latestCaseCode?: string;
+  @Prop({ default: 0 }) totalCases!: number;
 
   @Prop({ default: true }) isActive!: boolean;
 

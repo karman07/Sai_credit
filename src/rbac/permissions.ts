@@ -16,7 +16,6 @@ export type Permission =
   | 'cases.create' | 'cases.read' | 'cases.update' | 'cases.delete' | 'cases.assign' | 'cases.export'
   | 'banks.create' | 'banks.read' | 'banks.update' | 'banks.delete'
   | 'dealers.create' | 'dealers.read' | 'dealers.update' | 'dealers.delete'
-  | 'coordinators.create' | 'coordinators.read' | 'coordinators.update' | 'coordinators.delete'
   | 'payout.read' | 'payout.create' | 'payout.update'
   | 'insurance.read' | 'insurance.create' | 'insurance.update'
   | 'rto.read' | 'rto.update'
@@ -24,7 +23,12 @@ export type Permission =
   | 'master.manage'
   | 'reports.view'
   | 'audit.view'
-  | 'dashboard.admin' | 'dashboard.sales';
+  | 'dashboard.admin' | 'dashboard.sales'
+  | 'attendance.read' | 'attendance.clock' | 'attendance.manage'
+  | 'claims.create' | 'claims.read' | 'claims.manage'
+  | 'payroll.read' | 'payroll.manage'
+  | 'leaves.create' | 'leaves.read' | 'leaves.manage'
+  | 'leave_policy.read' | 'leave_policy.manage';
 
 const ALL: Permission[] = [
   'customers.create','customers.read','customers.update','customers.delete','customers.export','customers.assign',
@@ -36,12 +40,16 @@ const ALL: Permission[] = [
   'cases.create','cases.read','cases.update','cases.delete','cases.assign','cases.export',
   'banks.create','banks.read','banks.update','banks.delete',
   'dealers.create','dealers.read','dealers.update','dealers.delete',
-  'coordinators.create','coordinators.read','coordinators.update','coordinators.delete',
   'payout.read','payout.create','payout.update',
   'insurance.read','insurance.create','insurance.update',
   'rto.read','rto.update',
   'users.manage','master.manage','reports.view','audit.view',
   'dashboard.admin','dashboard.sales',
+  'attendance.read','attendance.clock','attendance.manage',
+  'claims.create','claims.read','claims.manage',
+  'payroll.read','payroll.manage',
+  'leaves.create','leaves.read','leaves.manage',
+  'leave_policy.read','leave_policy.manage',
 ];
 
 // Operations: everything except user management, audit, and hard deletes.
@@ -55,11 +63,15 @@ const OPERATIONS: Permission[] = [
   'cases.create','cases.read','cases.update','cases.assign','cases.export',
   'banks.read','banks.create','banks.update',
   'dealers.read','dealers.create','dealers.update',
-  'coordinators.read','coordinators.create','coordinators.update',
   'payout.read','payout.create','payout.update',
   'insurance.read','insurance.create','insurance.update',
   'rto.read','rto.update',
   'master.manage','reports.view','dashboard.admin',
+  'attendance.read','attendance.manage',
+  'claims.read','claims.manage',
+  'payroll.read','payroll.manage',
+  'leaves.read','leaves.manage',
+  'leave_policy.read','leave_policy.manage',
 ];
 
 // Senior sales (executive / RM): can create cases, log insurance & RTO.
@@ -71,11 +83,16 @@ const SALES_SENIOR: Permission[] = [
   'followups.create','followups.read','followups.update',
   'documents.upload','documents.read',
   'cases.create','cases.read','cases.update','cases.assign',
-  'banks.read','dealers.read','coordinators.read',
+  'banks.read','dealers.read',
   'insurance.read','insurance.create','insurance.update',
   'rto.read','rto.update',
   'payout.read',
   'dashboard.sales',
+  'attendance.read','attendance.clock',
+  'claims.create','claims.read',
+  'payroll.read',
+  'leaves.create','leaves.read',
+  'leave_policy.read',
 ];
 
 // Telecaller: read cases, follow-ups & notes only.
@@ -90,6 +107,11 @@ const TELECALLER: Permission[] = [
   'banks.read','dealers.read',
   'payout.read',
   'dashboard.sales',
+  'attendance.read','attendance.clock',
+  'claims.create','claims.read',
+  'payroll.read',
+  'leaves.create','leaves.read',
+  'leave_policy.read',
 ];
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {

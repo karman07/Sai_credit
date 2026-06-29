@@ -55,8 +55,12 @@ export class UsersController {
     return this.users.toggleStatus(id, actor);
   }
 
-  @Put(':id/reset-password')
-  resetPassword(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
-    return this.users.adminResetPassword(id, actor);
+  @Put(':id/set-password')
+  setPassword(
+    @Param('id') id: string,
+    @Body() body: { password: string },
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.users.setPassword(id, body.password, actor);
   }
 }

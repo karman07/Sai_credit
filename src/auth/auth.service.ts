@@ -19,6 +19,7 @@ import {
   AuditAction,
 } from '../common/enums';
 import { AuditService } from '../common/audit/audit.service';
+import { AttendanceService } from '../attendance/attendance.service';
 import { AuthUser } from '../common/types';
 import { LoginDto } from './auth.dto';
 
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly attendance: AttendanceService,
   ) {}
 
   // ── Login ──────────────────────────────────────────────────────────
@@ -61,6 +63,11 @@ export class AuthService {
       ip,
       userAgent,
     });
+
+    // Auto clock-in for sales roles
+    if (isSalesRole(user.role)) {
+      this.attendance.autoClockIn(String(user._id), ip).catch(() => {/* non-fatal */});
+    }
 
     return { user: authUser, ...tokens };
   }
@@ -99,6 +106,11 @@ export class AuthService {
     }
     if (user) {
       await this.audit.log({ user, action: AuditAction.Logout, entityType: 'user', entityId: user.id });
+
+      // Auto clock-out for sales roles on logout
+      if (isSalesRole(user.role as UserRole)) {
+        this.attendance.autoClockOut(user.id).catch(() => {/* non-fatal */});
+      }
     }
     return { ok: true };
   }

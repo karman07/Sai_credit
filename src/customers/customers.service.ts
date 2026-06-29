@@ -2,19 +2,21 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Customer } from './schemas/customer.schema';
+import { LoanCase } from '../cases/schemas/case.schema';
 import {
   CreateCustomerDto, UpdateCustomerDto, ListCustomersQuery,
 } from './customers.dto';
 import { buildMeta, Paginated } from '../common/dto/pagination';
 import { AuditService } from '../common/audit/audit.service';
 import { CounterService } from '../common/counter/counter.service';
-import { AuditAction, isSalesRole } from '../common/enums';
+import { AuditAction, CustomerType, isSalesRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 
 @Injectable()
 export class CustomersService {
   constructor(
     @InjectModel(Customer.name) private readonly customers: Model<Customer>,
+    @InjectModel(LoanCase.name) private readonly cases: Model<LoanCase>,
     private readonly audit: AuditService,
     private readonly counter: CounterService,
   ) {}
@@ -32,11 +34,10 @@ export class CustomersService {
   }
 
   async list(user: AuthUser, q: ListCustomersQuery): Promise<Paginated<any>> {
-    const filter: Record<string, any> = this.scopeFilter(user);
+    const filter: Record<string, any> = {};
     if (q.isActive !== undefined) filter.isActive = q.isActive;
     else filter.isActive = true;
-    if (q.assignedTo && !isSalesRole(user.role)) filter.assignedTo = q.assignedTo;
-    if (q.leadSourceId) filter.leadSourceId = q.leadSourceId;
+    if (q.assignedTo) filter.assignedTo = q.assignedTo;
     if (q.customerType) filter.customerType = q.customerType;
     if (q.tag) filter.tags = q.tag;
     if (q.search) {
@@ -64,7 +65,6 @@ export class CustomersService {
     const doc = await this.customers
       .findOne(this.scopeFilter(user, { _id: id }))
       .populate('assignedTo', 'firstName lastName email')
-      .populate('leadSourceId', 'name')
       .lean();
     if (!doc) throw new NotFoundException('Customer not found');
     return doc;
@@ -92,10 +92,22 @@ export class CustomersService {
   async update(user: AuthUser, id: string, dto: UpdateCustomerDto) {
     const before = await this.customers.findOne(this.scopeFilter(user, { _id: id })).lean();
     if (!before) throw new NotFoundException('Customer not found');
-    // Sales reps cannot reassign away from themselves.
     if (isSalesRole(user.role)) delete (dto as any).assignedTo;
 
     const after = await this.customers.findByIdAndUpdate(id, dto, { new: true }).lean();
+
+    // Cascade key contact fields to all cases that embed this customer's data.
+    // Cases link to customers via the embedded contact (phone) field.
+    const caseUpdate: Record<string, any> = {};
+    if (dto.firstName)                     caseUpdate['customer.firstName']  = dto.firstName;
+    if (dto.lastName)                      caseUpdate['customer.lastName']   = dto.lastName;
+    if (dto.phone)                         caseUpdate['customer.contact']    = dto.phone;
+    if (dto.alternatePhone !== undefined)  caseUpdate['customer.altContact'] = dto.alternatePhone;
+
+    if (Object.keys(caseUpdate).length > 0) {
+      await this.cases.updateMany({ 'customer.contact': before.phone }, { $set: caseUpdate });
+    }
+
     await this.audit.log({
       user, action: AuditAction.Update, entityType: 'customer',
       entityId: id, before, after: after!,
@@ -112,6 +124,56 @@ export class CustomersService {
       changes: { isActive: { old: true, new: false } } as any,
     });
     return { id, isActive: false };
+  }
+
+  /** Called by CasesService after a new case is created. Upserts a customer
+   *  record keyed by phone number, then syncs the latest-case fields. */
+  async findOrCreateFromCase(params: {
+    phone: string; firstName: string; lastName?: string;
+    alternatePhone?: string; location?: string;
+    assignedTo?: string; createdBy?: string;
+    caseCode: string; caseStatus: string;
+  }) {
+    const existing = await this.customers.findOne({ phone: params.phone, isActive: true }).lean();
+    if (existing) {
+      // Sync case stats on the existing customer
+      await this.customers.findByIdAndUpdate(existing._id, {
+        latestCaseStatus: params.caseStatus,
+        latestCaseCode: params.caseCode,
+        $inc: { totalCases: 1 },
+      });
+      return existing;
+    }
+    const customerCode = await this.counter.code('CUS', 'customer');
+    const doc = new this.customers({
+      customerCode,
+      customerType: CustomerType.Individual,
+      firstName: params.firstName,
+      lastName: params.lastName ?? '',
+      phone: params.phone,
+      alternatePhone: params.alternatePhone,
+      tags: [],
+      addresses: [],
+      contacts: [],
+      latestCaseStatus: params.caseStatus,
+      latestCaseCode: params.caseCode,
+      totalCases: 1,
+      isActive: true,
+      assignedTo: params.assignedTo ? new Types.ObjectId(params.assignedTo) : undefined,
+      createdBy: params.createdBy ? new Types.ObjectId(params.createdBy) : undefined,
+    });
+    await doc.save();
+    return doc.toObject();
+  }
+
+  /** Called by CasesService when a case status changes. Keeps the
+   *  latestCaseStatus in sync if this is the most-recent case for the customer. */
+  async syncCaseStatus(phone: string, caseCode: string, newStatus: string) {
+    const customer = await this.customers.findOne({ phone, isActive: true }).lean();
+    if (!customer) return;
+    if (customer.latestCaseCode === caseCode) {
+      await this.customers.findByIdAndUpdate(customer._id, { latestCaseStatus: newStatus });
+    }
   }
 
   async assign(user: AuthUser, id: string, assignedTo: string) {

@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Session, SessionSchema } from './schemas/session.schema';
+import { AttendanceModule } from '../attendance/attendance.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { Session, SessionSchema } from './schemas/session.schema';
       { name: User.name, schema: UserSchema },
       { name: Session.name, schema: SessionSchema },
     ]),
+    AttendanceModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],

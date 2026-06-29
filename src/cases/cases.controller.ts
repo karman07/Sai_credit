@@ -15,6 +15,7 @@ import {
   RequestDocsSchema, RequestDocsDto,
   UploadDocSchema, UploadDocDto,
   EditDocSchema, EditDocDto,
+  UpdatePipelineStageSchema, UpdatePipelineStageDto,
 } from './cases.dto';
 import { isSalesRole } from '../common/enums';
 
@@ -37,16 +38,19 @@ export class CasesController {
     @Query('status') status?: string,
     @Query('bankId') bankId?: string,
     @Query('dealerId') dealerId?: string,
-    @Query('coordinatorId') coordinatorId?: string,
     @Query('product') product?: string,
+    @Query('assignedTo') assignedTo?: string,
+    @Query('showAll') showAll?: string,
     @CurrentUser() actor?: AuthUser,
   ) {
+    const isSales = actor ? isSalesRole(actor.role) : false;
     return this.svc.list({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 25,
-      search, status, bankId, dealerId, coordinatorId, product,
+      search, status, bankId, dealerId, product,
+      assignedTo,
       userId: actor?.id,
-      scopeToUser: actor ? isSalesRole(actor.role) : false,
+      scopeToUser: isSales && showAll !== 'true',
     });
   }
 
@@ -167,6 +171,17 @@ export class CasesController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.svc.submitForVerification(id, actor);
+  }
+
+  @Put(':id/pipeline/:stage')
+  @RequirePermissions('cases.update')
+  updatePipelineStage(
+    @Param('id') id: string,
+    @Param('stage') stage: string,
+    @Body(new ZodValidationPipe(UpdatePipelineStageSchema)) dto: UpdatePipelineStageDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.updatePipelineStage(id, decodeURIComponent(stage), dto, actor);
   }
 
   @Delete(':id')

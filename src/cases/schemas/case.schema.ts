@@ -2,6 +2,29 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { CaseStatus, ProductType, LoanType } from '../../common/enums';
 
+export const PIPELINE_STAGES = [
+  'CIBIL & TVR',
+  'Documentation',
+  'Field Verification',
+  'Valuation',
+  'In Credit',
+  'RTO Documents',
+  'Approved',
+  'Detail Confirmation',
+  'Disbursed',
+] as const;
+export type PipelineStageName = typeof PIPELINE_STAGES[number];
+
+@Schema({ _id: false })
+class PipelineItem {
+  @Prop({ required: true }) stage: string;
+  @Prop({ enum: ['Pending', 'Done', 'NA'], default: 'Pending' }) status: string;
+  @Prop() doneAt?: Date;
+  @Prop() doneByName?: string;
+  @Prop() remarks?: string;
+}
+const PipelineItemSchema = SchemaFactory.createForClass(PipelineItem);
+
 @Schema({ _id: false })
 class CustomerInfo {
   @Prop() firstName?: string;
@@ -10,6 +33,8 @@ class CustomerInfo {
   @Prop() contact?: string;
   @Prop() altContact?: string;
   @Prop() location?: string;
+  @Prop() state?: string;
+  @Prop() district?: string;
   @Prop() pinCode?: string;
   @Prop() residentialStatus?: string;
   @Prop({ default: false }) ebillOwner: boolean;
@@ -79,18 +104,24 @@ export class LoanCase extends Document {
 
   @Prop() disbursementDate?: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'Coordinator', index: true }) coordinatorId?: Types.ObjectId;
-  @Prop() coordinatorName?: string;
-
   // Assignment
   @Prop({ type: Types.ObjectId, ref: 'User', index: true }) assignedTo?: Types.ObjectId;
   @Prop() assignedToName?: string;
+
+  // Pipeline checklist
+  @Prop({
+    type: [PipelineItemSchema],
+    default: () => PIPELINE_STAGES.map((stage) => ({ stage, status: 'Pending' })),
+  })
+  pipeline: PipelineItem[];
 
   // Documents
   @Prop({ type: [CaseDocumentSchema], default: [] }) documents: CaseDocument[];
 
   // Document deficiency requests
   @Prop({ type: [DocRequestSchema], default: [] }) docRequests: DocRequest[];
+
+  @Prop({ type: Object, default: {} }) customFields: Record<string, any>;
 
   @Prop() remarks?: string;
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) createdBy: Types.ObjectId;

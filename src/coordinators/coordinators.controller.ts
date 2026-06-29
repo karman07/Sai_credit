@@ -11,19 +11,19 @@ export class CoordinatorsController {
   constructor(private readonly svc: CoordinatorsService) {}
 
   @Get()
-  @RequirePermissions('coordinators.read')
+  @RequirePermissions('users.manage')
   list(@Query('includeInactive') inc?: string) {
     return this.svc.list(inc === 'true');
   }
 
   @Get(':id')
-  @RequirePermissions('coordinators.read')
+  @RequirePermissions('users.manage')
   findOne(@Param('id') id: string) {
     return this.svc.findById(id);
   }
 
   @Post()
-  @RequirePermissions('coordinators.create')
+  @RequirePermissions('users.manage')
   create(
     @Body(new ZodValidationPipe(CreateCoordinatorSchema)) dto: CreateCoordinatorDto,
     @CurrentUser() actor: AuthUser,
@@ -32,7 +32,7 @@ export class CoordinatorsController {
   }
 
   @Put(':id')
-  @RequirePermissions('coordinators.update')
+  @RequirePermissions('users.manage')
   update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateCoordinatorSchema)) dto: UpdateCoordinatorDto,
@@ -41,13 +41,13 @@ export class CoordinatorsController {
   }
 
   @Put(':id/toggle-status')
-  @RequirePermissions('coordinators.update')
+  @RequirePermissions('users.manage')
   toggle(@Param('id') id: string) {
     return this.svc.toggleStatus(id);
   }
 
   @Delete(':id')
-  @RequirePermissions('coordinators.delete')
+  @RequirePermissions('users.manage')
   remove(@Param('id') id: string) {
     return this.svc.delete(id);
   }

@@ -10,6 +10,8 @@ const CustomerSchema = z.object({
   contact: z.string().optional(),
   altContact: z.string().optional(),
   location: z.string().optional(),
+  state: z.string().optional(),
+  district: z.string().optional(),
   pinCode: z.string().optional(),
   residentialStatus: z.string().optional(),
   ebillOwner: z.boolean().optional(),
@@ -34,10 +36,10 @@ export const CreateCaseSchema = z.object({
   bankExecutive: z.string().optional(),
   dealerId: objectId.optional(),
   payoutPct: z.number().min(0).max(100).optional(),
-  coordinatorId: objectId.optional(),
   assignedTo: objectId.optional(),
   remarks: z.string().optional(),
   status: z.enum(Object.values(CaseStatus) as [string, ...string[]]).optional(),
+  customFields: z.record(z.string(), z.any()).optional(),
 });
 export type CreateCaseDto = z.infer<typeof CreateCaseSchema>;
 
@@ -76,3 +78,9 @@ export const EditDocSchema = z.object({
   remarks: z.string().optional(),
 });
 export type EditDocDto = z.infer<typeof EditDocSchema>;
+
+export const UpdatePipelineStageSchema = z.object({
+  status: z.enum(['Pending', 'Done', 'NA']),
+  remarks: z.string().optional(),
+});
+export type UpdatePipelineStageDto = z.infer<typeof UpdatePipelineStageSchema>;

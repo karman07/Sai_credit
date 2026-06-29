@@ -17,11 +17,20 @@ import { CustomersModule } from './customers/customers.module';
 import { CasesModule } from './cases/cases.module';
 import { BanksModule } from './banks/banks.module';
 import { DealersModule } from './dealers/dealers.module';
-import { CoordinatorsModule } from './coordinators/coordinators.module';
 import { PayoutModule } from './payout/payout.module';
 import { InsuranceMISModule } from './insurance-mis/insurance-mis.module';
+import { InsurancePoliciesModule } from './insurance-policies/insurance-policies.module';
 import { RTOTrackerModule } from './rto-tracker/rto-tracker.module';
 import { ActivitiesModule } from './activities/activities.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { AppScheduleModule } from './schedule/schedule.module';
+import { AttendanceModule } from './attendance/attendance.module';
+import { ClaimsModule } from './claims/claims.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { LeavesModule } from './leaves/leaves.module';
+import { FormSchemasModule } from './form-schemas/form-schemas.module';
+import { LeavePolicyModule } from './leave-policy/leave-policy.module';
+import { InsuranceLeadsModule } from './insurance-leads/insurance-leads.module';
 
 @Module({
   imports: [
@@ -45,15 +54,23 @@ import { ActivitiesModule } from './activities/activities.module';
     ActivitiesModule,
     BanksModule,
     DealersModule,
-    CoordinatorsModule,
     CasesModule,
     PayoutModule,
     InsuranceMISModule,
+    InsurancePoliciesModule,
     RTOTrackerModule,
+    NotificationsModule,
+    AppScheduleModule,
+    AttendanceModule,
+    ClaimsModule,
+    PayrollModule,
+    LeavesModule,
+    FormSchemasModule,
+    LeavePolicyModule,
+    InsuranceLeadsModule,
   ],
   controllers: [AppController],
   providers: [
-    // Order matters: authenticate first, then authorize.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],

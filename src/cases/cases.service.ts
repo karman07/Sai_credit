@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { LoanCase } from './schemas/case.schema';
+import { LoanCase, PIPELINE_STAGES } from './schemas/case.schema';
 import {
   CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto,
   AssignCaseDto, RequestDocsDto, UploadDocDto, EditDocDto,
+  UpdatePipelineStageDto,
 } from './cases.dto';
 import { ActivityType, CaseStatus, isSalesRole, PRODUCT_CODE_PREFIX, ProductType } from '../common/enums';
 import { AuthUser } from '../common/types';
@@ -12,7 +13,8 @@ import { CounterService } from '../common/counter/counter.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { BanksService } from '../banks/banks.service';
 import { DealersService } from '../dealers/dealers.service';
-import { CoordinatorsService } from '../coordinators/coordinators.service';
+import { CustomersService } from '../customers/customers.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class CasesService {
@@ -22,15 +24,16 @@ export class CasesService {
     private readonly activities: ActivitiesService,
     private readonly banks: BanksService,
     private readonly dealers: DealersService,
-    private readonly coordinators: CoordinatorsService,
+    private readonly customersService: CustomersService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(params: {
     page?: number; limit?: number; search?: string; status?: string;
-    bankId?: string; dealerId?: string; coordinatorId?: string; product?: string;
-    userId?: string; scopeToUser?: boolean;
+    bankId?: string; dealerId?: string; product?: string;
+    assignedTo?: string; userId?: string; scopeToUser?: boolean;
   }) {
-    const { page = 1, limit = 25, search, status, bankId, dealerId, coordinatorId, product, userId, scopeToUser } = params;
+    const { page = 1, limit = 25, search, status, bankId, dealerId, product, assignedTo, userId, scopeToUser } = params;
     const filter: Record<string, any> = { isActive: true };
 
     // Sales users see cases they created OR were assigned to
@@ -51,10 +54,10 @@ export class CasesService {
       }
     }
 
+    if (assignedTo) filter.assignedTo = new Types.ObjectId(assignedTo);
     if (status && status !== 'All') filter.status = status;
     if (bankId) filter.bankId = new Types.ObjectId(bankId);
     if (dealerId) filter.dealerId = new Types.ObjectId(dealerId);
-    if (coordinatorId) filter.coordinatorId = new Types.ObjectId(coordinatorId);
     if (product) filter.product = product;
 
     const total = await this.model.countDocuments(filter);
@@ -120,16 +123,12 @@ export class CasesService {
     // Denormalize names for fast display
     let bankName: string | undefined;
     let dealerName: string | undefined;
-    let coordinatorName: string | undefined;
 
     if (dto.bankId) {
       try { const b = await this.banks.findById(dto.bankId); bankName = b.name; } catch {}
     }
     if (dto.dealerId) {
       try { const d = await this.dealers.findById(dto.dealerId); dealerName = d.name; } catch {}
-    }
-    if (dto.coordinatorId) {
-      try { const c = await this.coordinators.findById(dto.coordinatorId); coordinatorName = c.name; } catch {}
     }
 
     // Auto-assign to creator if they are a sales user
@@ -141,7 +140,7 @@ export class CasesService {
     }
 
     const created = await this.model.create({
-      ...dto, status, caseCode, bankName, dealerName, coordinatorName,
+      ...dto, status, caseCode, bankName, dealerName,
       assignedTo, assignedToName,
       createdBy: actor.id, isActive: true,
       documents: [], docRequests: [],
@@ -151,6 +150,21 @@ export class CasesService {
       caseId: created._id, type: ActivityType.Created,
       description: `Case ${caseCode} created` + (status === CaseStatus.Draft ? ' as Draft' : ''), actor,
     });
+
+    // Auto-create or update customer record from embedded case customer info
+    if (dto.customer?.contact) {
+      this.customersService.findOrCreateFromCase({
+        phone: dto.customer.contact,
+        firstName: dto.customer.firstName ?? '',
+        lastName: dto.customer.lastName,
+        alternatePhone: dto.customer.altContact,
+        location: dto.customer.location,
+        assignedTo: assignedTo ? String(assignedTo) : actor.id,
+        createdBy: actor.id,
+        caseCode,
+        caseStatus: status,
+      }).catch(() => { /* non-blocking — don't fail case creation */ });
+    }
 
     return created.toObject();
   }
@@ -213,9 +227,6 @@ export class CasesService {
     if (dto.dealerId && dto.dealerId !== String(existing.dealerId)) {
       try { const d = await this.dealers.findById(dto.dealerId); update.dealerName = d.name; } catch {}
     }
-    if (dto.coordinatorId && dto.coordinatorId !== String(existing.coordinatorId)) {
-      try { const c = await this.coordinators.findById(dto.coordinatorId); update.coordinatorName = c.name; } catch {}
-    }
 
     const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).lean();
     await this.activities.log({
@@ -241,6 +252,16 @@ export class CasesService {
       description: `Status changed from ${oldStatus} to ${dto.status}`,
       note: dto.note, oldStatus, newStatus: dto.status, actor,
     });
+
+    // Keep customer's latestCaseStatus in sync (non-blocking)
+    if (existing.customer?.contact) {
+      this.customersService.syncCaseStatus(
+        existing.customer.contact,
+        existing.caseCode,
+        dto.status,
+      ).catch(() => {});
+    }
+
     return updated;
   }
 
@@ -404,6 +425,66 @@ export class CasesService {
       oldStatus, newStatus: CaseStatus.Pending, actor,
     });
     return updated;
+  }
+
+  async updatePipelineStage(id: string, stage: string, dto: UpdatePipelineStageDto, actor: AuthUser) {
+    const doc = await this.model.findOne({ _id: id, isActive: true });
+    if (!doc) throw new NotFoundException('Case not found');
+
+    const validStage = (PIPELINE_STAGES as readonly string[]).includes(stage);
+    if (!validStage) throw new BadRequestException(`Unknown pipeline stage: ${stage}`);
+
+    // Ensure pipeline array is initialised (for legacy cases created before this feature)
+    if (!doc.pipeline || doc.pipeline.length === 0) {
+      doc.pipeline = PIPELINE_STAGES.map((s) => ({ stage: s, status: 'Pending' }) as any);
+    }
+
+    const item = doc.pipeline.find((p: any) => p.stage === stage);
+    if (!item) throw new NotFoundException(`Stage not found: ${stage}`);
+
+    (item as any).status = dto.status;
+    if (dto.status === 'Done') {
+      (item as any).doneAt = new Date();
+      (item as any).doneByName = `${actor.firstName} ${actor.lastName}`.trim();
+    } else {
+      (item as any).doneAt = undefined;
+      (item as any).doneByName = undefined;
+    }
+    if (dto.remarks !== undefined) (item as any).remarks = dto.remarks;
+
+    doc.markModified('pipeline');
+    await doc.save();
+
+    // Automation: when all applicable stages are Done, advance status to Disbursed
+    const allDone = doc.pipeline.every((p: any) => p.status === 'Done' || p.status === 'NA');
+    if (allDone && doc.status !== CaseStatus.Disbursed) {
+      const before = doc.status;
+      doc.status = CaseStatus.Disbursed;
+      doc.disbursementDate = new Date();
+      await doc.save();
+      await this.activities.log({
+        caseId: id, type: ActivityType.StatusChange,
+        description: `Auto-advanced to Disbursed — all pipeline stages complete`,
+        oldStatus: before, newStatus: CaseStatus.Disbursed, actor,
+      });
+      if (doc.assignedTo) {
+        await this.notifications.notify({
+          userId: String(doc.assignedTo),
+          type: 'pipeline_complete',
+          title: `Pipeline Complete — ${doc.caseCode}`,
+          message: `All stages done for ${doc.customer?.firstName ?? ''} ${doc.customer?.lastName ?? ''}. Case auto-moved to Disbursed.`,
+          caseId: id, caseCode: doc.caseCode,
+        });
+      }
+    }
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Remark,
+      description: `Pipeline stage "${stage}" marked ${dto.status}`,
+      note: dto.remarks, actor,
+    });
+
+    return this.findById(id);
   }
 
   async delete(id: string, actor: AuthUser) {

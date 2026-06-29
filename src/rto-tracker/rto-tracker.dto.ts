@@ -1,21 +1,40 @@
 import { z } from 'zod';
 import { ChecklistItemStatus } from '../common/enums';
+import { RTOOwnershipType } from './schemas/rto-tracker.schema';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
-const statusEnum = z.enum(Object.values(ChecklistItemStatus) as [string, ...string[]]);
+const checklistStatus = z.enum(Object.values(ChecklistItemStatus) as [string, ...string[]]);
+const stageStatus = z.enum(['Pending', 'Done']);
 
 export const CreateRTOSchema = z.object({
   caseId: objectId.optional(),
   caseCode: z.string().optional(),
   customerName: z.string().optional(),
-  rtoOwnership: statusEnum.optional(),
-  hypothecation: statusEnum.optional(),
-  bankNoc: statusEnum.optional(),
+
+  rtoOwnershipType: z.enum(Object.values(RTOOwnershipType) as [string, ...string[]]).optional(),
+  rtoOwnership: checklistStatus.optional(),
+  rtoReceiving: z.boolean().optional(),
+  challanCheck: checklistStatus.optional(),
+  bankNocCheck: checklistStatus.optional(),
   nocHoldAmt: z.number().min(0).optional(),
-  challanClearance: statusEnum.optional(),
-  aadhaarMatch: statusEnum.optional(),
+  insuranceCheck: checklistStatus.optional(),
+  hypothecation: checklistStatus.optional(),
+  aadhaarMatch: checklistStatus.optional(),
   aadhaarMismatchNote: z.string().optional(),
+
+  pendingDocuments: z.array(z.string()).optional(),
+  rtoSlipUrl: z.string().optional(),
+  rtoSlipFileName: z.string().optional(),
+
+  verification: stageStatus.optional(),
+  approval: stageStatus.optional(),
+  approvalDate: z.string().optional(),
+
+  insuranceEndorsement: stageStatus.optional(),
+  balancePayment: z.number().min(0).optional(),
+
   remarks: z.string().optional(),
+  customFields: z.record(z.string(), z.any()).optional(),
 });
 export type CreateRTODto = z.infer<typeof CreateRTOSchema>;
 

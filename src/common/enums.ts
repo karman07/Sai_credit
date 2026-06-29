@@ -97,13 +97,11 @@ export enum MasterType {
   State = 'state',
   City = 'city',
   RtoOffice = 'rto_office',
-  Department = 'department',
-  Designation = 'designation',
   PolicyType = 'policy_type',
   AddonType = 'addon_type',
-  LeadSource = 'lead_source',
   RenewalStatus = 'renewal_status',
   DocumentType = 'document_type',
+  EnumSet = 'enum_set',
 }
 
 export enum EntityType {
@@ -162,11 +160,6 @@ export enum InvoiceStatus {
   NotSubmitted = 'Not Submitted',
 }
 
-export enum InsuranceOwnerType {
-  Individual = 'Individual',
-  Financer = 'Financer',
-}
-
 export enum ActivityType {
   StatusChange = 'status_change',
   Remark = 'remark',
@@ -178,6 +171,47 @@ export enum ActivityType {
   DocumentRequested = 'document_requested',
   DocumentUploaded = 'document_uploaded',
   Resubmitted = 'resubmitted',
+}
+
+export enum AttendanceStatus {
+  Present = 'present',
+  Absent = 'absent',
+  HalfDay = 'half_day',
+  OnLeave = 'on_leave',
+  Holiday = 'holiday',
+}
+
+export enum LeaveType {
+  Casual = 'casual',
+  Sick = 'sick',
+  Earned = 'earned',
+  Unpaid = 'unpaid',
+}
+
+export enum ClaimType {
+  Travel = 'travel',
+  Food = 'food',
+  Accommodation = 'accommodation',
+  Other = 'other',
+}
+
+export enum ClaimStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+}
+
+export enum LeaveStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+  Cancelled = 'cancelled',
+}
+
+export enum PayrollStatus {
+  Draft = 'draft',
+  Processed = 'processed',
+  Paid = 'paid',
 }
 
 /** Maps ProductType to the caseCode prefix. */

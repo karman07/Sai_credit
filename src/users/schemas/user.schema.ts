@@ -24,12 +24,6 @@ export class User {
   @Prop({ required: true, enum: UserRole })
   role!: UserRole;
 
-  @Prop({ type: Types.ObjectId, ref: 'Master' })
-  departmentId?: Types.ObjectId;
-
-  @Prop({ type: Types.ObjectId, ref: 'Master' })
-  designationId?: Types.ObjectId;
-
   @Prop({ unique: true, sparse: true })
   employeeCode?: string;
 
@@ -50,6 +44,46 @@ export class User {
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy?: Types.ObjectId;
+
+  @Prop({ default: 0 })
+  basicSalary?: number;
+
+  /** House Rent Allowance */
+  @Prop({ default: 0 })
+  hra?: number;
+
+  /** Travel / Conveyance Allowance */
+  @Prop({ default: 0 })
+  travelAllowance?: number;
+
+  /** Dearness Allowance */
+  @Prop({ default: 0 })
+  da?: number;
+
+  /** Medical Allowance */
+  @Prop({ default: 0 })
+  medicalAllowance?: number;
+
+  /** Any other miscellaneous allowance */
+  @Prop({ default: 0 })
+  otherAllowance?: number;
+
+  @Prop()
+  designation?: string;
+
+  @Prop()
+  department?: string;
+
+  @Prop()
+  joiningDate?: Date;
+
+  /** Total paid leave days allotted per year (default 12) */
+  @Prop({ default: 12 })
+  annualLeaveQuota?: number;
+
+  /** Remaining paid leave days for the current year */
+  @Prop({ default: 12 })
+  leaveBalance?: number;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

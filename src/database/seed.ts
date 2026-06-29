@@ -58,9 +58,6 @@ const MASTERS: M[] = [
     ['Taxi / Cab', 'commercial'], ['Goods Carrier', 'commercial'],
     ['Bus', 'heavy'], ['Truck', 'heavy'], ['Tractor', 'special'],
   ].map(([name, category], i) => ({ type: 'vehicle_type', name, category, sortOrder: i })),
-  // lead sources
-  ...['Walk-in', 'Referral', 'Telecalling', 'Existing Customer', 'Dealer Tie-up', 'Online', 'Renewal']
-    .map((name, i) => ({ type: 'lead_source', name, sortOrder: i })),
   // insurance companies
   ...[
     ['HDFC ERGO General Insurance', 'HDFC ERGO'],
@@ -80,14 +77,7 @@ const MASTERS: M[] = [
     ['Axis Bank', 'Axis'], ['Kotak Mahindra Bank', 'Kotak'], ['Bajaj Finserv', 'Bajaj'],
     ['Mahindra Finance', 'M&M Fin'], ['Tata Capital', 'Tata Cap'],
   ].map(([name, shortName], i) => ({ type: 'bank', name, shortName, sortOrder: i })),
-  // departments
-  ...['Sales', 'Operations', 'Management'].map((name, i) => ({ type: 'department', name, sortOrder: i })),
-  // states
-  ...[
-    ['Maharashtra', 'MH'], ['Delhi', 'DL'], ['Karnataka', 'KA'], ['Tamil Nadu', 'TN'],
-    ['Gujarat', 'GJ'], ['Uttar Pradesh', 'UP'], ['Rajasthan', 'RJ'], ['West Bengal', 'WB'],
-    ['Telangana', 'TG'], ['Haryana', 'HR'], ['Punjab', 'PB'], ['Kerala', 'KL'],
-  ].map(([name, code], i) => ({ type: 'state', name, code, sortOrder: i })),
+  // States & cities are seeded via the geography seed script (fetched from countrystatecity.in)
 ];
 
 const BANKS_DATA = [

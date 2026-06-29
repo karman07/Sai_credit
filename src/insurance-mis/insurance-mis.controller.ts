@@ -12,8 +12,12 @@ export class InsuranceMISController {
 
   @Get()
   @RequirePermissions('insurance.read')
-  list(@Query('expiryDays') expiryDays?: string) {
-    return this.svc.list(expiryDays);
+  list(
+    @Query('expiryDays') expiryDays?: string,
+    @Query('mine') mine?: string,
+    @CurrentUser() actor?: AuthUser,
+  ) {
+    return this.svc.list(expiryDays, mine === 'true', actor?.id);
   }
 
   @Get(':id')

@@ -6,19 +6,11 @@ const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 /** Maps the URL slug (e.g. `insurance-companies`) to a MasterType. */
 export const SLUG_TO_TYPE: Record<string, MasterType> = {
   'insurance-companies': MasterType.InsuranceCompany,
-  banks: MasterType.Bank,
-  'vehicle-types': MasterType.VehicleType,
-  'fuel-types': MasterType.FuelType,
-  states: MasterType.State,
-  cities: MasterType.City,
-  'rto-offices': MasterType.RtoOffice,
-  departments: MasterType.Department,
-  designations: MasterType.Designation,
-  'policy-types': MasterType.PolicyType,
-  'addon-types': MasterType.AddonType,
-  'lead-sources': MasterType.LeadSource,
-  'renewal-statuses': MasterType.RenewalStatus,
-  'document-types': MasterType.DocumentType,
+  'vehicle-types':       MasterType.VehicleType,
+  states:                MasterType.State,
+  cities:                MasterType.City,
+  'document-types':      MasterType.DocumentType,
+  'enum-sets':           MasterType.EnumSet,
 };
 
 export const CreateMasterSchema = z.object({

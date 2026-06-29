@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { RTOTrackerService } from './rto-tracker.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -36,8 +39,9 @@ export class RTOTrackerController {
   update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateRTOSchema)) dto: UpdateRTODto,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.svc.update(id, dto);
+    return this.svc.update(id, dto, actor);
   }
 
   @Put('by-case/:caseId')
@@ -48,5 +52,27 @@ export class RTOTrackerController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.svc.upsertByCaseId(caseId, dto, actor);
+  }
+
+  @Post(':id/upload-slip')
+  @RequirePermissions('rto.update')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: './uploads',
+      filename: (req, file, cb) => {
+        const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        cb(null, `rto-slip-${unique}${extname(file.originalname)}`);
+      },
+    }),
+  }))
+  uploadSlip(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.update(id, {
+      rtoSlipUrl: `/uploads/${file.filename}`,
+      rtoSlipFileName: file.originalname,
+    }, actor);
   }
 }
