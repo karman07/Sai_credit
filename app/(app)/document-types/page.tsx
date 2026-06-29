@@ -7,7 +7,8 @@ import {
   SectionHeader, ConfirmDialog, Pagination, EmptyState, Skeleton,
   useToast,
 } from "../../../components/ui";
-import { mastersApi, type DocumentType } from "../../../lib/api";
+import { mastersApi, type MasterItem } from "../../../lib/api";
+type DocumentType = MasterItem;
 
 export default function DocumentTypesPage() {
   const toast = useToast();

@@ -1,45 +1,51 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Download, Filter, X, Eye, FileText, Calendar, Building2, Users, MapPin, Banknote, UserCheck, CheckCircle2, AlertCircle, UploadCloud, Pencil, Trash2, Edit2, Info, Save, Upload, ExternalLink } from "lucide-react";
 import {
-  Button, Badge, CaseStatusBadge, SearchInput, Drawer, Tabs,
-  Select, Input, Label, Modal, Pagination, EmptyState, Timeline,
+  FileText, Calendar, Building2, Users, MapPin, Banknote,
+  CheckCircle2, AlertCircle, UploadCloud, Pencil, Trash2, Edit2,
+} from "lucide-react";
+import {
+  Button, Badge, CaseStatusBadge, Drawer, Tabs,
+  Select, Input, Label, Modal, EmptyState, Timeline,
   Skeleton, useToast, type CaseStatus,
-} from "../../../components/ui";
+} from "./ui";
 import {
   casesApi, banksApi, dealersApi, usersApi, mastersApi,
-  rtoApi, CASE_STATUSES, PRODUCTS, LOAN_TYPES, API_BASE, PIPELINE_STAGES, RTO_OWNERSHIP_TYPES,
+  rtoApi, formSchemasApi, RTO_OWNERSHIP_TYPES,
+  CASE_STATUSES, PRODUCTS, LOAN_TYPES, API_BASE, PIPELINE_STAGES,
   type LoanCase, type Bank, type Dealer, type Activity,
-  type PageMeta, type SalesUser, type DocumentType, type PipelineItem, type RTORecord,
-} from "../../../lib/api";
+  type SalesUser, type DocumentType, type RTORecord, type SectionDef, type FieldDef,
+} from "../lib/api";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
-function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
 
-// ── RTO drawer form helpers ───────────────────────────────────────────────────
+// ── RTOTab ─────────────────────────────────────────────────────────────────────
+
 const CHECKLIST_OPTS = ["Pending", "Received", "Not Required"] as const;
 const STAGE_OPTS     = ["Pending", "Done"] as const;
 
-type RTODrawerForm = {
+type RTOForm = {
   rtoOwnershipType: string; rtoOwnership: string; rtoReceiving: boolean;
   challanCheck: string; bankNocCheck: string; insuranceCheck: string;
   hypothecation: string; aadhaarMatch: string; aadhaarMismatchNote: string;
-  nocHoldAmt: string; pendingDocuments: string[];
+  nocHoldAmt: string; pendingDocuments: string;
   verification: string; approval: string; approvalDate: string;
   insuranceEndorsement: string; balancePayment: string; remarks: string;
+  customFields: Record<string, string>;
 };
 
-const BLANK_RTO: RTODrawerForm = {
+const RTO_BLANK: RTOForm = {
   rtoOwnershipType: "Banker", rtoOwnership: "Pending", rtoReceiving: false,
   challanCheck: "Pending", bankNocCheck: "Pending", insuranceCheck: "Pending",
   hypothecation: "Pending", aadhaarMatch: "Pending", aadhaarMismatchNote: "",
-  nocHoldAmt: "0", pendingDocuments: [],
+  nocHoldAmt: "0", pendingDocuments: "",
   verification: "Pending", approval: "Pending", approvalDate: "",
   insuranceEndorsement: "Pending", balancePayment: "0", remarks: "",
+  customFields: {},
 };
 
-function rtoRecordToForm(r: RTORecord): RTODrawerForm {
+function rtoRecordToForm(r: RTORecord): RTOForm {
   return {
     rtoOwnershipType:    r.rtoOwnershipType ?? "Banker",
     rtoOwnership:        (r as any).rtoOwnership ?? "Pending",
@@ -51,38 +57,244 @@ function rtoRecordToForm(r: RTORecord): RTODrawerForm {
     aadhaarMatch:        r.aadhaarMatch ?? "Pending",
     aadhaarMismatchNote: r.aadhaarMismatchNote ?? "",
     nocHoldAmt:          String(r.nocHoldAmt ?? 0),
-    pendingDocuments:    r.pendingDocuments ?? [],
+    pendingDocuments:    (r.pendingDocuments ?? []).join(", "),
     verification:        r.verification ?? "Pending",
     approval:            r.approval ?? "Pending",
     approvalDate:        r.approvalDate ? r.approvalDate.substring(0, 10) : "",
     insuranceEndorsement: r.insuranceEndorsement ?? "Pending",
     balancePayment:      String(r.balancePayment ?? 0),
     remarks:             r.remarks ?? "",
+    customFields:        Object.fromEntries(Object.entries(r.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])),
   };
 }
 
-function rtoFormToBody(f: RTODrawerForm, c: { caseCode: string; customer: { firstName: string; lastName?: string } }) {
-  return {
-    caseCode:            c.caseCode,
-    customerName:        `${c.customer.firstName} ${c.customer.lastName ?? ""}`.trim(),
-    rtoOwnershipType:    f.rtoOwnershipType,
-    rtoOwnership:        f.rtoOwnership,
-    rtoReceiving:        f.rtoReceiving,
-    challanCheck:        f.challanCheck,
-    bankNocCheck:        f.bankNocCheck,
-    insuranceCheck:      f.insuranceCheck,
-    hypothecation:       f.hypothecation,
-    aadhaarMatch:        f.aadhaarMatch,
-    aadhaarMismatchNote: f.aadhaarMismatchNote || undefined,
-    nocHoldAmt:          Number(f.nocHoldAmt) || 0,
-    pendingDocuments:    f.pendingDocuments,
-    verification:        f.verification,
-    approval:            f.approval,
-    approvalDate:        f.approvalDate || undefined,
-    insuranceEndorsement: f.insuranceEndorsement,
-    balancePayment:      Number(f.balancePayment) || 0,
-    remarks:             f.remarks || undefined,
-  };
+function RTODynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
+  const cls = "w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:outline-none";
+  if (field.type === "select") return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cls}>
+      <option value="">—</option>
+      {field.options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  if (field.type === "boolean") return (
+    <div className="flex items-center gap-2 pt-1">
+      <input type="checkbox" checked={value === "true"} onChange={e => onChange(e.target.checked ? "true" : "false")} className="size-4 rounded" />
+      <span className="text-sm">{field.label}</span>
+    </div>
+  );
+  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+}
+
+function RTOTab({ caseId, loanCase }: { caseId: string; loanCase: LoanCase }) {
+  const toast = useToast();
+  const [record, setRecord]   = useState<RTORecord | null>(null);
+  const [form, setForm]       = useState<RTOForm>(RTO_BLANK);
+  const [sections, setSections] = useState<SectionDef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.all([rtoApi.list(caseId), formSchemasApi.get("rto")])
+      .then(([rtoRes, schemaRes]) => {
+        if (!alive) return;
+        setSections(schemaRes.data.sections);
+        const rec = rtoRes.data[0] ?? null;
+        setRecord(rec);
+        setForm(rec ? rtoRecordToForm(rec) : { ...RTO_BLANK });
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [caseId]);
+
+  function schemaLabel(key: string, fallback: string) {
+    for (const sec of sections) {
+      const f = sec.fields.find(f => f.key === key && f.isCore);
+      if (f) return f.label;
+    }
+    return fallback;
+  }
+  function sectionTitle(id: string, fallback: string) {
+    return sections.find(s => s.id === id)?.title ?? fallback;
+  }
+  function customFieldsFor(id: string): FieldDef[] {
+    const sec = sections.find(s => s.id === id);
+    return sec ? sec.fields.filter(f => !f.isCore && f.isActive) : [];
+  }
+
+  function sf<K extends keyof RTOForm>(k: K, v: RTOForm[K]) {
+    setForm(prev => ({ ...prev, [k]: v }));
+  }
+  function scf(key: string, val: string) {
+    setForm(prev => ({ ...prev, customFields: { ...prev.customFields, [key]: val } }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const body = {
+        caseCode: loanCase.caseCode,
+        customerName: `${loanCase.customer.firstName} ${loanCase.customer.lastName}`,
+        rtoOwnershipType: form.rtoOwnershipType,
+        rtoOwnership: form.rtoOwnership, rtoReceiving: form.rtoReceiving,
+        challanCheck: form.challanCheck, bankNocCheck: form.bankNocCheck,
+        insuranceCheck: form.insuranceCheck, hypothecation: form.hypothecation,
+        aadhaarMatch: form.aadhaarMatch, aadhaarMismatchNote: form.aadhaarMismatchNote || undefined,
+        nocHoldAmt: Number(form.nocHoldAmt) || 0,
+        pendingDocuments: form.pendingDocuments.split(",").map(s => s.trim()).filter(Boolean),
+        verification: form.verification, approval: form.approval,
+        approvalDate: form.approvalDate || undefined,
+        insuranceEndorsement: form.insuranceEndorsement,
+        balancePayment: Number(form.balancePayment) || 0,
+        remarks: form.remarks || undefined,
+        customFields: form.customFields,
+      };
+      const { data } = await rtoApi.upsertByCase(caseId, body);
+      setRecord(data);
+      toast("success", "RTO saved");
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="animate-pulse space-y-2 pt-2">{[1,2,3].map(i => <div key={i} className="h-10 bg-surface-2 rounded" />)}</div>;
+
+  const inp = "w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:outline-none";
+
+  return (
+    <div className="animate-fadeIn space-y-5">
+
+      {/* Ownership */}
+      <section className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("ownership", "Ownership")}</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label>{schemaLabel("rtoOwnershipType", "Ownership Type")}</Label>
+            <select value={form.rtoOwnershipType} onChange={e => sf("rtoOwnershipType", e.target.value)} className={inp}>
+              {RTO_OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label>{schemaLabel("rtoOwnership", "RTO Ownership")}</Label>
+            <select value={form.rtoOwnership} onChange={e => sf("rtoOwnership", e.target.value)} className={inp}>
+              {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 pt-5">
+            <input type="checkbox" id={`recv-drawer-${caseId}`} checked={form.rtoReceiving} onChange={e => sf("rtoReceiving", e.target.checked)} className="size-4 rounded" />
+            <label htmlFor={`recv-drawer-${caseId}`} className="text-sm font-medium cursor-pointer">{schemaLabel("rtoReceiving", "RTO Receiving")}</label>
+          </div>
+          {customFieldsFor("ownership").map(field => (
+            <div key={field.key}>
+              <Label>{field.label}</Label>
+              <RTODynField field={field} value={form.customFields[field.key] ?? ""} onChange={v => scf(field.key, v)} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Document Checklist */}
+      <section className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("document-checklist", "Document Checklist")}</p>
+        <div className="grid grid-cols-3 gap-3">
+          {([
+            ["challanCheck",   "Challan Check"],
+            ["bankNocCheck",   "Bank NOC"],
+            ["insuranceCheck", "Insurance Check"],
+            ["hypothecation",  "Hypothecation"],
+            ["aadhaarMatch",   "Aadhaar Match"],
+          ] as const).map(([key, fallback]) => (
+            <div key={key}>
+              <Label>{schemaLabel(key, fallback)}</Label>
+              <select value={form[key]} onChange={e => sf(key, e.target.value)} className={inp}>
+                {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          ))}
+          <div>
+            <Label>{schemaLabel("aadhaarMismatchNote", "Aadhaar Mismatch Note")}</Label>
+            <input value={form.aadhaarMismatchNote} onChange={e => sf("aadhaarMismatchNote", e.target.value)} placeholder="Optional note" className={inp} />
+          </div>
+          {customFieldsFor("document-checklist").map(field => (
+            <div key={field.key}>
+              <Label>{field.label}</Label>
+              <RTODynField field={field} value={form.customFields[field.key] ?? ""} onChange={v => scf(field.key, v)} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Pending + Financials */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label>{schemaLabel("pendingDocuments", "Pending Documents")}</Label>
+          <input value={form.pendingDocuments} onChange={e => sf("pendingDocuments", e.target.value)} placeholder="RC, Form 35…" className={inp} />
+        </div>
+        <div>
+          <Label>{schemaLabel("nocHoldAmt", "NOC Hold (₹)")}</Label>
+          <input type="number" value={form.nocHoldAmt} onChange={e => sf("nocHoldAmt", e.target.value)} className={inp} />
+        </div>
+        <div>
+          <Label>{schemaLabel("balancePayment", "Balance Payment (₹)")}</Label>
+          <input type="number" value={form.balancePayment} onChange={e => sf("balancePayment", e.target.value)} className={inp} />
+        </div>
+      </div>
+
+      {/* Verification & Approval */}
+      <section className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("verification-approval", "Verification & Approval")}</p>
+        <div className="grid grid-cols-4 gap-3">
+          {([
+            ["verification",        "Verification"],
+            ["approval",            "Approval"],
+            ["insuranceEndorsement","Insurance Endorsement"],
+          ] as const).map(([key, fallback]) => (
+            <div key={key}>
+              <Label>{schemaLabel(key, fallback)}</Label>
+              <select value={form[key]} onChange={e => sf(key, e.target.value)} className={inp}>
+                {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          ))}
+          <div>
+            <Label>{schemaLabel("approvalDate", "Approval Date")}</Label>
+            <input type="date" value={form.approvalDate} onChange={e => sf("approvalDate", e.target.value)} className={inp} />
+          </div>
+          {customFieldsFor("verification-approval").map(field => (
+            <div key={field.key}>
+              <Label>{field.label}</Label>
+              <RTODynField field={field} value={form.customFields[field.key] ?? ""} onChange={v => scf(field.key, v)} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Remarks + Save */}
+      <div>
+        <Label>{schemaLabel("remarks", "Remarks")}</Label>
+        <textarea
+          className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[52px] mb-3"
+          value={form.remarks}
+          onChange={e => sf("remarks", e.target.value)}
+          placeholder="Optional remarks"
+        />
+        <div className="flex justify-end">
+          <Button size="sm" loading={saving} onClick={save}>
+            {record ? "Update RTO" : "Save RTO"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function fmtDate(d?: string) {
+  return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—";
 }
 
 type EditForm = {
@@ -93,50 +305,39 @@ type EditForm = {
   dealerId: string; payoutPct: string; remarks: string;
 };
 
-export default function CasesPage() {
+const EMPTY_EDIT: EditForm = {
+  firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
+  location: "", state: "", pinCode: "", residentialStatus: "",
+  product: "", loanType: "", vehicleModel: "", regNumber: "",
+  loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+  dealerId: "", payoutPct: "", remarks: "",
+};
+
+interface CaseDrawerProps {
+  caseId: string | null;
+  onClose: () => void;
+  onCaseChange?: () => void;
+}
+
+export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
   const toast = useToast();
-  const [cases, setCases] = useState<LoanCase[]>([]);
-  const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
-  const [loading, setLoading] = useState(true);
-  const [banks, setBanks] = useState<Bank[]>([]);
-  const [dealers, setDealers] = useState<Dealer[]>([]);
-  const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
-  const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
 
-  // Filters
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [bankFilter, setBankFilter] = useState("");
-  const [productFilter, setProductFilter] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
-
-  // UI state
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Core state
   const [drawerCase, setDrawerCase] = useState<LoanCase | null>(null);
   const [drawerTab, setDrawerTab] = useState("overview");
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [bulkStatus, setBulkStatus] = useState("Sales");
-  const [statusGuideOpen, setStatusGuideOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Status change
+  // Interaction state
   const [statusChanging, setStatusChanging] = useState(false);
+  const [pipelineSaving, setPipelineSaving] = useState<string | null>(null);
 
   // Edit modal
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState<EditForm>({
-    firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
-    location: "", state: "", pinCode: "", residentialStatus: "",
-    product: "", loanType: "", vehicleModel: "", regNumber: "",
-    loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    dealerId: "", payoutPct: "", remarks: "",
-  });
+  const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT);
   const [editSaving, setEditSaving] = useState(false);
 
   // Doc modals
-
   const [reqDocsOpen, setReqDocsOpen] = useState(false);
   const [reqDocTypes, setReqDocTypes] = useState<string[]>([]);
   const [reqRemarks, setReqRemarks] = useState("");
@@ -149,86 +350,77 @@ export default function CasesPage() {
   const [upFile, setUpFile] = useState<File | null>(null);
   const [upSaving, setUpSaving] = useState(false);
 
-  // Document Edit state
   const [editDocData, setEditDocData] = useState<{ id: string; fileName: string; remarks: string } | null>(null);
 
-  // Pipeline state
-  const [pipelineSaving, setPipelineSaving] = useState<string | null>(null);
-
-  // RTO state
-  const [drawerRTO, setDrawerRTO] = useState<RTORecord | null>(null);
-  const [rtoForm, setRtoForm] = useState<RTODrawerForm>({ ...BLANK_RTO });
-  const [rtoSaving, setRtoSaving] = useState(false);
-  const [rtoSlipUploading, setRtoSlipUploading] = useState(false);
-
-  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
-
-  const loadStats = useCallback(async () => {
-    try { const { data } = await casesApi.stats(); setStatusCounts(data.statusBreakdown ?? {}); } catch {}
-  }, []);
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { data, meta: m } = await casesApi.listWithMeta({
-        page, limit, search: search || undefined,
-        status: statusFilter !== "All" ? statusFilter : undefined,
-        bankId: bankFilter || undefined,
-        product: productFilter || undefined,
-      });
-      setCases(data as unknown as LoanCase[]);
-      if (m) setMeta(m);
-      loadStats();
-    } catch (e: any) {
-      toast("error", e.message ?? "Failed to load cases");
-    } finally { setLoading(false); }
-  }, [page, limit, search, statusFilter, bankFilter, productFilter, toast, loadStats]);
-
+  // Reference data
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [dealers, setDealers] = useState<Dealer[]>([]);
+  const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
+  const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
+  const [refsLoaded, setRefsLoaded] = useState(false);
 
-  const loadRef = useCallback(async () => {
-    try {
-      const [bl, dl, ul, dtl, citl, stl] = await Promise.all([
-        banksApi.list(), dealersApi.list(),
-        usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
-        mastersApi.list("cities"), mastersApi.list("states"),
-      ]);
-      setBanks(bl.data); setDealers(dl.data);
-      setSalesUsers(ul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
+  // Load reference data once
+  useEffect(() => {
+    if (refsLoaded) return;
+    Promise.all([
+      banksApi.list(), dealersApi.list(),
+      usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
+      mastersApi.list("cities"), mastersApi.list("states"),
+    ]).then(([bl, dl, ul, dtl, citl, stl]) => {
+      setBanks(bl.data);
+      setDealers(dl.data);
+      setSalesUsers(ul.data);
+      setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
-    } catch (e: any) { toast("error", "Failed to load references"); }
-  }, [toast]);
+      setRefsLoaded(true);
+    }).catch(() => {});
+  }, [refsLoaded]);
 
-  useEffect(() => { loadRef(); }, [loadRef]);
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setRtoForm(drawerRTO ? rtoRecordToForm(drawerRTO) : { ...BLANK_RTO }); }, [drawerRTO]);
-
-  async function openDrawer(c: LoanCase) {
-    setDrawerCase(c); setDrawerTab("overview"); setDrawerRTO(null);
-    const [actRes, rtoRes] = await Promise.allSettled([
-      casesApi.activities(c._id),
-      rtoApi.list(c._id),
-    ]);
-    setActivities(actRes.status === "fulfilled" ? (actRes.value.data as unknown as Activity[]) : []);
-    setDrawerRTO(rtoRes.status === "fulfilled" ? (rtoRes.value.data[0] ?? null) : null);
-  }
-
-  async function reloadDrawer(id: string) {
+  // Load case whenever caseId changes
+  const loadCase = useCallback(async (id: string) => {
+    setLoading(true);
+    setDrawerTab("overview");
     try {
-      const [caseRes, actRes, rtoRes] = await Promise.allSettled([
+      const [{ data: c }, { data: acts }] = await Promise.all([
         casesApi.get(id),
         casesApi.activities(id),
-        rtoApi.list(id),
       ]);
-      if (caseRes.status === "fulfilled") setDrawerCase(caseRes.value.data);
-      setActivities(actRes.status === "fulfilled" ? (actRes.value.data as unknown as Activity[]) : []);
-      setDrawerRTO(rtoRes.status === "fulfilled" ? (rtoRes.value.data[0] ?? null) : null);
+      setDrawerCase(c);
+      setActivities(acts as unknown as Activity[]);
+    } catch {
+      toast("error", "Failed to load case");
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, onClose]);
+
+  useEffect(() => {
+    if (caseId) {
+      loadCase(caseId);
+    } else {
+      setDrawerCase(null);
+      setActivities([]);
+    }
+  }, [caseId, loadCase]);
+
+  async function reload() {
+    if (!drawerCase) return;
+    try {
+      const [{ data: c }, { data: acts }] = await Promise.all([
+        casesApi.get(drawerCase._id),
+        casesApi.activities(drawerCase._id),
+      ]);
+      setDrawerCase(c);
+      setActivities(acts as unknown as Activity[]);
+      onCaseChange?.();
     } catch {}
   }
 
-  // ── Status change (admin, any → any) ──────────────────────────────
+  // ── Status change ──────────────────────────────────────────────────
   async function changeStatus(newStatus: string) {
     if (!drawerCase || newStatus === drawerCase.status) return;
     setStatusChanging(true);
@@ -236,14 +428,13 @@ export default function CasesPage() {
       const { data } = await casesApi.updateStatus(drawerCase._id, { status: newStatus });
       setDrawerCase(data);
       toast("success", `Status changed to ${newStatus}`);
-      load();
-      casesApi.activities(drawerCase._id).then(r => setActivities(r.data as unknown as Activity[])).catch(() => {});
+      onCaseChange?.();
     } catch (e: any) { toast("error", e.message ?? "Failed to change status"); }
     finally { setStatusChanging(false); }
   }
 
-  // ── Pipeline stage toggle ──────────────────────────────────────────
-  async function togglePipelineStage(stage: string, current: PipelineItem | undefined) {
+  // ── Pipeline ───────────────────────────────────────────────────────
+  async function togglePipelineStage(stage: string, current: any) {
     if (!drawerCase) return;
     const next = !current || current.status === "Pending" ? "Done" : "Pending";
     setPipelineSaving(stage);
@@ -252,37 +443,13 @@ export default function CasesPage() {
       setDrawerCase(data);
       if (data.status === "Disbursed" && drawerCase.status !== "Disbursed") {
         toast("success", "All stages complete — case auto-disbursed!");
-        load();
+        onCaseChange?.();
       }
     } catch (e: any) { toast("error", e.message ?? "Failed to update stage"); }
     finally { setPipelineSaving(null); }
   }
 
-  async function saveRTO() {
-    if (!drawerCase) return;
-    setRtoSaving(true);
-    try {
-      const { data } = await rtoApi.upsertByCase(drawerCase._id, rtoFormToBody(rtoForm, drawerCase));
-      setDrawerRTO(data);
-      toast("success", "RTO saved");
-    } catch (e: any) { toast("error", e.message ?? "Failed to save RTO"); }
-    finally { setRtoSaving(false); }
-  }
-
-  async function uploadRTOSlip(file: File) {
-    if (!drawerRTO) { toast("error", "Save RTO details first before uploading the slip"); return; }
-    setRtoSlipUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const { data } = await rtoApi.uploadSlip(drawerRTO._id, fd);
-      setDrawerRTO(data);
-      toast("success", "RTO slip uploaded");
-    } catch (e: any) { toast("error", e.message ?? "Upload failed"); }
-    finally { setRtoSlipUploading(false); }
-  }
-
-  // ── Assign case ────────────────────────────────────────────────────
+  // ── Assign ─────────────────────────────────────────────────────────
   async function assignCase(userId: string) {
     if (!drawerCase) return;
     const user = salesUsers.find(u => u._id === userId);
@@ -293,7 +460,7 @@ export default function CasesPage() {
       });
       setDrawerCase(data);
       toast("success", `Assigned to ${user.firstName} ${user.lastName}`);
-      load();
+      onCaseChange?.();
     } catch (e: any) { toast("error", e.message ?? "Failed to assign"); }
   }
 
@@ -303,8 +470,8 @@ export default function CasesPage() {
       firstName: c.customer.firstName ?? "", lastName: c.customer.lastName ?? "",
       fatherName: c.customer.fatherName ?? "", contact: c.customer.contact ?? "",
       altContact: c.customer.altContact ?? "", location: c.customer.location ?? "",
-      state: c.customer.state ?? "",
-      pinCode: c.customer.pinCode ?? "", residentialStatus: c.customer.residentialStatus ?? "",
+      state: c.customer.state ?? "", pinCode: c.customer.pinCode ?? "",
+      residentialStatus: c.customer.residentialStatus ?? "",
       product: c.product ?? "", loanType: (c as any).loanType ?? "",
       vehicleModel: (c as any).vehicleModel ?? "", regNumber: (c as any).regNumber ?? "",
       loanAmount: c.loanAmount ? String(c.loanAmount) : "",
@@ -325,8 +492,8 @@ export default function CasesPage() {
           firstName: editForm.firstName, lastName: editForm.lastName,
           fatherName: editForm.fatherName || undefined, contact: editForm.contact,
           altContact: editForm.altContact || undefined, location: editForm.location || undefined,
-          state: editForm.state || undefined,
-          pinCode: editForm.pinCode || undefined, residentialStatus: editForm.residentialStatus || undefined,
+          state: editForm.state || undefined, pinCode: editForm.pinCode || undefined,
+          residentialStatus: editForm.residentialStatus || undefined,
         },
         product: editForm.product || undefined, loanType: editForm.loanType || undefined,
         vehicleModel: editForm.vehicleModel || undefined, regNumber: editForm.regNumber || undefined,
@@ -341,7 +508,7 @@ export default function CasesPage() {
       setDrawerCase(data);
       toast("success", "Case updated successfully");
       setEditOpen(false);
-      load(); reloadDrawer(drawerCase._id);
+      reload();
     } catch (e: any) { toast("error", e.message ?? "Failed to update case"); }
     finally { setEditSaving(false); }
   }
@@ -356,7 +523,7 @@ export default function CasesPage() {
       const { data } = await casesApi.requestDocs(drawerCase._id, { docTypes: reqDocTypes, remarks: reqRemarks });
       setDrawerCase(data); toast("success", "Documents requested");
       setReqDocsOpen(false); setReqDocTypes([]); setReqRemarks("");
-      load(); reloadDrawer(drawerCase._id);
+      reload();
     } catch (e: any) { toast("error", e.message ?? "Request failed"); }
     finally { setReqSaving(false); }
   }
@@ -373,21 +540,20 @@ export default function CasesPage() {
       formData.append("fileName", upFileName);
       if (upRemarks) formData.append("remarks", upRemarks);
       formData.append("file", upFile);
-
       const { data } = await casesApi.uploadDoc(drawerCase._id, formData);
       setDrawerCase(data); toast("success", "Document uploaded");
       setUploadDocOpen(false); setUpDocType(""); setUpFileName(""); setUpRemarks(""); setUpFile(null);
-      load(); reloadDrawer(drawerCase._id);
+      reload();
     } catch (e: any) { toast("error", e.message ?? "Upload failed"); }
     finally { setUpSaving(false); }
   }
 
   async function handleDeleteDoc(docId: string) {
-    if (!drawerCase || !confirm("Are you sure you want to delete this document?")) return;
+    if (!drawerCase || !confirm("Delete this document?")) return;
     try {
       const { data } = await casesApi.deleteDoc(drawerCase._id, docId);
       setDrawerCase(data); toast("success", "Document deleted");
-      load(); reloadDrawer(drawerCase._id);
+      reload();
     } catch (e: any) { toast("error", e.message ?? "Failed to delete document"); }
   }
 
@@ -395,12 +561,10 @@ export default function CasesPage() {
     if (!drawerCase || !editDocData) return;
     try {
       const { data } = await casesApi.editDoc(drawerCase._id, editDocData.id, {
-        fileName: editDocData.fileName,
-        remarks: editDocData.remarks,
+        fileName: editDocData.fileName, remarks: editDocData.remarks,
       });
       setDrawerCase(data); toast("success", "Document updated");
-      setEditDocData(null);
-      load(); reloadDrawer(drawerCase._id);
+      setEditDocData(null); reload();
     } catch (e: any) { toast("error", e.message ?? "Failed to update document"); }
   }
 
@@ -409,137 +573,29 @@ export default function CasesPage() {
     try {
       const { data } = await casesApi.resolveDocRequest(drawerCase._id, reqId);
       setDrawerCase(data); toast("success", "Request resolved");
-      load(); reloadDrawer(drawerCase._id);
+      reload();
     } catch (e: any) { toast("error", e.message ?? "Failed to resolve"); }
   }
 
-  const hasFilters = bankFilter || productFilter;
-  const statusTabs = [
-    { id: "All", label: "All", count: meta.total },
-    ...CASE_STATUSES.map((s) => ({ id: s, label: s, count: statusCounts[s] ?? 0 })),
-  ];
-  const allSelected = cases.length > 0 && cases.every((c) => selectedIds.has(c._id));
-  function toggleAll() {
-    if (allSelected) { const n = new Set(selectedIds); cases.forEach((c) => n.delete(c._id)); setSelectedIds(n); }
-    else { const n = new Set(selectedIds); cases.forEach((c) => n.add(c._id)); setSelectedIds(n); }
-  }
-
   return (
-    <div className="space-y-4 animate-fadeIn">
-      {/* Header — no New Case button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Case Management</h1>
-          <p className="text-sm text-muted mt-0.5">Track and manage all loan cases</p>
-        </div>
-        <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
-      </div>
-
-      {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-primary-subtle border border-primary/20 rounded-lg animate-fadeIn">
-          <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
-          <Button variant="outline" size="xs" onClick={() => setBulkModalOpen(true)}>Update Status</Button>
-          <Button variant="ghost" size="xs" onClick={() => setSelectedIds(new Set())} className="ml-auto"><X className="size-3" /> Clear</Button>
-        </div>
-      )}
-
-      <div className="card p-0 overflow-hidden">
-        <div className="flex items-center gap-2 p-3 border-b border-border flex-wrap">
-          <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name or case ID…" className="w-64" />
-          <Button variant={filterOpen ? "outline" : "secondary"} size="sm" onClick={() => setFilterOpen((o) => !o)}>
-            <Filter className="size-3.5" /> Filters
-            {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
-          </Button>
-          {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setBankFilter(""); setProductFilter(""); }}><X className="size-3" /> Clear</Button>}
-          <button
-            onClick={() => setStatusGuideOpen(true)}
-            title="How statuses work"
-            className="ml-auto size-7 grid place-items-center rounded-full text-muted hover:text-primary hover:bg-primary/10 transition-colors"
-          >
-            <Info className="size-4" />
-          </button>
-        </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap gap-3 px-4 py-3 bg-surface-2 border-b border-border animate-fadeIn">
-            <div className="flex flex-col gap-1 min-w-[140px]">
-              <Label>Bank</Label>
-              <Select className="!h-8 text-xs" value={bankFilter} onChange={(e) => { setBankFilter(e.target.value); setPage(1); }}>
-                <option value="">All Banks</option>
-                {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1 min-w-[140px]">
-              <Label>Product</Label>
-              <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
-                <option value="">All Products</option>
-                {PRODUCTS.map((p) => <option key={p}>{p}</option>)}
-              </Select>
+    <>
+      <Drawer
+        open={!!caseId}
+        onClose={onClose}
+        title={drawerCase?.caseCode ?? (loading ? "Loading…" : "")}
+        subtitle={drawerCase ? `${drawerCase.customer.firstName} ${drawerCase.customer.lastName} · ${drawerCase.product}` : undefined}
+        width="max-w-3xl"
+      >
+        {loading && (
+          <div className="p-6 space-y-4">
+            <Skeleton className="h-8 w-48" />
+            <div className="grid grid-cols-2 gap-4">
+              {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
             </div>
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <Tabs tabs={statusTabs} active={statusFilter} onChange={(id) => { setStatusFilter(id); setPage(1); }} />
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th className="w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" /></th>
-                <th>Case ID</th><th>Date</th><th>Customer</th><th>Product</th>
-                <th>Bank</th><th>Loan Amount</th><th>Status</th><th>Disbursed</th><th>Assigned To</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 11 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
-                ))
-              ) : cases.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={FileText} title="No cases found" description="Try adjusting the filters or search term." /></td></tr>
-              ) : cases.map((c) => (
-                <tr
-                  key={c._id} className="cursor-pointer" onClick={() => openDrawer(c)}
-                  style={{ borderLeft: c.status === "Incomplete" ? "3px solid var(--orange)" : undefined }}
-                >
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selectedIds.has(c._id)} onChange={() => { const n = new Set(selectedIds); n.has(c._id) ? n.delete(c._id) : n.add(c._id); setSelectedIds(n); }} className="cursor-pointer" />
-                  </td>
-                  <td className="font-mono text-xs text-primary font-semibold">{c.caseCode}</td>
-                  <td className="text-xs text-muted">{fmtDate(c.date)}</td>
-                  <td className="font-medium text-sm">{c.customer.firstName} {c.customer.lastName}</td>
-                  <td className="text-xs text-foreground-secondary">{c.product}</td>
-                  <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
-                  <td className="font-mono text-xs font-semibold">{fmt(c.loanAmount)}</td>
-                  <td><CaseStatusBadge status={c.status} /></td>
-                  <td className="text-xs text-muted">{fmtDate(c.disbursementDate)}</td>
-                  <td className="text-xs font-medium">
-                    {c.assignedToName
-                      ? <span className="flex items-center gap-1 text-foreground-secondary"><UserCheck className="size-3 text-teal" />{c.assignedToName}</span>
-                      : <span className="text-muted/60">Unassigned</span>}
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => openDrawer(c)} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-foreground transition-colors"><Eye className="size-3.5" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <Pagination page={meta.page} totalPages={meta.totalPages || 1} total={meta.total} limit={meta.limit} onPage={setPage} onLimit={(l) => { setLimit(l); setPage(1); }} />
-      </div>
-
-      {/* ── Case detail drawer ─────────────────────────────────────── */}
-      <Drawer
-        open={!!drawerCase}
-        onClose={() => setDrawerCase(null)}
-        title={drawerCase?.caseCode ?? ""}
-        subtitle={drawerCase ? `${drawerCase.customer.firstName} ${drawerCase.customer.lastName} · ${drawerCase.product}` : undefined}
-        width="max-w-3xl"
-      >
-        {drawerCase && (
+        {!loading && drawerCase && (
           <div>
             <Tabs
               tabs={[
@@ -557,9 +613,7 @@ export default function CasesPage() {
               {/* ── Overview ── */}
               {drawerTab === "overview" && (
                 <div className="space-y-5 animate-fadeIn">
-                  {/* Status + Assign row */}
                   <div className="flex items-end justify-between gap-4">
-                    {/* Status change — admin can pick any */}
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Status</p>
                       <div className="flex items-center gap-2">
@@ -574,8 +628,6 @@ export default function CasesPage() {
                         </Select>
                       </div>
                     </div>
-
-                    {/* Assign + Edit */}
                     <div className="flex items-end gap-2">
                       <div className="space-y-1">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Assign Case To</p>
@@ -596,7 +648,6 @@ export default function CasesPage() {
                     </div>
                   </div>
 
-                  {/* Fields grid — matching screenshot style */}
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                     {[
                       { label: "Customer", value: `${drawerCase.customer.firstName} ${drawerCase.customer.lastName}`, icon: Users },
@@ -645,9 +696,7 @@ export default function CasesPage() {
                           disabled={saving || isNA}
                           onClick={() => togglePipelineStage(stage, item)}
                           className={`flex-shrink-0 size-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                            isDone
-                              ? "bg-teal border-teal text-white"
-                              : "border-border hover:border-primary"
+                            isDone ? "bg-teal border-teal text-white" : "border-border hover:border-primary"
                           }`}
                         >
                           {isDone && <CheckCircle2 className="size-3.5" />}
@@ -756,12 +805,10 @@ export default function CasesPage() {
                                 <td className="px-3 py-2 font-medium">{doc.docType}</td>
                                 <td className="px-3 py-2 font-mono text-primary truncate max-w-[130px]">
                                   {doc.url ? (
-                                    <a href={doc.url.startsWith('http') ? doc.url : API_BASE.replace('/api/v1', '') + doc.url} target="_blank" rel="noreferrer" className="hover:underline">
+                                    <a href={doc.url.startsWith("http") ? doc.url : API_BASE.replace("/api/v1", "") + doc.url} target="_blank" rel="noreferrer" className="hover:underline">
                                       {doc.fileName}
                                     </a>
-                                  ) : (
-                                    doc.fileName
-                                  )}
+                                  ) : doc.fileName}
                                 </td>
                                 <td className="px-3 py-2 text-muted">{doc.uploadedByName} · {fmtDate(doc.uploadedAt)}</td>
                                 <td className="px-3 py-2 text-foreground-secondary max-w-[160px] truncate" title={doc.remarks}>{doc.remarks ?? "—"}</td>
@@ -803,170 +850,8 @@ export default function CasesPage() {
               )}
 
               {/* ── RTO ── */}
-              {drawerTab === "rto" && (
-                <div className="animate-fadeIn space-y-5">
-                  {/* ── Ownership ── */}
-                  <section className="space-y-3">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Ownership</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Ownership Type</Label>
-                        <Select value={rtoForm.rtoOwnershipType} onChange={e => setRtoForm(f => ({ ...f, rtoOwnershipType: e.target.value }))}>
-                          {RTO_OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>RTO Ownership</Label>
-                        <Select value={rtoForm.rtoOwnership} onChange={e => setRtoForm(f => ({ ...f, rtoOwnership: e.target.value }))}>
-                          {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input type="checkbox" id="rto-recv" checked={rtoForm.rtoReceiving} onChange={e => setRtoForm(f => ({ ...f, rtoReceiving: e.target.checked }))} className="size-4 rounded" />
-                      <label htmlFor="rto-recv" className="text-sm font-medium cursor-pointer">RTO Receiving</label>
-                    </div>
-                  </section>
-
-                  {/* ── Document Checklist ── */}
-                  <section className="space-y-3">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Document Checklist</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {([
-                        ["challanCheck",   "Challan Check"],
-                        ["bankNocCheck",   "Bank NOC"],
-                        ["insuranceCheck", "Insurance Check"],
-                        ["hypothecation",  "Hypothecation"],
-                        ["aadhaarMatch",   "Aadhaar Match"],
-                      ] as [keyof RTODrawerForm, string][]).map(([key, label]) => (
-                        <div key={key}>
-                          <Label>{label}</Label>
-                          <Select value={rtoForm[key] as string} onChange={e => setRtoForm(f => ({ ...f, [key]: e.target.value }))}>
-                            {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                          </Select>
-                        </div>
-                      ))}
-                      <div>
-                        <Label>Aadhaar Mismatch Note</Label>
-                        <Input value={rtoForm.aadhaarMismatchNote} onChange={e => setRtoForm(f => ({ ...f, aadhaarMismatchNote: e.target.value }))} placeholder="Optional note" />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ── Pending Docs + Financials ── */}
-                  <section className="space-y-3">
-                    <div>
-                      <Label>Pending Documents</Label>
-                      <div className="grid grid-cols-2 gap-1.5 mt-1 max-h-36 overflow-y-auto border border-border rounded-md p-2 bg-surface">
-                        {docTypes.map(dt => {
-                          const checked = rtoForm.pendingDocuments.includes(dt.name);
-                          return (
-                            <label key={dt._id} className="flex items-center gap-2 text-xs cursor-pointer p-1 rounded hover:bg-surface-2 select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => setRtoForm(f => ({
-                                  ...f,
-                                  pendingDocuments: checked
-                                    ? f.pendingDocuments.filter(x => x !== dt.name)
-                                    : [...f.pendingDocuments, dt.name],
-                                }))}
-                              />
-                              {dt.name}
-                            </label>
-                          );
-                        })}
-                        {docTypes.length === 0 && <p className="text-xs text-muted col-span-2 py-1">No document types configured.</p>}
-                      </div>
-                      {rtoForm.pendingDocuments.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {rtoForm.pendingDocuments.map(name => (
-                            <span key={name} className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-warning-subtle text-warning border border-warning-border">
-                              {name}
-                              <button type="button" onClick={() => setRtoForm(f => ({ ...f, pendingDocuments: f.pendingDocuments.filter(x => x !== name) }))} className="ml-0.5 hover:text-red-500">×</button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>NOC Hold (₹)</Label>
-                        <Input type="number" value={rtoForm.nocHoldAmt} onChange={e => setRtoForm(f => ({ ...f, nocHoldAmt: e.target.value }))} />
-                      </div>
-                      <div>
-                        <Label>Balance Payment (₹)</Label>
-                        <Input type="number" value={rtoForm.balancePayment} onChange={e => setRtoForm(f => ({ ...f, balancePayment: e.target.value }))} />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ── Verification & Approval ── */}
-                  <section className="space-y-3">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Verification & Approval</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Verification</Label>
-                        <Select value={rtoForm.verification} onChange={e => setRtoForm(f => ({ ...f, verification: e.target.value }))}>
-                          {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Approval</Label>
-                        <Select value={rtoForm.approval} onChange={e => setRtoForm(f => ({ ...f, approval: e.target.value }))}>
-                          {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Approval Date</Label>
-                        <Input type="date" value={rtoForm.approvalDate} onChange={e => setRtoForm(f => ({ ...f, approvalDate: e.target.value }))} />
-                      </div>
-                      <div>
-                        <Label>Insurance Endorsement</Label>
-                        <Select value={rtoForm.insuranceEndorsement} onChange={e => setRtoForm(f => ({ ...f, insuranceEndorsement: e.target.value }))}>
-                          {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </Select>
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ── RTO Slip ── */}
-                  <section className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">RTO Slip</p>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      {drawerRTO?.rtoSlipUrl ? (
-                        <a href={drawerRTO.rtoSlipUrl.startsWith("http") ? drawerRTO.rtoSlipUrl : API_BASE.replace("/api/v1", "") + drawerRTO.rtoSlipUrl}
-                          target="_blank" rel="noreferrer"
-                          className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium">
-                          <ExternalLink className="size-3.5" /> {drawerRTO.rtoSlipFileName ?? "View Slip"}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted italic">No slip uploaded</span>
-                      )}
-                      <label className={`cursor-pointer flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md border transition-colors ${rtoSlipUploading ? "opacity-50 pointer-events-none" : "border-border hover:border-primary hover:text-primary"}`}>
-                        <Upload className="size-3" />
-                        {rtoSlipUploading ? "Uploading…" : "Upload Slip"}
-                        <input type="file" className="sr-only" onChange={e => { const f = e.target.files?.[0]; if (f) uploadRTOSlip(f); }} />
-                      </label>
-                    </div>
-                  </section>
-
-                  {/* ── Remarks + Save ── */}
-                  <section>
-                    <Label>Remarks</Label>
-                    <textarea
-                      className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[60px] mb-3"
-                      value={rtoForm.remarks}
-                      onChange={e => setRtoForm(f => ({ ...f, remarks: e.target.value }))}
-                      placeholder="Optional remarks"
-                    />
-                    <div className="flex justify-end">
-                      <Button size="sm" loading={rtoSaving} onClick={saveRTO}>
-                        <Save className="size-3.5" /> {drawerRTO ? "Update RTO" : "Save RTO"}
-                      </Button>
-                    </div>
-                  </section>
-                </div>
+              {drawerTab === "rto" && drawerCase && (
+                <RTOTab caseId={drawerCase._id} loanCase={drawerCase} />
               )}
 
               {/* ── Activity ── */}
@@ -981,18 +866,6 @@ export default function CasesPage() {
           </div>
         )}
       </Drawer>
-
-      {/* ── Bulk Status Update ─────────────────────────────────────── */}
-      <Modal open={bulkModalOpen} onClose={() => setBulkModalOpen(false)} title="Bulk Update Status" size="sm">
-        <div className="space-y-4">
-          <p className="text-sm text-muted">Update status for {selectedIds.size} selected cases.</p>
-          <div><Label>New Status</Label><Select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>{CASE_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="secondary" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
-            <Button size="sm" onClick={() => { setBulkModalOpen(false); setSelectedIds(new Set()); }}>Update {selectedIds.size} Cases</Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* ── Request More Documents ─────────────────────────────────── */}
       <Modal open={reqDocsOpen} onClose={() => setReqDocsOpen(false)} title="Request More Documents" size="md">
@@ -1029,19 +902,16 @@ export default function CasesPage() {
       {/* ── Upload Document ────────────────────────────────────────── */}
       <Modal open={uploadDocOpen} onClose={() => setUploadDocOpen(false)} title="Upload Document" size="md">
         <div className="space-y-4">
-          <div>
-            <Label>Document Type *</Label>
+          <div><Label>Document Type *</Label>
             <Select value={upDocType} onChange={(e) => setUpDocType(e.target.value)}>
               <option value="">Select document type...</option>
               {docTypes.map((dt) => <option key={dt._id} value={dt.name}>{dt.name}</option>)}
             </Select>
           </div>
-          <div>
-            <Label>File Name *</Label>
+          <div><Label>File Name *</Label>
             <Input value={upFileName} onChange={(e) => setUpFileName(e.target.value)} placeholder="e.g. aadhaar_card.pdf" />
           </div>
-          <div>
-            <Label>File *</Label>
+          <div><Label>File *</Label>
             <Input type="file" onChange={(e) => setUpFile(e.target.files?.[0] || null)} className="pt-1 text-xs" />
           </div>
           <div>
@@ -1058,24 +928,22 @@ export default function CasesPage() {
         </div>
       </Modal>
 
-      {/* ── Edit Case Modal (full details) ────────────────────────── */}
+      {/* ── Edit Case ─────────────────────────────────────────────── */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Case Details" size="xl">
         <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
-
-          {/* Customer */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Customer Information</p>
             <div className="grid grid-cols-3 gap-3">
-              <div><Label>First Name *</Label><Input value={editForm.firstName} onChange={(e) => setEditForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
-              <div><Label>Last Name *</Label><Input value={editForm.lastName} onChange={(e) => setEditForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
-              <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
-              <div><Label>Contact *</Label><Input value={editForm.contact} onChange={(e) => setEditForm(p => ({ ...p, contact: e.target.value }))} placeholder="+91…" /></div>
-              <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm(p => ({ ...p, altContact: e.target.value }))} placeholder="Alt number" /></div>
+              <div><Label>First Name *</Label><Input value={editForm.firstName} onChange={(e) => setEditForm(p => ({ ...p, firstName: e.target.value }))} /></div>
+              <div><Label>Last Name *</Label><Input value={editForm.lastName} onChange={(e) => setEditForm(p => ({ ...p, lastName: e.target.value }))} /></div>
+              <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm(p => ({ ...p, fatherName: e.target.value }))} /></div>
+              <div><Label>Contact *</Label><Input value={editForm.contact} onChange={(e) => setEditForm(p => ({ ...p, contact: e.target.value }))} /></div>
+              <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm(p => ({ ...p, altContact: e.target.value }))} /></div>
               <div>
                 <Label>State</Label>
                 <Select value={editForm.state} onChange={(e) => setEditForm(p => ({ ...p, state: e.target.value }))}>
                   <option value="">Select state…</option>
-                  {states.map(s => <option key={s} value={s}>{s}</option>)}
+                  {states.map(s => <option key={s}>{s}</option>)}
                 </Select>
               </div>
               <div>
@@ -1083,7 +951,7 @@ export default function CasesPage() {
                 {cities.length > 0 ? (
                   <Select value={editForm.location} onChange={(e) => setEditForm(p => ({ ...p, location: e.target.value }))}>
                     <option value="">Select city…</option>
-                    {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                    {cities.map(c => <option key={c}>{c}</option>)}
                   </Select>
                 ) : (
                   <Input value={editForm.location} onChange={(e) => setEditForm(p => ({ ...p, location: e.target.value }))} placeholder="City / Area" />
@@ -1100,7 +968,6 @@ export default function CasesPage() {
             </div>
           </div>
 
-          {/* Loan Details */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
             <div className="grid grid-cols-3 gap-3">
@@ -1118,13 +985,12 @@ export default function CasesPage() {
                   {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
                 </Select>
               </div>
-              <div><Label>Loan Amount</Label><Input type="number" value={editForm.loanAmount} onChange={(e) => setEditForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
+              <div><Label>Loan Amount</Label><Input type="number" value={editForm.loanAmount} onChange={(e) => setEditForm(p => ({ ...p, loanAmount: e.target.value }))} /></div>
               <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
               <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
             </div>
           </div>
 
-          {/* Bank & Dealer */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
             <div className="grid grid-cols-3 gap-3">
@@ -1135,10 +1001,10 @@ export default function CasesPage() {
                   {banks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
                 </Select>
               </div>
-              <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
-              <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-              <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
-              <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
+              <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm(p => ({ ...p, bankBranch: e.target.value }))} /></div>
+              <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm(p => ({ ...p, bmName: e.target.value }))} /></div>
+              <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm(p => ({ ...p, bmContact: e.target.value }))} /></div>
+              <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm(p => ({ ...p, bankExecutive: e.target.value }))} /></div>
               <div>
                 <Label>Dealer</Label>
                 <Select value={editForm.dealerId} onChange={(e) => setEditForm(p => ({ ...p, dealerId: e.target.value }))}>
@@ -1146,39 +1012,30 @@ export default function CasesPage() {
                   {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
                 </Select>
               </div>
-              <div><Label>Payout %</Label><Input type="number" min="0" max="100" value={editForm.payoutPct} onChange={(e) => setEditForm(p => ({ ...p, payoutPct: e.target.value }))} placeholder="0" /></div>
+              <div><Label>Payout %</Label><Input type="number" min="0" max="100" value={editForm.payoutPct} onChange={(e) => setEditForm(p => ({ ...p, payoutPct: e.target.value }))} /></div>
             </div>
           </div>
 
-          {/* Remarks */}
           <div>
             <Label>Remarks</Label>
             <textarea
               className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[70px] mt-1"
               value={editForm.remarks} onChange={(e) => setEditForm(p => ({ ...p, remarks: e.target.value }))}
-              placeholder="Any additional remarks..."
             />
           </div>
         </div>
-
         <div className="flex gap-2 justify-end border-t border-border pt-4 mt-4">
           <Button variant="secondary" size="sm" onClick={() => setEditOpen(false)}>Cancel</Button>
           <Button size="sm" loading={editSaving} onClick={saveEdit}>Save Changes</Button>
         </div>
       </Modal>
 
-      {/* Edit Document Modal */}
+      {/* ── Edit Document ──────────────────────────────────────────── */}
       <Modal open={!!editDocData} onClose={() => setEditDocData(null)} title="Edit Document" size="sm">
         {editDocData && (
           <div className="space-y-4">
-            <div>
-              <Label>File Name</Label>
-              <Input value={editDocData.fileName} onChange={(e) => setEditDocData({ ...editDocData, fileName: e.target.value })} />
-            </div>
-            <div>
-              <Label>Remarks</Label>
-              <Input value={editDocData.remarks} onChange={(e) => setEditDocData({ ...editDocData, remarks: e.target.value })} />
-            </div>
+            <div><Label>File Name</Label><Input value={editDocData.fileName} onChange={(e) => setEditDocData({ ...editDocData, fileName: e.target.value })} /></div>
+            <div><Label>Remarks</Label><Input value={editDocData.remarks} onChange={(e) => setEditDocData({ ...editDocData, remarks: e.target.value })} /></div>
             <div className="flex gap-2 justify-end">
               <Button variant="secondary" size="sm" onClick={() => setEditDocData(null)}>Cancel</Button>
               <Button size="sm" onClick={handleEditDocSubmit}>Save Changes</Button>
@@ -1186,58 +1043,6 @@ export default function CasesPage() {
           </div>
         )}
       </Modal>
-
-      {/* Status guide dialog */}
-      <Modal open={statusGuideOpen} onClose={() => setStatusGuideOpen(false)} title="Case Status Reference" size="xl">
-        <div className="space-y-4">
-          {/* Flow strip */}
-          <div className="rounded-lg bg-surface-2 border border-border px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2">Main Flow</p>
-            <div className="flex items-center flex-wrap gap-1">
-              {["Draft", "Sales", "Pending", "In Credit", "Approved", "Disbursed"].map((s, i, arr) => (
-                <div key={s} className="flex items-center gap-1">
-                  <CaseStatusBadge status={s as CaseStatus} />
-                  {i < arr.length - 1 && <span className="text-muted text-xs">→</span>}
-                </div>
-              ))}
-            </div>
-            <p className="text-[10px] text-muted mt-2">
-              Side exits available from most stages: &nbsp;
-              <span className="font-mono">Incomplete ↔ Pending</span> &nbsp;·&nbsp;
-              <span className="font-mono">Hold · Rejected · Cancelled</span>
-            </p>
-          </div>
-
-          {/* Status cards — 2 columns */}
-          <div className="grid grid-cols-2 gap-2">
-            {STATUS_GUIDE.map((s) => (
-              <div key={s.status} className="flex gap-3 p-3 rounded-lg border border-border bg-surface-2 hover:bg-surface-3 transition-colors">
-                <span className={`mt-1 shrink-0 size-2 rounded-full ${s.dot}`} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="font-semibold text-sm leading-tight">{s.status}</p>
-                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${s.chip}`}>{s.tag}</span>
-                  </div>
-                  <p className="text-xs text-muted leading-snug">{s.note}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Modal>
-    </div>
+    </>
   );
 }
-
-const STATUS_GUIDE = [
-  { status: "Draft",      dot: "bg-neutral-400",  tag: "Start",    chip: "bg-neutral-100 text-neutral-500",     note: "Case saved but not yet submitted. Incomplete info is allowed." },
-  { status: "Sales",      dot: "bg-blue-400",     tag: "Active",   chip: "bg-blue-50 text-blue-600",            note: "Submitted by sales, awaiting review by the operations team." },
-  { status: "Pending",    dot: "bg-yellow-400",   tag: "Active",   chip: "bg-yellow-50 text-yellow-700",        note: "Under review by operations or credit. Awaiting further action." },
-  { status: "In Credit",  dot: "bg-purple-400",   tag: "Active",   chip: "bg-purple-50 text-purple-600",        note: "File sent to the bank's credit department for sanctioning." },
-  { status: "Incomplete", dot: "bg-orange-400",   tag: "Action",   chip: "bg-orange-50 text-orange-600",        note: "Documents missing or deficient. Sales must upload and resubmit." },
-  { status: "Approved",   dot: "bg-green-400",    tag: "Active",   chip: "bg-green-50 text-green-700",          note: "Loan sanctioned by the bank. Awaiting disbursement." },
-  { status: "Disbursed",  dot: "bg-emerald-500",  tag: "Closed",   chip: "bg-emerald-50 text-emerald-700",      note: "Loan disbursed to the customer. Case closed successfully." },
-  { status: "Hold",       dot: "bg-amber-400",    tag: "Paused",   chip: "bg-amber-50 text-amber-700",          note: "Case on hold — awaiting info, legal clearance, or bank decision." },
-  { status: "Rejected",   dot: "bg-red-400",      tag: "Closed",   chip: "bg-red-50 text-red-600",              note: "Loan declined by the bank or credit team. No further action." },
-  { status: "Cancelled",  dot: "bg-neutral-300",  tag: "Closed",   chip: "bg-neutral-100 text-neutral-500",     note: "Case withdrawn by the customer or cancelled by the sales team." },
-];

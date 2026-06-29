@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Moon, Sun, Bell, LogOut, ChevronDown, Search, Settings, User } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Moon, Sun, Bell, LogOut, ChevronDown, Search, Settings, User, Check } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
 import { useTheme } from "../lib/theme";
 import { cn } from "./ui";
+import { notificationsApi, type AppNotification } from "../lib/api";
 
 const ROLE_LABELS: Record<string, string> = {
   owner:      "Owner",
@@ -15,12 +16,16 @@ const ROLE_LABELS: Record<string, string> = {
   auditor:    "Auditor",
 };
 
-const mockNotifications = [
-  { id: "1", type: "payout",    title: "Payout overdue",         desc: "HDFC Bank — Jun invoice pending", time: "2h ago",   unread: true },
-  { id: "2", type: "insurance", title: "Insurance expiring",     desc: "3 policies expire within 30 days", time: "5h ago",   unread: true },
-  { id: "3", type: "document",  title: "Document missing",       desc: "Raj Kumar — Aadhaar address mismatch", time: "1d ago", unread: true },
-  { id: "4", type: "stagnant",  title: "Case stagnant",          desc: "CAR-2026-0112 no update in 7 days", time: "2d ago",  unread: false },
-];
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
+}
 
 export function Topbar() {
   const { user, logout } = useAuth();
@@ -29,7 +34,26 @@ export function Topbar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [searchVal, setSearchVal] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
-  const unread = mockNotifications.filter((n) => n.unread).length;
+
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifs = useCallback(async () => {
+    try {
+      const [listRes, countRes] = await Promise.all([
+        notificationsApi.list(5),
+        notificationsApi.unreadCount(),
+      ]);
+      setNotifications(listRes.data);
+      setUnreadCount(countRes.data.count);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadNotifs();
+    const iv = setInterval(loadNotifs, 60000);
+    return () => clearInterval(iv);
+  }, [loadNotifs]);
 
   const initials = user
     ? (user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "")
@@ -45,6 +69,15 @@ export function Topbar() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  async function markAllRead(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await notificationsApi.markAllRead();
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    } catch {}
+  }
 
   return (
     <header className="h-14 sticky top-0 z-10 flex items-center gap-2 px-5 bg-background/85 backdrop-blur-md border-b border-border">
@@ -80,7 +113,7 @@ export function Topbar() {
             className="size-8 grid place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-foreground transition-colors relative"
           >
             <Bell className="size-[16px]" />
-            {unread > 0 && (
+            {unreadCount > 0 && (
               <span className="absolute top-1 right-1 size-[7px] rounded-full bg-danger border border-background" />
             )}
           </button>
@@ -91,32 +124,35 @@ export function Topbar() {
               <div className="absolute right-0 mt-1 w-80 z-20 card p-0 overflow-hidden animate-slideUp">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <p className="text-sm font-semibold">Notifications</p>
-                  {unread > 0 && (
-                    <span className="text-xs bg-primary-subtle text-primary px-2 py-0.5 rounded-full font-medium">
-                      {unread} new
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {unreadCount > 0 && (
+                      <>
+                        <span className="text-xs bg-primary-subtle text-primary px-2 py-0.5 rounded-full font-medium">
+                          {unreadCount} new
+                        </span>
+                        <button onClick={markAllRead} className="size-6 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-foreground transition-colors" title="Mark all read">
+                          <Check className="size-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div className="divide-y divide-border-subtle max-h-80 overflow-y-auto">
-                  {mockNotifications.map((n) => (
-                    <div key={n.id} className={cn(
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-xs text-muted">No notifications</div>
+                  ) : notifications.map((n) => (
+                    <div key={n._id} className={cn(
                       "flex gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer",
-                      n.unread && "bg-primary-subtle/30",
+                      !n.isRead && "bg-primary/5",
                     )}>
-                      <div className={cn(
-                        "size-8 rounded-full grid place-items-center shrink-0 mt-0.5",
-                        n.type === "payout"    && "bg-warning-subtle text-warning",
-                        n.type === "insurance" && "bg-danger-subtle text-danger",
-                        n.type === "document"  && "bg-orange-subtle text-orange",
-                        n.type === "stagnant"  && "bg-surface-3 text-muted",
-                      )}>
-                        <Bell className="size-3.5" />
+                      <div className="size-8 rounded-full grid place-items-center shrink-0 mt-0.5 bg-surface-2">
+                        <Bell className="size-3.5 text-muted" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={cn("text-sm font-medium truncate", n.unread && "text-foreground")}>{n.title}</p>
-                        <p className="text-xs text-muted truncate">{n.desc}</p>
+                        <p className={cn("text-sm font-medium truncate", !n.isRead && "text-foreground")}>{n.title}</p>
+                        <p className="text-xs text-muted truncate">{n.message}</p>
                       </div>
-                      <span className="text-[10px] text-muted whitespace-nowrap shrink-0">{n.time}</span>
+                      <span className="text-[10px] text-muted whitespace-nowrap shrink-0">{timeAgo(n.createdAt)}</span>
                     </div>
                   ))}
                 </div>

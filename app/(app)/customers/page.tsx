@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Plus, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, X, Users, Edit2 } from "lucide-react";
 import { api, ApiError, PageMeta } from "../../../lib/api";
-import { Button, Input, Badge } from "../../../components/ui";
+import { Button, Input, Badge, Modal, Label, CaseStatusBadge, EmptyState, TableSkeleton, SearchInput, useToast, type CaseStatus } from "../../../components/ui";
+
+const STATUS_TABS = ["All", "Repeat", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"] as const;
 
 interface Customer {
   _id: string;
@@ -17,17 +19,23 @@ interface Customer {
   email?: string;
   tags: string[];
   assignedTo?: { firstName: string; lastName: string } | null;
+  latestCaseStatus?: string;
+  latestCaseCode?: string;
+  totalCases: number;
   createdAt: string;
 }
 
 export default function CustomersPage() {
+  const toast = useToast();
   const [rows, setRows] = useState<Customer[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState(false);
+  const [editTarget, setEditTarget] = useState<Customer | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 300);
@@ -37,7 +45,11 @@ export default function CustomersPage() {
   const load = useCallback(() => {
     setLoading(true);
     api
-      .get<Customer[]>("/customers", { page, limit: 25, search: debounced })
+      .get<Customer[]>("/customers", {
+        page,
+        limit: 25,
+        search: debounced || undefined,
+      })
       .then((r) => {
         setRows(r.data);
         setMeta(r.meta ?? null);
@@ -47,15 +59,23 @@ export default function CustomersPage() {
   }, [page, debounced]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [debounced]);
+  useEffect(() => { setPage(1); }, [debounced, statusFilter]);
+
+  // Client-side filter: "Repeat" means totalCases > 1, others filter by latestCaseStatus
+  const visible = statusFilter === "All"
+    ? rows
+    : statusFilter === "Repeat"
+    ? rows.filter((c) => (c.totalCases ?? 0) > 1)
+    : rows.filter((c) => c.latestCaseStatus === statusFilter);
 
   return (
     <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Customers</h1>
           <p className="text-sm text-muted mt-0.5">
-            {meta ? `${meta.total.toLocaleString("en-IN")} total` : " "}
+            {meta ? `${meta.total.toLocaleString("en-IN")} total` : " "}
           </p>
         </div>
         <Button onClick={() => setDrawer(true)}>
@@ -63,15 +83,29 @@ export default function CustomersPage() {
         </Button>
       </div>
 
-      {/* Toolbar */}
-      <div className="relative max-w-sm">
-        <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, phone, email, code…"
-          className="pl-9"
-        />
+      {/* Search */}
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search name, phone, email, code…"
+        className="max-w-sm"
+      />
+
+      {/* Status filter tabs */}
+      <div className="flex gap-1 flex-wrap">
+        {STATUS_TABS.map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              statusFilter === s
+                ? "bg-primary text-primary-foreground"
+                : "bg-surface-2 text-foreground-secondary hover:bg-surface-3"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
       </div>
 
       {/* Table */}
@@ -83,19 +117,29 @@ export default function CustomersPage() {
                 <Th>Code</Th>
                 <Th>Name</Th>
                 <Th>Phone</Th>
-                <Th>Email</Th>
+                <Th>Latest Case</Th>
+                <Th>Status</Th>
+                <Th>Cases</Th>
                 <Th>Assigned To</Th>
-                <Th>Tags</Th>
                 <Th>Created</Th>
+                <Th></Th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <EmptyRow text="Loading…" />
-              ) : rows.length === 0 ? (
-                <EmptyRow text="No customers found." />
+                <tr>
+                  <td colSpan={8}>
+                    <TableSkeleton rows={8} cols={8} />
+                  </td>
+                </tr>
+              ) : visible.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-16">
+                    <EmptyState icon={Users} title="No customers found" description={search ? "Try a different search term." : "Customers are created automatically when a case is added."} />
+                  </td>
+                </tr>
               ) : (
-                rows.map((c) => (
+                visible.map((c) => (
                   <tr key={c._id} className="border-t border-border hover:bg-surface-2 transition-colors">
                     <Td className="font-mono text-xs">
                       <Link href={`/customers/${c._id}`} className="text-primary hover:underline">
@@ -103,22 +147,41 @@ export default function CustomersPage() {
                       </Link>
                     </Td>
                     <Td className="font-medium">
-                      {c.customerType === "corporate" && c.companyName
-                        ? c.companyName
-                        : `${c.firstName} ${c.lastName}`}
-                    </Td>
-                    <Td className="font-mono text-xs">{c.phone}</Td>
-                    <Td className="text-foreground-secondary">{c.email ?? "—"}</Td>
-                    <Td>
-                      {c.assignedTo ? `${c.assignedTo.firstName} ${c.assignedTo.lastName}` : "—"}
-                    </Td>
-                    <Td>
-                      <div className="flex gap-1 flex-wrap">
-                        {c.tags?.slice(0, 2).map((t) => <Badge key={t}>{t}</Badge>)}
+                      <div className="flex items-center gap-2">
+                        <span>
+                          {c.customerType === "corporate" && c.companyName
+                            ? c.companyName
+                            : `${c.firstName} ${c.lastName}`}
+                        </span>
+                        {(c.totalCases ?? 0) > 1 && <Badge tone="warning">Repeat</Badge>}
                       </div>
                     </Td>
+                    <Td className="font-mono text-xs">{c.phone}</Td>
+                    <Td className="font-mono text-xs text-foreground-secondary">
+                      {c.latestCaseCode ? (
+                        <Link href={`/cases?search=${c.latestCaseCode}`} className="text-primary hover:underline">
+                          {c.latestCaseCode}
+                        </Link>
+                      ) : "—"}
+                    </Td>
+                    <Td>
+                      {c.latestCaseStatus
+                        ? <CaseStatusBadge status={c.latestCaseStatus as CaseStatus} />
+                        : <span className="text-xs text-muted">No case</span>}
+                    </Td>
+                    <Td>
+                      <span className="inline-flex items-center justify-center size-6 rounded-full bg-surface-2 text-xs font-semibold">
+                        {c.totalCases ?? 0}
+                      </span>
+                    </Td>
+                    <Td>{c.assignedTo ? `${c.assignedTo.firstName} ${c.assignedTo.lastName}` : "—"}</Td>
                     <Td className="text-muted text-xs">
                       {new Date(c.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </Td>
+                    <Td>
+                      <button onClick={() => setEditTarget(c)} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-primary transition-colors">
+                        <Edit2 className="size-3.5" />
+                      </button>
                     </Td>
                   </tr>
                 ))
@@ -130,9 +193,7 @@ export default function CustomersPage() {
         {/* Pagination */}
         {meta && meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border text-sm">
-            <span className="text-muted">
-              Page {meta.page} of {meta.totalPages}
-            </span>
+            <span className="text-muted">Page {meta.page} of {meta.totalPages}</span>
             <div className="flex gap-1">
               <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                 <ChevronLeft className="size-4" />
@@ -145,7 +206,24 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {drawer && <CreateCustomerDrawer onClose={() => setDrawer(false)} onCreated={() => { setDrawer(false); load(); }} />}
+      {drawer && (
+        <CreateCustomerDrawer
+          onClose={() => setDrawer(false)}
+          onCreated={() => { setDrawer(false); load(); }}
+        />
+      )}
+
+      {editTarget && (
+        <EditCustomerModal
+          customer={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={(updated) => {
+            setRows((prev) => prev.map((r) => r._id === updated._id ? { ...r, ...updated } : r));
+            setEditTarget(null);
+            toast("success", "Customer updated — linked cases also updated");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -155,13 +233,6 @@ function Th({ children }: { children: React.ReactNode }) {
 }
 function Td({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <td className={`px-4 py-3 ${className}`}>{children}</td>;
-}
-function EmptyRow({ text }: { text: string }) {
-  return (
-    <tr>
-      <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted">{text}</td>
-    </tr>
-  );
 }
 
 // ── Create drawer ──────────────────────────────────────────────────
@@ -239,5 +310,78 @@ function Field({ label, required, children }: { label: string; required?: boolea
       </label>
       {children}
     </div>
+  );
+}
+
+// ── Edit Customer Modal (admin can edit any customer) ──────────────────────────
+
+function EditCustomerModal({ customer, onClose, onSaved }: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: (c: Customer) => void;
+}) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    firstName: customer.firstName,
+    lastName: customer.lastName,
+    phone: customer.phone,
+    email: customer.email ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setError(null);
+    if (!form.firstName.trim() || !form.phone.trim()) {
+      setError("First name and phone are required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await api.put<Customer>(`/customers/${customer._id}`, {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim() || undefined,
+      });
+      onSaved(data);
+    } catch (e: any) {
+      setError(e.message ?? "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Edit — ${customer.firstName} ${customer.lastName}`} size="md">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>First Name *</Label>
+            <Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} />
+          </div>
+          <div>
+            <Label>Last Name</Label>
+            <Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
+          </div>
+          <div>
+            <Label>Phone *</Label>
+            <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+          </div>
+          <div>
+            <Label>Email</Label>
+            <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="Optional" />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted bg-surface-2 rounded-md px-3 py-2">
+          Changes to name and phone are automatically propagated to all linked cases.
+        </p>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <div className="flex gap-2 justify-end border-t border-border pt-3">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" loading={saving} onClick={save}>Save Changes</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

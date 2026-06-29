@@ -3,15 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Edit2, Power, MapPin, Phone } from "lucide-react";
 import {
-  Button, Badge, Modal, Input, Label, Select, SearchInput,
+  Button, Badge, Modal, Input, Label, SearchInput,
   SectionHeader, ConfirmDialog, Pagination, EmptyState, Skeleton, useToast,
 } from "../../../components/ui";
-import { dealersApi, coordinatorsApi, type Dealer, type Coordinator } from "../../../lib/api";
+import { dealersApi, type Dealer } from "../../../lib/api";
 
 export default function DealersPage() {
   const toast = useToast();
   const [dealers, setDealers] = useState<Dealer[]>([]);
-  const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -20,14 +19,13 @@ export default function DealersPage() {
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const limit = 10;
-  const [form, setForm] = useState({ name: "", contact: "", location: "", coordinatorId: "" });
+  const [form, setForm] = useState({ name: "", contact: "", location: "" });
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [dl, cl] = await Promise.all([dealersApi.list(true), coordinatorsApi.list()]);
-      setDealers(dl.data);
-      setCoordinators(cl.data);
+      const { data } = await dealersApi.list(true);
+      setDealers(data);
     } catch (e: any) {
       toast("error", e.message ?? "Failed to load dealers");
     } finally {
@@ -37,8 +35,8 @@ export default function DealersPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function openAdd() { setForm({ name: "", contact: "", location: "", coordinatorId: "" }); setAddOpen(true); }
-  function openEdit(d: Dealer) { setForm({ name: d.name, contact: d.contact ?? "", location: d.location ?? "", coordinatorId: d.coordinatorId ?? "" }); setEditDealer(d); }
+  function openAdd() { setForm({ name: "", contact: "", location: "" }); setAddOpen(true); }
+  function openEdit(d: Dealer) { setForm({ name: d.name, contact: d.contact ?? "", location: d.location ?? "" }); setEditDealer(d); }
   function closeModal() { setAddOpen(false); setEditDealer(null); }
 
   async function save() {
@@ -110,22 +108,21 @@ export default function DealersPage() {
             <thead>
               <tr>
                 <th>Dealer Name</th><th>Contact</th><th>Location</th>
-                <th>Coordinator</th><th>Status</th><th className="w-20">Actions</th>
+                <th>Status</th><th className="w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
+                  <tr key={i}>{Array.from({ length: 5 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
                 ))
               ) : paged.length === 0 ? (
-                <tr><td colSpan={6}><EmptyState title="No dealers found" description="Add your first dealer partner above." /></td></tr>
+                <tr><td colSpan={5}><EmptyState title="No dealers found" description="Add your first dealer partner above." /></td></tr>
               ) : paged.map((d) => (
                 <tr key={d._id}>
                   <td className="font-semibold text-sm">{d.name}</td>
                   <td><span className="flex items-center gap-1.5 text-xs font-mono"><Phone className="size-3 text-muted" /> {d.contact ?? "—"}</span></td>
                   <td><span className="flex items-center gap-1 text-xs text-foreground-secondary"><MapPin className="size-3 text-muted" /> {d.location ?? "—"}</span></td>
-                  <td className="text-sm text-foreground-secondary">{d.coordinatorName ?? "—"}</td>
                   <td><Badge tone={d.isActive ? "success" : "neutral"} dot>{d.isActive ? "Active" : "Inactive"}</Badge></td>
                   <td>
                     <div className="flex items-center gap-1">
@@ -147,13 +144,6 @@ export default function DealersPage() {
             <div className="col-span-2"><Label>Dealer Name *</Label><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="Dealer business name" /></div>
             <div><Label>Contact</Label><Input value={form.contact} onChange={(e) => setForm((p) => ({ ...p, contact: e.target.value }))} placeholder="+91 XXXXX XXXXX" /></div>
             <div><Label>Location</Label><Input value={form.location} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} placeholder="City" /></div>
-            <div className="col-span-2">
-              <Label>Linked Coordinator</Label>
-              <Select value={form.coordinatorId} onChange={(e) => setForm((p) => ({ ...p, coordinatorId: e.target.value }))}>
-                <option value="">Select coordinator…</option>
-                {coordinators.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
-              </Select>
-            </div>
           </div>
           <div className="flex gap-2 justify-end border-t border-border pt-3">
             <Button variant="secondary" size="sm" onClick={closeModal}>Cancel</Button>

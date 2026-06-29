@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, Download, FileText, IndianRupee, ShieldCheck, Users, Building2, TrendingUp } from "lucide-react";
+import { BarChart3, Download, FileText, IndianRupee, ShieldCheck, Building2, TrendingUp } from "lucide-react";
 import { Button, Badge, Input, Label, SectionHeader, Pagination } from "../../../components/ui";
 
 interface ReportType {
@@ -10,11 +10,10 @@ interface ReportType {
 }
 
 const REPORT_TYPES: ReportType[] = [
-  { id: "disbursement", title: "Disbursement Report", description: "All disbursed loans by bank, product, and coordinator", icon: IndianRupee, accent: "text-success" },
+  { id: "disbursement", title: "Disbursement Report", description: "All disbursed loans by bank, product, and dealer", icon: IndianRupee, accent: "text-success" },
   { id: "rejection",    title: "Rejection Analysis",  description: "Rejected case breakdown with reason classification",  icon: TrendingUp,  accent: "text-danger" },
   { id: "payout",       title: "Payout Reconciliation", description: "Commission vs received payout matching",           icon: BarChart3,   accent: "text-primary" },
   { id: "insurance",    title: "Insurance Expiry",    description: "Upcoming and expired insurance policy list",         icon: ShieldCheck, accent: "text-warning" },
-  { id: "coordinator",  title: "Coordinator Performance", description: "Case count, conversion, and disbursement per coordinator", icon: Users, accent: "text-purple" },
   { id: "bank",         title: "Bank Performance",    description: "Volume and approval rate per lending partner",       icon: Building2,   accent: "text-info" },
 ];
 
@@ -50,14 +49,6 @@ const PREVIEW_DATA: Record<string, { headers: string[]; rows: string[][] }> = {
       ["CAR-2026-0101", "Raj Kumar",    "ICICI Lombard", "14 Jun 2026", "2 days"],
       ["CAR-2026-0071", "Deepa Nair",   "HDFC Ergo",     "21 Jun 2026", "9 days"],
       ["CAR-2026-0098", "Priya Sharma", "HDFC Ergo",     "19 May 2026", "Expired"],
-    ],
-  },
-  coordinator: {
-    headers: ["Coordinator", "Total Cases", "Disbursed", "Conversion %", "Disbursed Amt"],
-    rows: [
-      ["Arjun Mehta",  "24", "19", "79%", "₹2.1Cr"],
-      ["Kavya Reddy",  "19", "14", "73%", "₹1.7Cr"],
-      ["Sanjay Kumar", "16", "11", "68%", "₹1.4Cr"],
     ],
   },
   bank: {
