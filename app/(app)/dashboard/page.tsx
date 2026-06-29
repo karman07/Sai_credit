@@ -43,7 +43,7 @@ export default function SalesDashboard() {
           <h1 className="text-xl font-bold tracking-tight">{greeting}, {user?.firstName ?? "Sales"} 👋</h1>
           <p className="text-sm text-muted mt-0.5">{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
         </div>
-        <Link href="/new-lead" className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-hover transition-colors">
+        <Link href="?new-lead=true" className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-hover transition-colors">
           <Plus className="size-3.5" /> New Lead
         </Link>
       </div>

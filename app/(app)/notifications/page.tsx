@@ -1,78 +1,180 @@
 "use client";
 
-import { useState } from "react";
-import { Bell, FileText, TrendingUp, Clock, X } from "lucide-react";
-import { Badge, Tabs } from "../../../components/ui";
+import { useState, useEffect } from "react";
+import {
+  Bell, FileText, TrendingUp, Clock, CheckCircle2, XCircle,
+  IndianRupee, Award, CalendarCheck, CalendarX, Receipt, ReceiptText,
+} from "lucide-react";
+import { notificationsApi, type Notification } from "../../../lib/api";
 import { cn } from "../../../components/ui";
 
-const NOTIFICATIONS = [
-  { id: "n1", type: "document",  title: "Document pending",    desc: "Upload Aadhaar for CAR-2026-0145 to proceed.", time: "1h ago",  unread: true,  caseId: "CAR-2026-0145" },
-  { id: "n2", type: "status",    title: "Status updated",      desc: "PL-2026-0139 moved to Approved by credit team.", time: "3h ago",  unread: true,  caseId: "PL-2026-0139" },
-  { id: "n3", type: "followup",  title: "Follow-up due",       desc: "Call Vikram Patel — BT-2026-0144 is on Hold.", time: "5h ago",  unread: true,  caseId: "BT-2026-0144" },
-  { id: "n4", type: "status",    title: "Case disbursed",      desc: "Raj Kumar's CAR-2026-0148 has been disbursed.", time: "1d ago",  unread: false, caseId: "CAR-2026-0148" },
-  { id: "n5", type: "document",  title: "Documents approved",  desc: "All docs for CAR-2026-0147 are verified.", time: "2d ago",  unread: false, caseId: "CAR-2026-0147" },
-];
+type NotifCategory = "all" | "unread" | "hr" | "case";
 
-const TYPE_ICON = { document: FileText, status: TrendingUp, followup: Clock };
-const TYPE_ICON_CLASS: Record<string, string> = {
-  document: "bg-warning-subtle text-warning",
-  status:   "bg-success-subtle text-success",
-  followup: "bg-info-subtle text-info",
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins  = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 2)  return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+const HR_TYPES = new Set([
+  "leave_approved", "leave_rejected",
+  "claim_approved", "claim_rejected",
+  "payroll_paid", "incentive_added",
+]);
+
+function isHR(type: string) { return HR_TYPES.has(type); }
+
+const TYPE_CONFIG: Record<string, { icon: typeof Bell; bg: string; text: string }> = {
+  leave_approved:   { icon: CalendarCheck, bg: "bg-green-100",  text: "text-green-700" },
+  leave_rejected:   { icon: CalendarX,     bg: "bg-red-100",    text: "text-red-600" },
+  claim_approved:   { icon: Receipt,       bg: "bg-green-100",  text: "text-green-700" },
+  claim_rejected:   { icon: ReceiptText,   bg: "bg-red-100",    text: "text-red-600" },
+  payroll_paid:     { icon: IndianRupee,   bg: "bg-blue-100",   text: "text-blue-700" },
+  incentive_added:  { icon: Award,         bg: "bg-yellow-100", text: "text-yellow-700" },
+  insurance_reminder: { icon: Bell,        bg: "bg-orange-100", text: "text-orange-700" },
+  pipeline_complete:  { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
+  rto_complete:       { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
+  stagnant_case:      { icon: Clock,        bg: "bg-yellow-100", text: "text-yellow-700" },
+  general:            { icon: Bell,         bg: "bg-surface-2",  text: "text-muted" },
 };
 
-export default function NotificationsPage() {
-  const [tab, setTab] = useState("all");
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+function getConfig(type: string) {
+  return TYPE_CONFIG[type] ?? TYPE_CONFIG["general"];
+}
 
-  const visible = NOTIFICATIONS.filter((n) => !dismissed.has(n.id));
-  const filtered = tab === "all" ? visible : tab === "unread" ? visible.filter((n) => n.unread) : visible.filter((n) => n.type === tab);
+export default function NotificationsPage() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<NotifCategory>("all");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await notificationsApi.list(100);
+      setNotifications(res.data);
+    } catch {
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function markAllRead() {
+    await notificationsApi.markAllRead().catch(() => {});
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+  }
+
+  async function markRead(id: string) {
+    await notificationsApi.markRead(id).catch(() => {});
+    setNotifications((prev) => prev.map((n) => n._id === id ? { ...n, isRead: true } : n));
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const unread    = notifications.filter((n) => !n.isRead);
+  const hrItems   = notifications.filter((n) => isHR(n.type));
+  const caseItems = notifications.filter((n) => !isHR(n.type));
+
+  const tabs: { id: NotifCategory; label: string; count: number }[] = [
+    { id: "all",    label: "All",      count: notifications.length },
+    { id: "unread", label: "Unread",   count: unread.length },
+    { id: "hr",     label: "HR & Pay", count: hrItems.length },
+    { id: "case",   label: "Cases",    count: caseItems.length },
+  ];
+
+  const filtered =
+    tab === "all"    ? notifications :
+    tab === "unread" ? unread :
+    tab === "hr"     ? hrItems :
+    caseItems;
 
   return (
     <div className="space-y-5 animate-fadeIn max-w-2xl">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Notifications</h1>
-        <p className="text-sm text-muted mt-0.5">{visible.filter((n) => n.unread).length} unread alerts</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Notifications</h1>
+          <p className="text-sm text-muted mt-0.5">{unread.length} unread</p>
+        </div>
+        {unread.length > 0 && (
+          <button
+            onClick={markAllRead}
+            className="text-xs font-semibold text-primary hover:underline"
+          >
+            Mark all as read
+          </button>
+        )}
       </div>
 
-      <Tabs
-        tabs={[
-          { id: "all",      label: "All",       count: visible.length },
-          { id: "unread",   label: "Unread",    count: visible.filter((n) => n.unread).length },
-          { id: "document", label: "Documents", count: visible.filter((n) => n.type === "document").length },
-          { id: "status",   label: "Status",    count: visible.filter((n) => n.type === "status").length },
-          { id: "followup", label: "Follow-up", count: visible.filter((n) => n.type === "followup").length },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      {/* Tabs */}
+      <div className="flex gap-1 overflow-x-auto border-b border-border">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
+              tab === t.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
+            )}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className={cn(
+                "ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full",
+                tab === t.id ? "bg-primary text-white" : "bg-surface-2 text-muted"
+              )}>
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 ? (
+        {loading ? (
           <div className="card flex items-center justify-center h-28">
+            <p className="text-sm text-muted">Loading…</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card flex flex-col items-center justify-center h-28 gap-2">
+            <Bell className="size-8 text-muted/30" />
             <p className="text-sm text-muted">No notifications here.</p>
           </div>
         ) : filtered.map((n) => {
-          const Icon = TYPE_ICON[n.type as keyof typeof TYPE_ICON];
+          const cfg  = getConfig(n.type);
+          const Icon = cfg.icon;
           return (
-            <div key={n.id} className={cn("card p-4 flex gap-3 animate-fadeIn", n.unread && "border-l-4 border-l-primary bg-primary-subtle/20")}>
-              <div className={`size-8 rounded-full grid place-items-center shrink-0 ${TYPE_ICON_CLASS[n.type]}`}>
+            <button
+              key={n._id}
+              onClick={() => !n.isRead && markRead(n._id)}
+              className={cn(
+                "w-full text-left card p-4 flex gap-3 transition-colors hover:bg-surface-2/40",
+                !n.isRead && "border-l-4 border-l-primary bg-primary-subtle/10"
+              )}
+            >
+              <div className={`size-9 rounded-full grid place-items-center shrink-0 ${cfg.bg} ${cfg.text}`}>
                 <Icon className="size-4" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-semibold">{n.title}</p>
-                  {n.unread && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
+                  {!n.isRead && <span className="size-2 rounded-full bg-primary shrink-0" />}
                 </div>
-                <p className="text-xs text-muted mt-0.5">{n.desc}</p>
-                {n.caseId && <a href="/cases" className="text-xs text-primary hover:underline font-medium mt-1 block">View {n.caseId} →</a>}
+                <p className="text-xs text-muted mt-0.5 leading-relaxed">{n.message}</p>
+                {n.caseCode && (
+                  <span className="text-xs text-primary font-medium mt-1 block">{n.caseCode}</span>
+                )}
               </div>
-              <div className="flex flex-col items-end gap-2 shrink-0">
-                <span className="text-[11px] text-muted">{n.time}</span>
-                <button onClick={() => setDismissed((d) => new Set([...d, n.id]))} className="size-5 grid place-items-center rounded text-muted hover:text-foreground">
-                  <X className="size-3.5" />
-                </button>
-              </div>
-            </div>
+              <span className="text-[11px] text-muted shrink-0 mt-0.5">
+                {timeAgo(n.createdAt)}
+              </span>
+            </button>
           );
         })}
       </div>

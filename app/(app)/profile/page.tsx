@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, Key, User, Phone, Mail, Tag } from "lucide-react";
+import { Moon, Sun, Key, User, Phone, Mail } from "lucide-react";
 import { useAuth } from "../../../lib/auth-context";
 import { useTheme } from "../../../lib/theme";
 import { Button, Input, Label, Badge } from "../../../components/ui";
@@ -57,7 +57,6 @@ export default function ProfilePage() {
             { icon: User,  label: "Last Name",  value: user?.lastName ?? "—"  },
             { icon: Mail,  label: "Email",      value: user?.email ?? "—"     },
             { icon: Phone, label: "Phone",      value: "+91 XXXXX XXXXX"       },
-            { icon: Tag,   label: "Coordinator Tag", value: user?.coordinatorTag ?? "Arjun Mehta Team" },
           ].map((f) => (
             <div key={f.label}>
               <Label>{f.label}</Label>

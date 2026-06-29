@@ -40,7 +40,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Brand panel */}
-      <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-primary/90 to-primary/60 text-primary-foreground dark:from-[#0A1A0A] dark:to-[#0F280F]">
+      <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-primary/90 to-primary/60 text-primary-foreground dark:text-foreground dark:from-[#0A1A0A] dark:to-[#0F280F] dark:border-r dark:border-border">
         <div className="flex items-center gap-2.5">
           <div className="size-9 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
             <Leaf className="size-5" />

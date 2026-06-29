@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, createContext, useContext, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { X, CheckCircle2, XCircle, AlertTriangle, Info, Loader2, Search, Inbox } from "lucide-react";
 
 export function cn(...parts: (string | false | null | undefined)[]) {
@@ -81,10 +82,11 @@ export function Badge({ tone = "neutral", dot, className, children }: { tone?: B
   );
 }
 
-export type CaseStatus = "Sales" | "Pending" | "In Credit" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
+export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
 const caseStatusTones: Record<CaseStatus, BadgeTone> = {
-  "Sales": "info", "Pending": "warning", "In Credit": "purple", "Approved": "success",
-  "Disbursed": "success", "Hold": "orange", "Rejected": "danger", "Cancelled": "neutral",
+  "Draft": "neutral", "Sales": "info", "Pending": "warning", "In Credit": "purple",
+  "Incomplete": "orange", "Approved": "success",
+  "Disbursed": "success", "Hold": "warning", "Rejected": "danger", "Cancelled": "neutral",
 };
 export function CaseStatusBadge({ status }: { status: CaseStatus }) {
   return <Badge tone={caseStatusTones[status]} dot>{status}</Badge>;
@@ -115,8 +117,8 @@ export function Modal({ open, onClose, title, description, size = "md", children
   const sizeClass = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-2xl" }[size];
   useEffect(() => { if (open) document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, [open]);
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  const content = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
       <div className={cn("relative w-full card animate-slideUp p-0 overflow-hidden", sizeClass)}>
         {(title || description) && (
@@ -132,6 +134,8 @@ export function Modal({ open, onClose, title, description, size = "md", children
       </div>
     </div>
   );
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
 
 // ── Toast ────────────────────────────────────────────────────────────
@@ -156,7 +160,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => {
           const Icon = toastIcons[t.type];
           return (
@@ -191,7 +195,7 @@ export function SearchInput({ value, onChange, placeholder = "Search…", classN
   return (
     <div className={cn("relative", className)}>
       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted pointer-events-none" />
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="pl-8" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="!pl-8 bg-surface-2 focus:bg-surface transition-colors" />
     </div>
   );
 }

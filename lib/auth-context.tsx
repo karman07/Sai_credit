@@ -2,11 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, tokenStore } from "./api";
+import { api, tokenStore, attendanceApi } from "./api";
 
 export interface AuthUser {
   id: string; email: string; role: string; portal: string;
-  firstName: string; lastName: string; coordinatorTag?: string;
+  firstName: string; lastName: string;
 }
 
 interface AuthContextValue {
@@ -40,11 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
     tokenStore.set(data.accessToken, data.refreshToken);
     setUser(data.user);
+    attendanceApi.clockIn().catch(() => {});
     router.push("/dashboard");
   };
 
   const logout = useCallback(() => {
     const refreshToken = tokenStore.refresh;
+    attendanceApi.clockOut().catch(() => {});
     api.post("/auth/logout", { refreshToken }).catch(() => {});
     tokenStore.clear();
     setUser(null);
