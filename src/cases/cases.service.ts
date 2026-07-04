@@ -7,7 +7,7 @@ import {
   AssignCaseDto, RequestDocsDto, UploadDocDto, EditDocDto,
   UpdatePipelineStageDto,
 } from './cases.dto';
-import { ActivityType, CaseStatus, isSalesRole, PRODUCT_CODE_PREFIX, ProductType } from '../common/enums';
+import { ActivityType, CaseStatus, isSalesRole, PRODUCT_CODE_PREFIX, ProductType, ADMIN_PORTAL_ROLES, UserRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CounterService } from '../common/counter/counter.service';
 import { ActivitiesService } from '../activities/activities.service';
@@ -15,11 +15,13 @@ import { BanksService } from '../banks/banks.service';
 import { DealersService } from '../dealers/dealers.service';
 import { CustomersService } from '../customers/customers.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { User } from '../users/schemas/user.schema';
 
 @Injectable()
 export class CasesService {
   constructor(
     @InjectModel(LoanCase.name) private readonly model: Model<LoanCase>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly counter: CounterService,
     private readonly activities: ActivitiesService,
     private readonly banks: BanksService,
@@ -31,13 +33,17 @@ export class CasesService {
   async list(params: {
     page?: number; limit?: number; search?: string; status?: string;
     bankId?: string; dealerId?: string; product?: string;
-    assignedTo?: string; userId?: string; scopeToUser?: boolean;
+    assignedTo?: string; userId?: string; scopeToUser?: boolean; coordinatorId?: string;
   }) {
-    const { page = 1, limit = 25, search, status, bankId, dealerId, product, assignedTo, userId, scopeToUser } = params;
+    const { page = 1, limit = 25, search, status, bankId, dealerId, product, assignedTo, userId, scopeToUser, coordinatorId } = params;
     const filter: Record<string, any> = { isActive: true };
 
-    // Sales users see cases they created OR were assigned to
-    if (scopeToUser && userId) {
+    // Coordinators only see cases assigned to the sales reps assigned to them
+    if (coordinatorId) {
+      const reps = await this.userModel.find({ coordinatorId: new Types.ObjectId(coordinatorId) }, '_id').lean();
+      filter.assignedTo = { $in: reps.map((r) => r._id) };
+    } else if (scopeToUser && userId) {
+      // Sales users see cases they created OR were assigned to
       const uid = new Types.ObjectId(userId);
       filter.$or = [{ createdBy: uid }, { assignedTo: uid }];
     }
@@ -71,10 +77,40 @@ export class CasesService {
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
-  async findById(id: string) {
+  async findById(id: string, actor?: AuthUser) {
     const doc = await this.model.findOne({ _id: id, isActive: true }).lean();
     if (!doc) throw new NotFoundException('Case not found');
+    if (actor) await this.assertCanAccessCase(actor, doc);
     return doc;
+  }
+
+  /**
+   * Coordinators may only touch cases assigned to a sales rep assigned to them.
+   * Sales-role users (executives, telecallers, RMs) may only touch cases they created or are assigned to.
+   */
+  private async assertCanAccessCase(actor: AuthUser, existing: { assignedTo?: Types.ObjectId; createdBy?: Types.ObjectId }) {
+    if (actor.role === UserRole.Coordinator) {
+      if (!existing.assignedTo) throw new ForbiddenException('You do not have access to this case');
+      const rep = await this.userModel.findById(existing.assignedTo).select('coordinatorId').lean();
+      if (!rep?.coordinatorId || String(rep.coordinatorId) !== actor.id) {
+        throw new ForbiddenException('You do not have access to this case');
+      }
+      return;
+    }
+
+    if (isSalesRole(actor.role)) {
+      const owns = String(existing.createdBy) === actor.id || (!!existing.assignedTo && String(existing.assignedTo) === actor.id);
+      if (!owns) throw new ForbiddenException('You do not have access to this case');
+    }
+  }
+
+  /** Looks up the coordinator overseeing a given sales rep, for denormalizing onto the case. */
+  private async resolveCoordinator(assigneeId: Types.ObjectId): Promise<{ coordinatorId?: Types.ObjectId; coordinatorName?: string }> {
+    const rep = await this.userModel.findById(assigneeId, 'coordinatorId').lean();
+    if (!rep?.coordinatorId) return {};
+    const coordinator = await this.userModel.findById(rep.coordinatorId, 'firstName lastName').lean();
+    if (!coordinator) return {};
+    return { coordinatorId: rep.coordinatorId, coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim() };
   }
 
   async create(dto: CreateCaseDto, actor: AuthUser) {
@@ -139,9 +175,13 @@ export class CasesService {
       assignedToName = `${actor.firstName} ${actor.lastName}`.trim();
     }
 
+    const { coordinatorId, coordinatorName } = assignedTo
+      ? await this.resolveCoordinator(assignedTo)
+      : {};
+
     const created = await this.model.create({
       ...dto, status, caseCode, bankName, dealerName,
-      assignedTo, assignedToName,
+      assignedTo, assignedToName, coordinatorId, coordinatorName,
       createdBy: actor.id, isActive: true,
       documents: [], docRequests: [],
     });
@@ -150,6 +190,44 @@ export class CasesService {
       caseId: created._id, type: ActivityType.Created,
       description: `Case ${caseCode} created` + (status === CaseStatus.Draft ? ' as Draft' : ''), actor,
     });
+
+    // Notify all admin-portal users about the new case (non-blocking)
+    this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, '_id')
+      .lean()
+      .then((admins) => {
+        const adminIds = admins.map((u) => String(u._id));
+        if (adminIds.length) {
+          const customerName = [dto.customer?.firstName, dto.customer?.lastName].filter(Boolean).join(' ');
+          return this.notifications.notifyMany(adminIds, {
+            type: 'new_case',
+            title: 'New case added',
+            message: `${actor.firstName} ${actor.lastName} created case ${caseCode}${customerName ? ` for ${customerName}` : ''}`,
+            caseCode,
+            caseId: String(created._id),
+          });
+        }
+      })
+      .catch(() => { /* non-blocking — don't fail case creation */ });
+
+    // Notify the creator's assigned coordinator, if any (non-blocking)
+    this.userModel
+      .findById(actor.id, 'coordinatorId')
+      .lean()
+      .then((creator) => {
+        if (creator?.coordinatorId) {
+          const customerName = [dto.customer?.firstName, dto.customer?.lastName].filter(Boolean).join(' ');
+          return this.notifications.notify({
+            userId: String(creator.coordinatorId),
+            type: 'new_case',
+            title: 'New case added',
+            message: `${actor.firstName} ${actor.lastName} created case ${caseCode}${customerName ? ` for ${customerName}` : ''}`,
+            caseCode,
+            caseId: String(created._id),
+          });
+        }
+      })
+      .catch(() => { /* non-blocking — don't fail case creation */ });
 
     // Auto-create or update customer record from embedded case customer info
     if (dto.customer?.contact) {
@@ -172,6 +250,7 @@ export class CasesService {
   async update(id: string, dto: UpdateCaseDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const merged = {
       customer: { ...existing.customer, ...dto.customer },
@@ -239,6 +318,7 @@ export class CasesService {
   async updateStatus(id: string, dto: UpdateCaseStatusDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const oldStatus = existing.status;
     const update: Record<string, any> = { status: dto.status };
@@ -268,12 +348,20 @@ export class CasesService {
   async assign(id: string, dto: AssignCaseDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
-    const updated = await this.model.findByIdAndUpdate(
-      id,
-      { assignedTo: new Types.ObjectId(dto.userId), assignedToName: dto.userName },
-      { new: true },
-    ).lean();
+    const newAssignee = new Types.ObjectId(dto.userId);
+    const { coordinatorId, coordinatorName } = await this.resolveCoordinator(newAssignee);
+
+    const update: Record<string, any> = { assignedTo: newAssignee, assignedToName: dto.userName };
+    if (coordinatorId) {
+      update.coordinatorId = coordinatorId;
+      update.coordinatorName = coordinatorName;
+    } else {
+      update.$unset = { coordinatorId: '', coordinatorName: '' };
+    }
+
+    const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).lean();
 
     await this.activities.log({
       caseId: id, type: ActivityType.Assigned,
@@ -285,6 +373,7 @@ export class CasesService {
   async requestDocs(id: string, dto: RequestDocsDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const oldStatus = existing.status;
     const docRequest = {
@@ -317,6 +406,7 @@ export class CasesService {
   async uploadDoc(id: string, dto: UploadDocDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const doc = {
       _id: new Types.ObjectId(),
@@ -345,6 +435,7 @@ export class CasesService {
   async editDoc(id: string, docId: string, dto: EditDocDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const updateFields: any = {};
     if (dto.fileName) updateFields['documents.$[doc].fileName'] = dto.fileName;
@@ -366,6 +457,7 @@ export class CasesService {
   async deleteDoc(id: string, docId: string, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const doc = existing.documents.find(d => String((d as any)._id) === docId);
 
@@ -385,6 +477,7 @@ export class CasesService {
   async resolveDocRequest(caseId: string, requestId: string, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: caseId, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     const updated = await this.model.findByIdAndUpdate(
       caseId,
@@ -407,6 +500,7 @@ export class CasesService {
   async submitForVerification(id: string, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
 
     if (existing.status !== CaseStatus.Incomplete) {
       throw new BadRequestException('Case must be in Incomplete status to submit for verification');
@@ -430,6 +524,7 @@ export class CasesService {
   async updatePipelineStage(id: string, stage: string, dto: UpdatePipelineStageDto, actor: AuthUser) {
     const doc = await this.model.findOne({ _id: id, isActive: true });
     if (!doc) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, doc);
 
     const validStage = (PIPELINE_STAGES as readonly string[]).includes(stage);
     if (!validStage) throw new BadRequestException(`Unknown pipeline stage: ${stage}`);

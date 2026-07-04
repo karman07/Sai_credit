@@ -44,6 +44,14 @@ export class NotificationsService {
     ).lean();
   }
 
+  async markUnread(id: string, userId: string) {
+    return this.model.findOneAndUpdate(
+      { _id: id, userId: new Types.ObjectId(userId) },
+      { isRead: false },
+      { new: true },
+    ).lean();
+  }
+
   async markAllRead(userId: string) {
     await this.model.updateMany({ userId: new Types.ObjectId(userId), isRead: false }, { isRead: true });
     return { ok: true };
@@ -52,5 +60,20 @@ export class NotificationsService {
   async unreadCount(userId: string) {
     const count = await this.model.countDocuments({ userId: new Types.ObjectId(userId), isRead: false });
     return { count };
+  }
+
+  async notifyMany(userIds: string[], params: Omit<CreateNotifParams, 'userId'>) {
+    if (!userIds.length) return;
+    await this.model.insertMany(
+      userIds.map(uid => ({
+        userId: new Types.ObjectId(uid),
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        caseId: params.caseId,
+        caseCode: params.caseCode,
+        isRead: false,
+      })),
+    );
   }
 }

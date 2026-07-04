@@ -45,6 +45,10 @@ export class User {
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy?: Types.ObjectId;
 
+  /** For sales-role users: the coordinator responsible for their cases. */
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  coordinatorId?: Types.ObjectId;
+
   @Prop({ default: 0 })
   basicSalary?: number;
 

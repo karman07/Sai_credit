@@ -12,7 +12,7 @@ import { LeavePolicyService } from '../leave-policy/leave-policy.service';
 import {
   AttendanceStatus, PayrollStatus, CaseStatus,
   LeaveType, LeaveStatus,
-  isSalesRole, UserRole,
+  isSelfServiceRole, UserRole,
 } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { GeneratePayrollDto, UpdatePayrollDto } from './payroll.dto';
@@ -218,7 +218,7 @@ export class PayrollService {
     actor: AuthUser,
     query: { userId?: string; month?: string; status?: string; page?: number; limit?: number },
   ) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const filter: Record<string, any> = {};
 
     if (isAdmin && query.userId) {
@@ -256,7 +256,7 @@ export class PayrollService {
       .populate('processedBy', 'firstName lastName')
       .lean();
     if (!payroll) throw new NotFoundException('Payroll record not found');
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     if (!isAdmin && String(payroll.userId) !== actor.id) {
       throw new NotFoundException('Payroll record not found');
     }

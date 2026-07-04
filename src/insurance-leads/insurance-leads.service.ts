@@ -87,6 +87,14 @@ export class InsuranceLeadsService {
     if (dto.followUpDate)     update.followUpDate     = new Date(dto.followUpDate);
     if (dto.assignedTo)       update.assignedTo       = new Types.ObjectId(dto.assignedTo);
 
+    // Auto-stamp convertedAt the first time status is set to converted
+    if (dto.status === InsuranceLeadStatus.Converted) {
+      await this.model.updateOne(
+        { _id: id, convertedAt: { $exists: false } },
+        { $set: { convertedAt: new Date() } },
+      );
+    }
+
     const doc = await this.model.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
     if (!doc) throw new NotFoundException('Insurance lead not found');
     return doc;
@@ -119,6 +127,7 @@ export class InsuranceLeadsService {
 
     lead.status          = InsuranceLeadStatus.Converted;
     lead.convertedMisId  = mis._id as Types.ObjectId;
+    if (!lead.convertedAt) lead.set('convertedAt', new Date());
     await lead.save();
 
     return { lead, mis };

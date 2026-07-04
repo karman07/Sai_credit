@@ -28,6 +28,17 @@ export class UsersController {
     return this.users.list(q);
   }
 
+  /** The sales reps assigned to the current coordinator. Overrides the class-level
+   * `users.manage` requirement so coordinators (who don't have it) can call this. */
+  @Get('my-team')
+  @RequirePermissions('cases.read')
+  myTeam(@CurrentUser() actor: AuthUser) {
+    return this.users.list({
+      page: 1, limit: 100, sort: 'firstName', order: 'asc',
+      coordinatorId: actor.id, isActive: true,
+    } as ListUsersQuery);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.users.findById(id);

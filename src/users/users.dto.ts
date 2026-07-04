@@ -22,6 +22,7 @@ export const CreateUserSchema = z.object({
   department:   z.string().optional(),
   joiningDate:  z.string().optional(),
   annualLeaveQuota: z.number().min(0).optional(),
+  coordinatorId: z.string().optional(),
   ...allowanceFields,
 });
 export type CreateUserDto = z.infer<typeof CreateUserSchema>;
@@ -36,6 +37,7 @@ export const ListUsersQuerySchema = z.object({
   order:   z.enum(['asc', 'desc']).default('desc'),
   search:  z.string().trim().optional(),
   role:    z.nativeEnum(UserRole).optional(),
+  coordinatorId: z.string().optional(),
   isActive: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')

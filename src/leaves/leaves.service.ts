@@ -6,7 +6,7 @@ import { Model, Types } from 'mongoose';
 import { Leave } from './schemas/leave.schema';
 import { Attendance } from '../attendance/schemas/attendance.schema';
 import { User } from '../users/schemas/user.schema';
-import { LeaveStatus, LeaveType, AttendanceStatus, isSalesRole, UserRole } from '../common/enums';
+import { LeaveStatus, LeaveType, AttendanceStatus, isSelfServiceRole, UserRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CreateLeaveDto, ReviewLeaveDto } from './leaves.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -67,7 +67,7 @@ export class LeavesService {
   async list(actor: AuthUser, query: {
     userId?: string; status?: string; month?: string; page?: number; limit?: number;
   }) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const filter: Record<string, any> = {};
 
     if (isAdmin && query.userId) {
@@ -109,7 +109,7 @@ export class LeavesService {
       .populate('reviewedBy', 'firstName lastName')
       .lean();
     if (!leave) throw new NotFoundException('Leave not found');
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     if (!isAdmin && String((leave.userId as any)._id ?? leave.userId) !== actor.id) {
       throw new ForbiddenException('Access denied');
     }
@@ -118,7 +118,7 @@ export class LeavesService {
 
   /** Get leave balance summary for a user */
   async getBalance(actor: AuthUser, targetUserId?: string) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const uid = isAdmin && targetUserId ? targetUserId : actor.id;
 
     const user = await this.userModel.findById(uid).lean();
@@ -238,7 +238,7 @@ export class LeavesService {
   async cancel(id: string, actor: AuthUser) {
     const leave = await this.model.findById(id);
     if (!leave) throw new NotFoundException('Leave not found');
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     if (!isAdmin && String(leave.userId) !== actor.id) {
       throw new ForbiddenException('Access denied');
     }

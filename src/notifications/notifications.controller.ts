@@ -22,6 +22,11 @@ export class NotificationsController {
     return this.svc.markRead(id, actor.id);
   }
 
+  @Patch(':id/unread')
+  markUnread(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.markUnread(id, actor.id);
+  }
+
   @Patch('read-all')
   markAllRead(@CurrentUser() actor: AuthUser) {
     return this.svc.markAllRead(actor.id);

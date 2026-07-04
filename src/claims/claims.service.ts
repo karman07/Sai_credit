@@ -4,7 +4,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Claim } from './schemas/claim.schema';
-import { ClaimStatus, isSalesRole, UserRole } from '../common/enums';
+import { ClaimStatus, isSelfServiceRole, UserRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CreateClaimDto, ReviewClaimDto } from './claims.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -24,7 +24,7 @@ export class ClaimsService {
   }
 
   async list(actor: AuthUser, query: { userId?: string; month?: string; status?: string; page?: number; limit?: number }) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const filter: Record<string, any> = {};
 
     if (isAdmin && query.userId) {
@@ -61,7 +61,7 @@ export class ClaimsService {
       .populate('reviewedBy', 'firstName lastName')
       .lean();
     if (!claim) throw new NotFoundException('Claim not found');
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     if (!isAdmin && String(claim.userId) !== actor.id) {
       throw new ForbiddenException('Access denied');
     }
@@ -108,7 +108,7 @@ export class ClaimsService {
   async uploadReceipt(id: string, receiptUrl: string, actor: AuthUser) {
     const claim = await this.model.findById(id);
     if (!claim) throw new NotFoundException('Claim not found');
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     if (!isAdmin && String(claim.userId) !== actor.id) {
       throw new ForbiddenException('Access denied');
     }

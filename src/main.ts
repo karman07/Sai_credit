@@ -14,7 +14,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.enableCors({
-    origin: config.get<string[]>('corsOrigins'),
+    origin: true,
     credentials: true,
   });
 

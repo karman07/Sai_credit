@@ -11,6 +11,7 @@ export enum UserRole {
   SalesExecutive = 'sales_executive',
   Telecaller = 'telecaller',
   RelationshipManager = 'relationship_manager',
+  Coordinator = 'coordinator',
 }
 
 /** Roles whose data access is scoped to records assigned to them. */
@@ -28,9 +29,19 @@ export const ADMIN_PORTAL_ROLES: UserRole[] = [
 
 export const isSalesRole = (role: UserRole) => SALES_ROLES.includes(role);
 
+/**
+ * Roles that manage only their own HR records (leave/claims/attendance/payroll) —
+ * sales reps plus coordinators, who self-service exactly like sales but are not
+ * eligible for the sales portal (see isSalesRole) or its per-case scoping rules.
+ */
+export const SELF_SERVICE_ROLES: UserRole[] = [...SALES_ROLES, UserRole.Coordinator];
+
+export const isSelfServiceRole = (role: UserRole) => SELF_SERVICE_ROLES.includes(role);
+
 export enum Portal {
   Admin = 'admin',
   Sales = 'sales',
+  Coordinator = 'coordinator',
 }
 
 export enum CustomerType {
@@ -102,6 +113,7 @@ export enum MasterType {
   RenewalStatus = 'renewal_status',
   DocumentType = 'document_type',
   EnumSet = 'enum_set',
+  CaseStatus = 'case_status',
 }
 
 export enum EntityType {

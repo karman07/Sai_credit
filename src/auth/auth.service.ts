@@ -16,6 +16,7 @@ import {
   UserRole,
   ADMIN_PORTAL_ROLES,
   isSalesRole,
+  isSelfServiceRole,
   AuditAction,
 } from '../common/enums';
 import { AuditService } from '../common/audit/audit.service';
@@ -64,8 +65,8 @@ export class AuthService {
       userAgent,
     });
 
-    // Auto clock-in for sales roles
-    if (isSalesRole(user.role)) {
+    // Auto clock-in for sales roles (and coordinators, who self-service HR the same way)
+    if (isSelfServiceRole(user.role)) {
       this.attendance.autoClockIn(String(user._id), ip).catch(() => {/* non-fatal */});
     }
 
@@ -107,8 +108,8 @@ export class AuthService {
     if (user) {
       await this.audit.log({ user, action: AuditAction.Logout, entityType: 'user', entityId: user.id });
 
-      // Auto clock-out for sales roles on logout
-      if (isSalesRole(user.role as UserRole)) {
+      // Auto clock-out for sales roles (and coordinators) on logout
+      if (isSelfServiceRole(user.role as UserRole)) {
         this.attendance.autoClockOut(user.id).catch(() => {/* non-fatal */});
       }
     }
@@ -149,10 +150,25 @@ export class AuthService {
     return { ok: true };
   }
 
+  // ── Change password (self-service, requires auth) ───────────────────
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.users.findById(userId).select('+passwordHash');
+    if (!user) throw new UnauthorizedException('User not found');
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) throw new UnauthorizedException('Current password is incorrect');
+    user.set('passwordHash', await bcrypt.hash(newPassword, 12));
+    await user.save();
+    // invalidate all other sessions for security
+    await this.sessions.deleteMany({ userId: user._id });
+    return { ok: true };
+  }
+
   // ── Helpers ─────────────────────────────────────────────────────────
   private assertPortalAccess(role: UserRole, portal: Portal) {
     const allowed =
-      portal === Portal.Admin ? ADMIN_PORTAL_ROLES.includes(role) : isSalesRole(role);
+      portal === Portal.Admin ? ADMIN_PORTAL_ROLES.includes(role) :
+      portal === Portal.Coordinator ? role === UserRole.Coordinator :
+      isSalesRole(role);
     if (!allowed) {
       throw new ForbiddenException(`Your role cannot access the ${portal} portal`);
     }

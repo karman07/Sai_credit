@@ -5,7 +5,7 @@ import { Attendance } from './schemas/attendance.schema';
 import { User } from '../users/schemas/user.schema';
 import { Leave } from '../leaves/schemas/leave.schema';
 import { LeavePolicy } from '../leave-policy/schemas/leave-policy.schema';
-import { AttendanceStatus, LeaveStatus, isSalesRole, UserRole } from '../common/enums';
+import { AttendanceStatus, LeaveStatus, isSelfServiceRole, UserRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 import {
   ClockInDto, ClockOutDto,
@@ -123,7 +123,7 @@ export class AttendanceService {
   }
 
   async list(actor: AuthUser, query: { userId?: string; month?: string; status?: string; page?: number; limit?: number }) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const filter: Record<string, any> = {};
 
     if (isAdmin && query.userId) {
@@ -158,7 +158,7 @@ export class AttendanceService {
   }
 
   async summary(actor: AuthUser, userId: string, month: string) {
-    const isAdmin = !isSalesRole(actor.role as UserRole);
+    const isAdmin = !isSelfServiceRole(actor.role as UserRole);
     const targetId = isAdmin && userId ? userId : actor.id;
 
     const records = await this.model

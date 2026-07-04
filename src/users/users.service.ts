@@ -25,6 +25,7 @@ export class UsersService {
   async list(q: ListUsersQuery): Promise<Paginated<any>> {
     const filter: Record<string, any> = {};
     if (q.role) filter.role = q.role;
+    if (q.coordinatorId) filter.coordinatorId = q.coordinatorId;
     if (q.isActive !== undefined) filter.isActive = q.isActive;
     if (q.search) {
       const rx = new RegExp(escapeRx(q.search), 'i');

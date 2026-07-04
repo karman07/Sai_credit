@@ -114,6 +114,23 @@ const TELECALLER: Permission[] = [
   'leave_policy.read',
 ];
 
+// Coordinator: manages (reads/edits/status/docs) only the cases created by their
+// assigned sales reps (enforced at the service layer, not here), gets full
+// admin-parity access to Payout Management, and self-services their own
+// leave/reimbursement/attendance/payslip records just like a sales user.
+const COORDINATOR: Permission[] = [
+  'cases.read','cases.update',
+  'banks.read','dealers.read',
+  'insurance.read','insurance.create','insurance.update','policies.read',
+  'payout.read','payout.create','payout.update',
+  'dashboard.sales',
+  'attendance.read','attendance.clock',
+  'claims.create','claims.read',
+  'payroll.read',
+  'leaves.create','leaves.read',
+  'leave_policy.read',
+];
+
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.Owner]: ALL,
   [UserRole.Admin]: ALL.filter((p) => p !== 'dashboard.sales'),
@@ -121,6 +138,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.SalesExecutive]: SALES_SENIOR,
   [UserRole.RelationshipManager]: SALES_SENIOR,
   [UserRole.Telecaller]: TELECALLER,
+  [UserRole.Coordinator]: COORDINATOR,
 };
 
 export function hasPermission(role: UserRole, perm: Permission): boolean {

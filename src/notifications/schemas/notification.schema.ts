@@ -5,7 +5,8 @@ export type NotifType =
   | 'insurance_reminder' | 'pipeline_complete' | 'rto_complete' | 'stagnant_case' | 'general'
   | 'leave_approved' | 'leave_rejected'
   | 'claim_approved' | 'claim_rejected'
-  | 'payroll_paid' | 'incentive_added';
+  | 'payroll_paid' | 'incentive_added'
+  | 'new_case';
 
 @Schema({ timestamps: true, collection: 'notifications' })
 export class Notification extends Document {

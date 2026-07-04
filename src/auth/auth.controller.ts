@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Req,
   UsePipes,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   RefreshSchema, RefreshDto,
   ForgotPasswordSchema, ForgotPasswordDto,
   ResetPasswordSchema, ResetPasswordDto,
+  ChangePasswordSchema, ChangePasswordDto,
 } from './auth.dto';
 
 @Controller('auth')
@@ -59,6 +61,12 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return user;
+  }
+
+  @Put('change-password')
+  @UsePipes(new ZodValidationPipe(ChangePasswordSchema))
+  changePassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: AuthUser) {
+    return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
   }
 }
 

@@ -17,7 +17,7 @@ import {
   EditDocSchema, EditDocDto,
   UpdatePipelineStageSchema, UpdatePipelineStageDto,
 } from './cases.dto';
-import { isSalesRole } from '../common/enums';
+import { isSalesRole, UserRole } from '../common/enums';
 
 @Controller('cases')
 export class CasesController {
@@ -40,24 +40,25 @@ export class CasesController {
     @Query('dealerId') dealerId?: string,
     @Query('product') product?: string,
     @Query('assignedTo') assignedTo?: string,
-    @Query('showAll') showAll?: string,
     @CurrentUser() actor?: AuthUser,
   ) {
     const isSales = actor ? isSalesRole(actor.role) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator;
     return this.svc.list({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 25,
       search, status, bankId, dealerId, product,
       assignedTo,
       userId: actor?.id,
-      scopeToUser: isSales && showAll !== 'true',
+      scopeToUser: isSales,
+      coordinatorId: isCoordinator ? actor!.id : undefined,
     });
   }
 
   @Get(':id')
   @RequirePermissions('cases.read')
-  findOne(@Param('id') id: string) {
-    return this.svc.findById(id);
+  findOne(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.findById(id, actor);
   }
 
   @Post()

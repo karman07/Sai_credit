@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CaseStatus, ProductType, LoanType } from '../common/enums';
+import { ProductType, LoanType } from '../common/enums';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
 
@@ -38,7 +38,7 @@ export const CreateCaseSchema = z.object({
   payoutPct: z.number().min(0).max(100).optional(),
   assignedTo: objectId.optional(),
   remarks: z.string().optional(),
-  status: z.enum(Object.values(CaseStatus) as [string, ...string[]]).optional(),
+  status: z.string().min(1).optional(),
   customFields: z.record(z.string(), z.any()).optional(),
 });
 export type CreateCaseDto = z.infer<typeof CreateCaseSchema>;
@@ -47,7 +47,7 @@ export const UpdateCaseSchema = CreateCaseSchema.partial();
 export type UpdateCaseDto = z.infer<typeof UpdateCaseSchema>;
 
 export const UpdateCaseStatusSchema = z.object({
-  status: z.enum(Object.values(CaseStatus) as [string, ...string[]]),
+  status: z.string().min(1),
   disbursementDate: z.string().optional(),
   note: z.string().optional(),
 });

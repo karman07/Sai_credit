@@ -57,6 +57,7 @@ export class InsuranceLead {
   @Prop() assignedToName?: string;
 
   @Prop({ type: Types.ObjectId, ref: 'InsuranceMIS' }) convertedMisId?: Types.ObjectId;
+  @Prop({ index: true }) convertedAt?: Date;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) createdBy!: Types.ObjectId;
   @Prop({ required: true }) createdByName!: string;

@@ -96,7 +96,6 @@ export class LoanCase extends Document {
 
   @Prop({
     required: true,
-    enum: Object.values(CaseStatus),
     default: CaseStatus.Sales,
     index: true,
   })
@@ -107,6 +106,10 @@ export class LoanCase extends Document {
   // Assignment
   @Prop({ type: Types.ObjectId, ref: 'User', index: true }) assignedTo?: Types.ObjectId;
   @Prop() assignedToName?: string;
+
+  // Coordinator overseeing the assigned sales rep (denormalized for fast display)
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true }) coordinatorId?: Types.ObjectId;
+  @Prop() coordinatorName?: string;
 
   // Pipeline checklist
   @Prop({
