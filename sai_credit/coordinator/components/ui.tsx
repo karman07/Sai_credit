@@ -139,11 +139,9 @@ export function Badge({ tone = "neutral", dot, className, children }: {
 }
 
 // Case-status specific badge
-export type CaseStatus =
-  | "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved"
-  | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
+export type CaseStatus = string;
 
-const caseStatusTones: Record<CaseStatus, BadgeTone> = {
+const CORE_STATUS_TONES: Record<string, BadgeTone> = {
   "Draft":      "neutral",
   "Sales":      "info",
   "Pending":    "warning",
@@ -156,8 +154,9 @@ const caseStatusTones: Record<CaseStatus, BadgeTone> = {
   "Cancelled":  "neutral",
 };
 
-export function CaseStatusBadge({ status }: { status: CaseStatus }) {
-  return <Badge tone={caseStatusTones[status]} dot>{status}</Badge>;
+export function CaseStatusBadge({ status, colorClass }: { status: string; colorClass?: string }) {
+  const tone: BadgeTone = CORE_STATUS_TONES[status] ?? toneFor(colorClass) ?? "neutral";
+  return <Badge tone={tone} dot>{status}</Badge>;
 }
 
 export function toneFor(color?: string): BadgeTone {
@@ -378,6 +377,7 @@ export function Modal({
   description,
   size = "md",
   children,
+  footer,
 }: {
   open: boolean;
   onClose: () => void;
@@ -385,6 +385,7 @@ export function Modal({
   description?: string;
   size?: "sm" | "md" | "lg" | "xl";
   children: React.ReactNode;
+  footer?: React.ReactNode;
 }) {
   const sizeClass = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-2xl" }[size];
 
@@ -398,9 +399,9 @@ export function Modal({
   const content = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
-      <div className={cn("relative w-full card animate-slideUp p-0 overflow-hidden", sizeClass)}>
+      <div className={cn("relative w-full card animate-slideUp p-0 flex flex-col", sizeClass, "max-h-[90vh]")}>
         {(title || description) && (
-          <div className="flex items-start justify-between p-5 border-b border-border">
+          <div className="flex items-start justify-between p-5 border-b border-border shrink-0">
             <div>
               {title && <h2 className="font-semibold text-base">{title}</h2>}
               {description && <p className="text-sm text-muted mt-1">{description}</p>}
@@ -410,7 +411,10 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="p-5">{children}</div>
+        <div className="p-5 overflow-y-auto flex-1 min-h-0">{children}</div>
+        {footer && (
+          <div className="shrink-0 px-5 py-4 border-t border-border bg-surface-1">{footer}</div>
+        )}
       </div>
     </div>
   );

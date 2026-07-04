@@ -56,7 +56,7 @@ export function Topbar() {
           value={searchVal}
           onChange={(e) => setSearchVal(e.target.value)}
           placeholder="Search cases, customers…"
-          className="input-base pl-8 pr-12 text-xs h-8 bg-surface-2 border-border"
+          className="input-base !pl-8 pr-12 text-xs h-8 bg-surface-2 border-border"
         />
         <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted bg-surface-3 border border-border rounded px-1 pointer-events-none hidden sm:block">
           ⌘K

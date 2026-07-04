@@ -42,9 +42,15 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<{ da
   if (query) for (const [k, v] of Object.entries(query)) {
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (!(body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (auth && tokenStore.access) headers.Authorization = `Bearer ${tokenStore.access}`;
-  const res = await fetch(url.toString(), { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+
+  const res = await fetch(url.toString(), {
+    method,
+    headers,
+    body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+  });
   if (res.status === 401 && auth && !opts._retried && tokenStore.refresh) {
     const refreshed = await tryRefresh();
     if (refreshed) return request<T>(path, { ...opts, _retried: true });
@@ -85,8 +91,8 @@ export const api = {
 
 // ── Domain types ─────────────────────────────────────────────────────
 
-export type CaseStatus = "Sales" | "Pending" | "In Credit" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
-export const CASE_STATUSES: CaseStatus[] = ["Sales", "Pending", "In Credit", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
+export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
+export const CASE_STATUSES: CaseStatus[] = ["Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 export const PRODUCTS = ["Car Loan", "Truck", "Personal Loan", "BT Topup", "Two Wheeler"] as const;
 export const LOAN_TYPES = ["New", "Used", "Refinance"] as const;
 export const RESIDENTIAL_STATUSES = ["Own", "Rented", "Family Owned"] as const;
@@ -95,6 +101,18 @@ export const CHECKLIST_STATUSES = ["Received", "Pending", "Not Required"] as con
 export interface Bank { _id: string; name: string; branch?: string; bmName?: string; bmContact?: string; executive?: string; isActive: boolean; createdAt: string; }
 export interface Dealer { _id: string; name: string; contact?: string; location?: string; coordinatorId?: string; coordinatorName?: string; isActive: boolean; createdAt: string; }
 export interface Coordinator { _id: string; name: string; phone?: string; email?: string; region?: string; isActive: boolean; createdAt: string; }
+export interface SalesUser { _id: string; firstName: string; lastName: string; email: string; role: string; isActive: boolean; }
+export interface DocumentType { _id: string; name: string; isActive: boolean; }
+
+export interface CaseDocument {
+  _id: string; docType: string; fileName: string; url: string; remarks?: string;
+  uploadedBy: string; uploadedByName: string; uploadedAt: string;
+}
+export interface DocRequest {
+  _id: string; docTypes: string[]; remarks: string;
+  requestedBy: string; requestedByName: string; requestedAt: string;
+  resolvedAt?: string; isResolved: boolean;
+}
 
 export interface LoanCase {
   _id: string; caseCode: string; date: string;
@@ -105,6 +123,9 @@ export interface LoanCase {
   dealerId?: string; dealerName?: string; payoutPct?: number;
   status: CaseStatus; disbursementDate?: string;
   coordinatorId?: string; coordinatorName?: string; remarks?: string;
+  assignedTo?: string; assignedToName?: string;
+  documents: CaseDocument[];
+  docRequests: DocRequest[];
   createdAt: string; isActive: boolean;
 }
 
@@ -151,12 +172,19 @@ export const casesApi = {
   updateStatus: (id: string, body: { status: string; note?: string; disbursementDate?: string }) => api.put<LoanCase>(`/cases/${id}/status`, body),
   delete: (id: string) => api.del(`/cases/${id}`),
   activities: (id: string) => api.get<Activity[]>(`/activities/case/${id}`),
+  assign: (id: string, body: { userId: string; userName: string }) => api.put<LoanCase>(`/cases/${id}/assign`, body),
+  requestDocs: (id: string, body: { docTypes: string[]; remarks: string }) => api.post<LoanCase>(`/cases/${id}/request-docs`, body),
+  uploadDoc: (id: string, formData: FormData) => api.post<LoanCase>(`/cases/${id}/upload-doc`, formData),
+  deleteDoc: (id: string, docId: string) => api.del<LoanCase>(`/cases/${id}/docs/${docId}`),
+  editDoc: (id: string, docId: string, body: { fileName?: string; remarks?: string }) => api.put<LoanCase>(`/cases/${id}/docs/${docId}`, body),
+  resolveDocRequest: (id: string, reqId: string) => api.put<LoanCase>(`/cases/${id}/resolve-doc-request/${reqId}`),
+  submitForVerification: (id: string) => api.put<LoanCase>(`/cases/${id}/submit-for-verification`),
 };
 
 export const banksApi = {
   list: (includeInactive = false) => api.get<Bank[]>("/banks", includeInactive ? { includeInactive: true } : undefined),
   get: (id: string) => api.get<Bank>(`/banks/${id}`),
-  create: (body: unknown) => api.post<Bank>("/banks", body),
+  create: (body: unknown) => api.post<Bank>(`/banks`, body),
   update: (id: string, body: unknown) => api.put<Bank>(`/banks/${id}`, body),
   toggle: (id: string) => api.put(`/banks/${id}/toggle-status`),
   delete: (id: string) => api.del(`/banks/${id}`),
@@ -200,4 +228,15 @@ export const rtoApi = {
   create: (body: unknown) => api.post<RTORecord>("/rto-tracker", body),
   update: (id: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/${id}`, body),
   upsertByCase: (caseId: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/by-case/${caseId}`, body),
+};
+
+export const usersApi = {
+  list: (role?: string) => api.get<SalesUser[]>("/users", role ? { role } : undefined),
+};
+
+export const mastersApi = {
+  list: (resource: string) => api.get<DocumentType[]>(`/master/${resource}`),
+  create: (resource: string, body: unknown) => api.post<DocumentType>(`/master/${resource}`, body),
+  update: (resource: string, id: string, body: unknown) => api.put<DocumentType>(`/master/${resource}/${id}`, body),
+  toggle: (resource: string, id: string) => api.put(`/master/${resource}/${id}/toggle-status`),
 };

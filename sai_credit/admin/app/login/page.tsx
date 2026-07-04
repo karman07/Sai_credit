@@ -10,7 +10,7 @@ import { ApiError } from "../../lib/api";
 export default function LoginPage() {
   const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("admin@insurancecrm.local");
+  const [email, setEmail] = useState("admin@saicredit.in");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -35,33 +35,42 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Brand panel */}
-      <div className="hidden lg:flex flex-col justify-between p-12 bg-surface border-r border-border">
-        <div className="flex items-center gap-2.5">
-          <div className="size-9 rounded-lg bg-primary text-primary-foreground grid place-items-center">
+      <div className="hidden lg:flex flex-col justify-between p-12 bg-surface border-r border-border relative overflow-hidden">
+        <div className="relative z-10 flex items-center gap-2.5">
+          <div className="size-9 rounded-lg bg-primary text-primary-foreground grid place-items-center shadow-sm">
             <ShieldCheck className="size-5" />
           </div>
-          <span className="font-semibold text-lg">Insurance CRM</span>
+          <span className="font-semibold text-lg tracking-tight">Sai Credit Solutions</span>
         </div>
-        <div className="max-w-md">
+        
+        <div className="relative z-10 max-w-xl mt-8 flex-1 flex flex-col justify-center">
+          <div className="mb-8 mix-blend-multiply flex justify-start">
+            <img 
+              src="/crm_image.png" 
+              alt="Dashboard Preview" 
+              className="w-full max-w-[600px] h-auto object-contain"
+            />
+          </div>
+
           <h1 className="text-3xl font-bold tracking-tight leading-tight">
-            Operations command center for your insurance book.
+            Operations command center.
           </h1>
           <p className="mt-4 text-foreground-secondary text-[15px] leading-relaxed">
-            Customers, policies, renewals and follow-ups — every interaction
-            tracked, every renewal on time.
+            Manage loans, coordinate with banks, track compliances, and oversee your entire team's pipeline in one place.
           </p>
         </div>
-        <p className="text-xs text-muted">© {new Date().getFullYear()} Insurance CRM · Admin Portal</p>
+
+        <p className="relative z-10 text-xs text-muted mt-8">© {new Date().getFullYear()} Sai Credit Solutions · Admin Portal</p>
       </div>
 
       {/* Form panel */}
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="size-9 rounded-lg bg-primary text-primary-foreground grid place-items-center">
+            <div className="size-9 rounded-lg bg-primary text-primary-foreground grid place-items-center shadow-sm">
               <ShieldCheck className="size-5" />
             </div>
-            <span className="font-semibold text-lg">Insurance CRM</span>
+            <span className="font-semibold text-lg tracking-tight">Sai Credit Solutions</span>
           </div>
 
           <h2 className="text-2xl font-semibold tracking-tight">Sign in</h2>

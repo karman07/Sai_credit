@@ -6,7 +6,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, FileText, Users, Building2, Car, CreditCard,
   ShieldCheck, Clipboard, BarChart3, UserCog, Bell, Settings,
-  ChevronLeft, ChevronRight, Banknote, PanelLeft,
+  ChevronLeft, ChevronRight, Banknote, PanelLeft, Database,
 } from "lucide-react";
 import { cn } from "./ui";
 
@@ -39,6 +39,12 @@ const sections: NavSection[] = [
     items: [
       { label: "Insurance MIS", href: "/insurance-mis", icon: ShieldCheck },
       { label: "RTO & Documents", href: "/rto-tracker", icon: Clipboard },
+    ],
+  },
+  {
+    title: "Master Data",
+    items: [
+      { label: "Document Types", href: "/document-types", icon: Database },
     ],
   },
   {
