@@ -107,16 +107,24 @@ export interface DocRequest {
 
 export interface LoanCase {
   _id: string; caseCode: string; date: string;
-  customer: { firstName: string; lastName: string; contact: string; altContact?: string; fatherName?: string; location?: string; residentialStatus?: string; };
+  customer: {
+    firstName: string; lastName: string; contact: string;
+    altContact?: string; fatherName?: string;
+    location?: string; state?: string; district?: string; pinCode?: string;
+    residentialStatus?: string; ebillOwner?: boolean;
+  };
   product: string; loanAmount?: number; loanType?: string;
-  vehicleModel?: string; regNumber?: string;
+  vehicleModel?: string; regNumber?: string; ownerSerial?: string;
+  existingInsurer?: string; hypothecation?: boolean; nocRequired?: boolean; challanCount?: number;
   bankId?: string; bankName?: string; bankBranch?: string; bmName?: string; bmContact?: string; bankExecutive?: string;
   dealerId?: string; dealerName?: string; payoutPct?: number;
   status: CaseStatus; disbursementDate?: string;
   remarks?: string;
   assignedTo?: string; assignedToName?: string;
+  pipeline?: { stage: string; status: string; doneAt?: string; doneByName?: string; remarks?: string }[];
   documents: CaseDocument[];
   docRequests: DocRequest[];
+  customFields?: Record<string, any>;
   createdAt: string;
 }
 
@@ -388,6 +396,11 @@ export const leavesApi = {
   cancel: (id: string) => api.del(`/leaves/${id}`),
 };
 
+export const authApi = {
+  changePassword: (body: { currentPassword: string; newPassword: string }) =>
+    api.put<{ ok: boolean }>('/auth/change-password', body),
+};
+
 export const notificationsApi = {
   list: (limit?: number) => api.get<Notification[]>('/notifications', limit ? { limit } : undefined),
   unreadCount: () => api.get<{ count: number }>('/notifications/unread-count'),
@@ -422,12 +435,19 @@ export interface InsuranceLead {
   assignedTo?: { _id: string; firstName: string; lastName: string } | null;
   createdByName: string;
   convertedMisId?: string;
+  convertedAt?: string;
   createdAt: string;
+}
+
+export interface InsuranceLeadStats {
+  total: number; new: number; contacted: number;
+  interested: number; converted: number; lost: number;
 }
 
 export const insuranceLeadsApi = {
   list:   (q?: Record<string, any>) =>
     api.get<{ leads: InsuranceLead[]; total: number }>('/insurance-leads', { mine: true, ...q }),
+  stats:  () => api.get<InsuranceLeadStats>('/insurance-leads/stats'),
   create: (body: Partial<InsuranceLead>) => api.post<InsuranceLead>('/insurance-leads', body),
   update: (id: string, body: Partial<InsuranceLead>) => api.put<InsuranceLead>(`/insurance-leads/${id}`, body),
 };

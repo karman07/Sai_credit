@@ -6,22 +6,14 @@ type Theme = "light" | "dark";
 const ThemeContext = createContext<{ theme: Theme; toggle: () => void } | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme] = useState<Theme>("light");
 
   useEffect(() => {
-    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    document.documentElement.classList.remove("dark");
+    try { localStorage.removeItem("sales-theme"); } catch {}
   }, []);
 
-  const toggle = () => {
-    setTheme((prev) => {
-      const next = prev === "dark" ? "light" : "dark";
-      document.documentElement.classList.toggle("dark", next === "dark");
-      try { localStorage.setItem("sales-theme", next); } catch {}
-      return next;
-    });
-  };
-
-  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
+  return <ThemeContext.Provider value={{ theme, toggle: () => {} }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

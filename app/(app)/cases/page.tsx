@@ -1,18 +1,59 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import { FileText, Plus, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, Phone, User, Search } from "lucide-react";
 import {
-  Button, Badge, CaseStatusBadge, SearchInput, Modal, Label, Textarea,
-  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, Select
+  Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
+  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, Select, cn
 } from "../../../components/ui";
 import {
-  casesApi, customersApi, mastersApi, banksApi, dealersApi, PRODUCTS, API_BASE,
-  type LoanCase, type PageMeta, type Bank, type Dealer, type SalesCustomer,
+  casesApi, customersApi, mastersApi, banksApi, dealersApi, formSchemasApi,
+  PRODUCTS, LOAN_TYPES, RESIDENTIAL_STATUSES, API_BASE,
+  type LoanCase, type FormSchema, type PageMeta, type Bank, type Dealer, type SalesCustomer,
 } from "../../../lib/api";
 
 const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
+
+// ── Schema-driven field value resolver ────────────────────────────────────────
+
+const CORE_KEY_MAP: Record<string, (c: LoanCase) => string | undefined> = {
+  firstName:         (c) => c.customer.firstName,
+  lastName:          (c) => c.customer.lastName,
+  fatherName:        (c) => c.customer.fatherName,
+  contact:           (c) => c.customer.contact,
+  altContact:        (c) => c.customer.altContact,
+  state:             (c) => c.customer.state,
+  location:          (c) => c.customer.location,
+  residentialStatus: (c) => c.customer.residentialStatus,
+  ebillOwner:        (c) => c.customer.ebillOwner != null ? (c.customer.ebillOwner ? "Yes" : "No") : undefined,
+  product:           (c) => c.product,
+  loanType:          (c) => c.loanType,
+  vehicleModel:      (c) => c.vehicleModel,
+  regNumber:         (c) => c.regNumber,
+  ownerSerial:       (c) => c.ownerSerial,
+  existingInsurer:   (c) => c.existingInsurer,
+  hypothecation:     (c) => c.hypothecation != null ? (c.hypothecation ? "Yes" : "No") : undefined,
+  nocRequired:       (c) => c.nocRequired != null ? (c.nocRequired ? "Yes" : "No") : undefined,
+  challanCount:      (c) => c.challanCount != null ? String(c.challanCount) : undefined,
+  loanAmount:        (c) => c.loanAmount ? `₹${c.loanAmount.toLocaleString("en-IN")}` : undefined,
+  bank:              (c) => c.bankName,
+  branch:            (c) => c.bankBranch,
+  bmName:            (c) => c.bmName,
+  bmContact:         (c) => c.bmContact,
+  executive:         (c) => c.bankExecutive,
+  dealer:            (c) => c.dealerName,
+  payoutPct:         (c) => c.payoutPct != null ? `${c.payoutPct}%` : undefined,
+};
+
+function getCaseFieldValue(c: LoanCase, key: string): string | undefined {
+  if (key in CORE_KEY_MAP) {
+    const val = CORE_KEY_MAP[key](c);
+    return val != null && val !== "" ? val : undefined;
+  }
+  const cf = c.customFields?.[key];
+  if (cf == null || cf === "") return undefined;
+  return typeof cf === "boolean" ? (cf ? "Yes" : "No") : String(cf);
+}
 
 // ── Styled file picker ─────────────────────────────────────────────────────────
 
@@ -55,8 +96,6 @@ function FilePicker({ file, onChange }: { file: File | null; onChange: (f: File 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function MyCasesPage() {
-  const searchParams = useSearchParams();
-  const showAll = searchParams.get("all") === "true";
   const toast = useToast();
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
@@ -75,6 +114,10 @@ export default function MyCasesPage() {
   const [docTypes, setDocTypes] = useState<any[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
+  const [caseSchema, setCaseSchema] = useState<FormSchema | null>(null);
+  const [stateOptions, setStateOptions] = useState<string[]>([]);
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [insurerOptions, setInsurerOptions] = useState<string[]>([]);
 
   // Upload state
   const [upDocType, setUpDocType] = useState("");
@@ -166,13 +209,16 @@ export default function MyCasesPage() {
   // Edit overview state
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({
-    product: "",
-    loanAmount: "",
-    bankId: "",
-    dealerId: "",
-    vehicleModel: "",
-    regNumber: "",
-    location: "",
+    // Customer
+    firstName: "", lastName: "", fatherName: "",
+    contact: "", altContact: "", state: "", location: "", residentialStatus: "",
+    // Case
+    product: "", loanType: "", loanAmount: "",
+    vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
+    // Bank
+    bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+    // Dealer
+    dealerId: "", payoutPct: "",
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -185,7 +231,6 @@ export default function MyCasesPage() {
         page, limit,
         search: search || undefined,
         status: statusTab !== "All" ? statusTab : undefined,
-        showAll: showAll || undefined,
       });
       setCases(data as unknown as LoanCase[]);
       if (m) setMeta(m);
@@ -194,14 +239,18 @@ export default function MyCasesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusTab, showAll, toast]);
+  }, [page, limit, search, statusTab, toast]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     mastersApi.list("document-types").then(({ data }) => setDocTypes(data.filter((d: any) => d.isActive))).catch(() => {});
+    mastersApi.list("states").then(({ data }) => setStateOptions(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+    mastersApi.list("cities").then(({ data }) => setCityOptions(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+    mastersApi.list("insurance-companies").then(({ data }) => setInsurerOptions(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
     banksApi.list().then(({ data }) => setBanks(data)).catch(() => {});
     dealersApi.list().then(({ data }) => setDealers(data)).catch(() => {});
+    formSchemasApi.get("new-case").then(({ data }) => setCaseSchema(data)).catch(() => {});
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -221,13 +270,17 @@ export default function MyCasesPage() {
 
   function enterEditMode(c: LoanCase) {
     setEditForm({
-      product: c.product ?? "",
+      firstName: c.customer.firstName ?? "", lastName: c.customer.lastName ?? "",
+      fatherName: c.customer.fatherName ?? "", contact: c.customer.contact ?? "",
+      altContact: c.customer.altContact ?? "", state: c.customer.state ?? "",
+      location: c.customer.location ?? "", residentialStatus: c.customer.residentialStatus ?? "",
+      product: c.product ?? "", loanType: c.loanType ?? "",
       loanAmount: c.loanAmount?.toString() ?? "",
-      bankId: c.bankId ?? "",
-      dealerId: c.dealerId ?? "",
-      vehicleModel: c.vehicleModel ?? "",
-      regNumber: c.regNumber ?? "",
-      location: c.customer.location ?? "",
+      vehicleModel: c.vehicleModel ?? "", regNumber: c.regNumber ?? "",
+      ownerSerial: c.ownerSerial ?? "", existingInsurer: c.existingInsurer ?? "",
+      bankId: c.bankId ?? "", bankBranch: c.bankBranch ?? "",
+      bmName: c.bmName ?? "", bmContact: c.bmContact ?? "", bankExecutive: c.bankExecutive ?? "",
+      dealerId: c.dealerId ?? "", payoutPct: c.payoutPct?.toString() ?? "",
     });
     setEditMode(true);
   }
@@ -240,14 +293,32 @@ export default function MyCasesPage() {
       const dealer = dealers.find((d) => d._id === editForm.dealerId);
       const body: Record<string, any> = {
         product: editForm.product || undefined,
+        loanType: editForm.loanType || undefined,
         loanAmount: editForm.loanAmount ? Number(editForm.loanAmount) : undefined,
-        bankId: editForm.bankId || undefined,
-        bankName: bank?.name,
-        dealerId: editForm.dealerId || undefined,
-        dealerName: dealer?.name,
         vehicleModel: editForm.vehicleModel || undefined,
         regNumber: editForm.regNumber || undefined,
-        customer: { ...detailCase.customer, location: editForm.location || detailCase.customer.location },
+        ownerSerial: editForm.ownerSerial || undefined,
+        existingInsurer: editForm.existingInsurer || undefined,
+        bankId: editForm.bankId || undefined,
+        bankName: bank?.name,
+        bankBranch: editForm.bankBranch || undefined,
+        bmName: editForm.bmName || undefined,
+        bmContact: editForm.bmContact || undefined,
+        bankExecutive: editForm.bankExecutive || undefined,
+        dealerId: editForm.dealerId || undefined,
+        dealerName: dealer?.name,
+        payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
+        customer: {
+          ...detailCase.customer,
+          firstName: editForm.firstName || detailCase.customer.firstName,
+          lastName: editForm.lastName || detailCase.customer.lastName,
+          fatherName: editForm.fatherName || undefined,
+          contact: editForm.contact || detailCase.customer.contact,
+          altContact: editForm.altContact || undefined,
+          state: editForm.state || undefined,
+          location: editForm.location || undefined,
+          residentialStatus: editForm.residentialStatus || undefined,
+        },
       };
       const { data } = await casesApi.update(detailCase._id, body);
       setDetailCase(data);
@@ -361,7 +432,7 @@ export default function MyCasesPage() {
     <div className="space-y-4 animate-fadeIn">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">{showAll ? "All Cases" : "My Cases"}</h1>
+          <h1 className="text-xl font-bold tracking-tight">My Cases</h1>
           <p className="text-sm text-muted mt-0.5">{meta.total} total cases</p>
         </div>
         <Button size="sm" onClick={openNewLead}><Plus className="size-3.5" /> New Lead</Button>
@@ -413,8 +484,14 @@ export default function MyCasesPage() {
         <Pagination page={meta.page} totalPages={meta.totalPages || 1} total={meta.total} limit={meta.limit} onPage={setPage} onLimit={() => {}} />
       </div>
 
-      {/* ── Case Detail Modal ── */}
-      <Modal open={!!detailCase} onClose={() => { setDetailCase(null); setEditMode(false); }} title={detailCase?.caseCode ?? ""} size="lg">
+      {/* ── Case Detail Drawer ── */}
+      <Drawer
+        open={!!detailCase}
+        onClose={() => { setDetailCase(null); setEditMode(false); }}
+        title={detailCase?.caseCode ?? ""}
+        description={detailCase ? `${detailCase.customer.firstName} ${detailCase.customer.lastName} · ${detailCase.product}` : undefined}
+        size="xl"
+      >
         {detailCase && (
           <div className="space-y-4">
             {/* Header row */}
@@ -434,13 +511,17 @@ export default function MyCasesPage() {
                   <CaseStatusBadge status={detailCase.status} />
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={() => setDetailTab("overview")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${detailTab === "overview" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary"}`}>
+                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "overview" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
                   Overview
                 </button>
+                <button onClick={() => { setDetailTab("pipeline"); setEditMode(false); }}
+                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "pipeline" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
+                  Pipeline
+                </button>
                 <button onClick={() => { setDetailTab("documents"); setEditMode(false); }}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${detailTab === "documents" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary"}`}>
+                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "documents" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
                   Documents {detailCase.docRequests?.filter(r => !r.isResolved).length > 0 && <span className="ml-1 px-1 bg-orange text-white rounded-full text-[9px]">!</span>}
                 </button>
               </div>
@@ -451,52 +532,91 @@ export default function MyCasesPage() {
               <div className="space-y-4">
                 {editMode ? (
                   /* ── Edit form ── */
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Product</Label>
-                        <Select value={editForm.product} onChange={(e) => setEditForm((f) => ({ ...f, product: e.target.value }))}>
-                          <option value="">Select product…</option>
-                          {PRODUCTS.map((p) => <option key={p}>{p}</option>)}
-                        </Select>
+                  <div className="space-y-5">
+                    {/* Customer */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Customer</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>First Name</Label><Input value={editForm.firstName} onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))} /></div>
+                        <div><Label>Last Name</Label><Input value={editForm.lastName} onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))} /></div>
+                        <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm((f) => ({ ...f, fatherName: e.target.value }))} /></div>
+                        <div><Label>Contact</Label><Input value={editForm.contact} onChange={(e) => setEditForm((f) => ({ ...f, contact: e.target.value }))} /></div>
+                        <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm((f) => ({ ...f, altContact: e.target.value }))} /></div>
+                        <div><Label>State</Label>
+                          <Select value={editForm.state} onChange={(e) => setEditForm((f) => ({ ...f, state: e.target.value }))}>
+                            <option value="">Select state…</option>
+                            {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Location</Label>
+                          <Select value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))}>
+                            <option value="">Select city…</option>
+                            {cityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Residential Status</Label>
+                          <Select value={editForm.residentialStatus} onChange={(e) => setEditForm((f) => ({ ...f, residentialStatus: e.target.value }))}>
+                            <option value="">Select…</option>
+                            {RESIDENTIAL_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                          </Select>
+                        </div>
                       </div>
-                      <div>
-                        <Label>Loan Amount (₹)</Label>
-                        <Input type="number" min="0" value={editForm.loanAmount}
-                          onChange={(e) => setEditForm((f) => ({ ...f, loanAmount: e.target.value }))}
-                          placeholder="e.g. 850000" />
+                    </div>
+                    {/* Case / Loan */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Loan Details</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Product</Label>
+                          <Select value={editForm.product} onChange={(e) => setEditForm((f) => ({ ...f, product: e.target.value }))}>
+                            <option value="">Select product…</option>
+                            {PRODUCTS.map((p) => <option key={p}>{p}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Loan Type</Label>
+                          <Select value={editForm.loanType} onChange={(e) => setEditForm((f) => ({ ...f, loanType: e.target.value }))}>
+                            <option value="">Select type…</option>
+                            {LOAN_TYPES.map((t) => <option key={t}>{t}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Loan Amount (₹)</Label><Input type="number" min="0" value={editForm.loanAmount} onChange={(e) => setEditForm((f) => ({ ...f, loanAmount: e.target.value }))} placeholder="e.g. 850000" /></div>
+                        <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm((f) => ({ ...f, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
+                        <div><Label>Reg. Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm((f) => ({ ...f, regNumber: e.target.value }))} placeholder="e.g. HR05AB1234" /></div>
+                        <div><Label>Owner Serial</Label><Input value={editForm.ownerSerial} onChange={(e) => setEditForm((f) => ({ ...f, ownerSerial: e.target.value }))} placeholder="1st, 2nd…" /></div>
+                        <div className="col-span-2"><Label>Existing Insurer</Label>
+                          <Select value={editForm.existingInsurer} onChange={(e) => setEditForm((f) => ({ ...f, existingInsurer: e.target.value }))}>
+                            <option value="">Select insurer…</option>
+                            {insurerOptions.map((ins) => <option key={ins} value={ins}>{ins}</option>)}
+                          </Select>
+                        </div>
                       </div>
-                      <div>
-                        <Label>Bank / NBFC</Label>
-                        <Select value={editForm.bankId} onChange={(e) => setEditForm((f) => ({ ...f, bankId: e.target.value }))}>
-                          <option value="">Select bank…</option>
-                          {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-                        </Select>
+                    </div>
+                    {/* Bank */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Bank / NBFC</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2"><Label>Bank / NBFC</Label>
+                          <Select value={editForm.bankId} onChange={(e) => setEditForm((f) => ({ ...f, bankId: e.target.value }))}>
+                            <option value="">Select bank…</option>
+                            {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm((f) => ({ ...f, bankBranch: e.target.value }))} /></div>
+                        <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm((f) => ({ ...f, bmName: e.target.value }))} /></div>
+                        <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm((f) => ({ ...f, bmContact: e.target.value }))} /></div>
+                        <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm((f) => ({ ...f, bankExecutive: e.target.value }))} /></div>
                       </div>
-                      <div>
-                        <Label>Dealer</Label>
-                        <Select value={editForm.dealerId} onChange={(e) => setEditForm((f) => ({ ...f, dealerId: e.target.value }))}>
-                          <option value="">Select dealer…</option>
-                          {dealers.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Vehicle Model</Label>
-                        <Input value={editForm.vehicleModel}
-                          onChange={(e) => setEditForm((f) => ({ ...f, vehicleModel: e.target.value }))}
-                          placeholder="e.g. Swift Dzire" />
-                      </div>
-                      <div>
-                        <Label>Reg. Number</Label>
-                        <Input value={editForm.regNumber}
-                          onChange={(e) => setEditForm((f) => ({ ...f, regNumber: e.target.value }))}
-                          placeholder="e.g. HR05AB1234" />
-                      </div>
-                      <div className="col-span-2">
-                        <Label>Location</Label>
-                        <Input value={editForm.location}
-                          onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))}
-                          placeholder="City / Area" />
+                    </div>
+                    {/* Dealer */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Dealer</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Dealer</Label>
+                          <Select value={editForm.dealerId} onChange={(e) => setEditForm((f) => ({ ...f, dealerId: e.target.value }))}>
+                            <option value="">Select dealer…</option>
+                            {dealers.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                          </Select>
+                        </div>
+                        <div><Label>Payout %</Label><Input type="number" min="0" max="100" step="0.1" value={editForm.payoutPct} onChange={(e) => setEditForm((f) => ({ ...f, payoutPct: e.target.value }))} placeholder="e.g. 1.5" /></div>
                       </div>
                     </div>
                     <div className="flex gap-2 justify-end pt-1 border-t border-border">
@@ -505,26 +625,57 @@ export default function MyCasesPage() {
                     </div>
                   </div>
                 ) : (
-                  /* ── Read view ── */
+                  /* ── Read view — schema-driven ── */
                   <>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        ["Customer", `${detailCase.customer.firstName} ${detailCase.customer.lastName}`],
-                        ["Contact", detailCase.customer.contact],
-                        ["Product", detailCase.product],
-                        ["Loan Amount", detailCase.loanAmount ? `₹${detailCase.loanAmount.toLocaleString("en-IN")}` : "—"],
-                        ["Bank", detailCase.bankName ?? "—"],
-                        ["Dealer", detailCase.dealerName ?? "—"],
-                        ["Location", detailCase.customer.location ?? "—"],
-                        ...(detailCase.vehicleModel ? [["Vehicle", detailCase.vehicleModel + (detailCase.regNumber ? ` · ${detailCase.regNumber}` : "")]] : []),
-                        ["Disbursed", detailCase.disbursementDate ? new Date(detailCase.disbursementDate).toLocaleDateString("en-IN") : "—"],
-                      ].map(([label, value]) => (
-                        <div key={label as string}>
-                          <Label>{label as string}</Label>
-                          <p className="text-sm font-medium mt-0.5">{value as string}</p>
+                    {caseSchema ? (
+                      <div className="space-y-5">
+                        {caseSchema.sections.map((section) => {
+                          const active = section.fields.filter((f) => f.isActive !== false);
+                          if (active.length === 0) return null;
+                          return (
+                            <div key={section.id} className="space-y-2">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">{section.title}</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                {active.map((field) => (
+                                  <div key={field.key}>
+                                    <Label>{field.label}</Label>
+                                    <p className="text-sm font-medium mt-0.5">{getCaseFieldValue(detailCase, field.key) ?? "—"}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Case Info</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><Label>Case ID</Label><p className="text-sm font-medium mt-0.5 font-mono text-primary">{detailCase.caseCode}</p></div>
+                            <div><Label>Date</Label><p className="text-sm font-medium mt-0.5">{new Date(detailCase.date).toLocaleDateString("en-IN")}</p></div>
+                            {detailCase.assignedToName && <div><Label>Assigned To</Label><p className="text-sm font-medium mt-0.5">{detailCase.assignedToName}</p></div>}
+                            {detailCase.disbursementDate && <div><Label>Disbursed On</Label><p className="text-sm font-medium mt-0.5">{new Date(detailCase.disbursementDate).toLocaleDateString("en-IN")}</p></div>}
+                          </div>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          ["Customer", `${detailCase.customer.firstName} ${detailCase.customer.lastName}`],
+                          ["Contact", detailCase.customer.contact],
+                          ["Product", detailCase.product],
+                          ["Loan Amount", detailCase.loanAmount ? `₹${detailCase.loanAmount.toLocaleString("en-IN")}` : "—"],
+                          ["Bank", detailCase.bankName ?? "—"],
+                          ["Dealer", detailCase.dealerName ?? "—"],
+                          ["Location", detailCase.customer.location ?? "—"],
+                          ...(detailCase.vehicleModel ? [["Vehicle", detailCase.vehicleModel + (detailCase.regNumber ? ` · ${detailCase.regNumber}` : "")]] : []),
+                          ["Disbursed", detailCase.disbursementDate ? new Date(detailCase.disbursementDate).toLocaleDateString("en-IN") : "—"],
+                        ].map(([label, value]) => (
+                          <div key={label as string}>
+                            <Label>{label as string}</Label>
+                            <p className="text-sm font-medium mt-0.5">{value as string}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {detailCase.remarks && <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{detailCase.remarks}</div>}
                     <div className="flex justify-end pt-1 border-t border-border">
                       <Button variant="secondary" size="sm" onClick={() => enterEditMode(detailCase)}>
@@ -532,6 +683,43 @@ export default function MyCasesPage() {
                       </Button>
                     </div>
                   </>
+                )}
+              </div>
+            )}
+
+            {/* ── Pipeline tab ── */}
+            {detailTab === "pipeline" && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted mb-3">Approval pipeline stages for this case.</p>
+                {!detailCase.pipeline || detailCase.pipeline.length === 0 ? (
+                  <p className="text-sm text-muted italic">No pipeline data available.</p>
+                ) : (
+                  detailCase.pipeline.map((item) => (
+                    <div key={item.stage} className={cn(
+                      "flex items-start gap-3 p-3 rounded-lg border",
+                      item.status === "Done" ? "bg-success-subtle border-success-border" :
+                      item.status === "NA" ? "bg-surface-2 border-border opacity-60" :
+                      "bg-surface border-border"
+                    )}>
+                      <div className={cn(
+                        "size-5 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+                        item.status === "Done" ? "bg-success" : "border-2 border-border"
+                      )}>
+                        {item.status === "Done" && <CheckCircle2 className="size-3 text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={cn("text-sm font-medium", item.status === "NA" && "line-through text-muted")}>{item.stage}</p>
+                        {item.doneAt && (
+                          <p className="text-xs text-muted mt-0.5">
+                            {new Date(item.doneAt).toLocaleDateString("en-IN")}
+                            {item.doneByName ? ` · ${item.doneByName}` : ""}
+                          </p>
+                        )}
+                        {item.remarks && <p className="text-xs text-muted/80 mt-0.5 italic">{item.remarks}</p>}
+                      </div>
+                      <Badge tone={item.status === "Done" ? "success" : "neutral"}>{item.status}</Badge>
+                    </div>
+                  ))
                 )}
               </div>
             )}
@@ -653,7 +841,7 @@ export default function MyCasesPage() {
             )}
           </div>
         )}
-      </Modal>
+      </Drawer>
 
       {/* Remark modal */}
       <Modal open={!!remarkCase} onClose={() => setRemarkCase(null)} title={`Add Remark — ${remarkCase?.caseCode}`} size="sm">

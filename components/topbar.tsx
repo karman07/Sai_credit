@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Moon, Sun, Bell, LogOut, ChevronDown, Search, User } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Bell, LogOut, ChevronDown, User } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
-import { useTheme } from "../lib/theme";
 import { cn } from "./ui";
 import { notificationsApi, type Notification } from "../lib/api";
 
@@ -21,50 +20,51 @@ function timeAgo(dateStr: string) {
 
 export function Topbar() {
   const { user, logout } = useAuth();
-  const { theme, toggle } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
-  const unread = notifs.filter((n) => !n.isRead).length;
+  const [unreadCount, setUnreadCount] = useState(0);
   const initials = user ? (user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "") : "··";
 
-  async function loadNotifs() {
+  const loadNotifs = useCallback(async () => {
     try {
-      const res = await notificationsApi.list(20);
-      setNotifs(res.data);
-    } catch { /* silent */ }
-  }
+      const [listRes, countRes] = await Promise.all([
+        notificationsApi.list(20),
+        notificationsApi.unreadCount(),
+      ]);
+      setNotifs(listRes.data);
+      setUnreadCount(countRes.data.count);
+    } catch {}
+  }, []);
 
   async function markAllRead() {
     await notificationsApi.markAllRead().catch(() => {});
     setNotifs((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setUnreadCount(0);
   }
 
   useEffect(() => {
     loadNotifs();
-    const interval = setInterval(loadNotifs, 60000); // refresh every minute
+    const interval = setInterval(loadNotifs, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadNotifs]);
 
   return (
-    <header className="h-14 sticky top-0 z-10 flex items-center gap-2 px-5 bg-background/85 backdrop-blur-md border-b border-border">
-      <div className="relative flex-1 max-w-xs">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted pointer-events-none" />
-        <input placeholder="Search cases or customers…" className="input-base !pl-8 text-xs h-8 bg-surface-2 border-border" />
-      </div>
-
+    <header className="h-14 sticky top-0 z-10 flex items-center px-5 bg-background/85 backdrop-blur-md border-b border-border">
       <div className="flex items-center gap-0.5 ml-auto">
-        <button onClick={toggle} className="size-8 grid place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-foreground transition-colors">
-          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        </button>
 
+        {/* Notifications */}
         <div className="relative">
           <button
-            onClick={() => { setNotifOpen((o) => !o); setMenuOpen(false); if (!notifOpen) loadNotifs(); }}
+            onClick={() => { setNotifOpen((o) => !o); setMenuOpen(false); }}
             className="size-8 grid place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-foreground transition-colors relative"
           >
             <Bell className="size-4" />
-            {unread > 0 && <span className="absolute top-1 right-1 size-[7px] rounded-full bg-danger border border-background" />}
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center border border-background leading-none">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </button>
 
           {notifOpen && (
@@ -73,10 +73,15 @@ export function Topbar() {
               <div className="absolute right-0 mt-1 w-80 z-20 card p-0 overflow-hidden animate-slideUp">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                   <p className="text-sm font-semibold">Notifications</p>
-                  {unread > 0 && (
-                    <button onClick={markAllRead} className="text-xs text-primary hover:underline font-medium">
-                      Mark all read
-                    </button>
+                  {unreadCount > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-primary-subtle text-primary px-2 py-0.5 rounded-full font-medium">
+                        {unreadCount} new
+                      </span>
+                      <button onClick={markAllRead} className="text-xs text-primary hover:underline font-medium">
+                        Mark all read
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className="divide-y divide-border-subtle max-h-80 overflow-y-auto">
@@ -105,6 +110,7 @@ export function Topbar() {
           )}
         </div>
 
+        {/* User menu */}
         <div className="relative ml-1">
           <button onClick={() => { setMenuOpen((o) => !o); setNotifOpen(false); }} className="flex items-center gap-2 h-8 pl-1 pr-2 rounded-lg hover:bg-surface-2 transition-colors">
             <span className="size-6 rounded-full bg-primary text-primary-foreground grid place-items-center text-[11px] font-bold uppercase">{initials}</span>

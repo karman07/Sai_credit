@@ -208,6 +208,7 @@ body {
 @keyframes fadeIn   { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
 @keyframes slideIn  { from { opacity:0; transform:translateX(28px) } to { opacity:1; transform:none } }
 @keyframes slideUp  { from { opacity:0; transform:translateY(20px) scale(.97) } to { opacity:1; transform:none scale(1) } }
+@keyframes drawerIn { from { transform:translateX(100%) } to { transform:translateX(0) } }
 @keyframes skeleton { 0%,100%{opacity:.5} 50%{opacity:1} }
 @keyframes spin     { to { transform:rotate(360deg) } }
 @keyframes toastIn  { from{opacity:0;transform:translateX(110%)} to{opacity:1;transform:none} }
@@ -216,6 +217,7 @@ body {
 .animate-fadeIn   { animation: fadeIn 220ms ease both; }
 .animate-slideIn  { animation: slideIn 280ms cubic-bezier(.22,.68,0,1.15) both; }
 .animate-slideUp  { animation: slideUp 260ms cubic-bezier(.22,.68,0,1.15) both; }
+.animate-drawerIn { animation: drawerIn 280ms cubic-bezier(.22,.68,0,1.15) both; }
 .animate-skeleton { animation: skeleton 1.5s ease-in-out infinite; }
 .animate-spin     { animation: spin 0.65s linear infinite; }
 .animate-toastIn  { animation: toastIn 300ms cubic-bezier(.22,.68,0,1.15) both; }

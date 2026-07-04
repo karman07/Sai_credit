@@ -82,14 +82,14 @@ export function Badge({ tone = "neutral", dot, className, children }: { tone?: B
   );
 }
 
-export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
-const caseStatusTones: Record<CaseStatus, BadgeTone> = {
+export type CaseStatus = string;
+const CORE_STATUS_TONES: Record<string, BadgeTone> = {
   "Draft": "neutral", "Sales": "info", "Pending": "warning", "In Credit": "purple",
   "Incomplete": "orange", "Approved": "success",
   "Disbursed": "success", "Hold": "warning", "Rejected": "danger", "Cancelled": "neutral",
 };
-export function CaseStatusBadge({ status }: { status: CaseStatus }) {
-  return <Badge tone={caseStatusTones[status]} dot>{status}</Badge>;
+export function CaseStatusBadge({ status }: { status: string }) {
+  return <Badge tone={CORE_STATUS_TONES[status] ?? "neutral"} dot>{status}</Badge>;
 }
 
 // ── Skeleton ────────────────────────────────────────────────────────
@@ -131,6 +131,32 @@ export function Modal({ open, onClose, title, description, size = "md", children
           </div>
         )}
         <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
+}
+
+// ── Drawer ───────────────────────────────────────────────────────────
+export function Drawer({ open, onClose, title, description, size = "lg", children }: { open: boolean; onClose: () => void; title?: string; description?: string; size?: "sm" | "md" | "lg" | "xl"; children: React.ReactNode }) {
+  const sizeClass = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-xl", xl: "max-w-2xl" }[size];
+  useEffect(() => { if (open) document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, [open]);
+  if (!open) return null;
+  const content = (
+    <div className="fixed inset-0 z-[100] flex justify-end">
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
+      <div className={cn("relative w-full h-full bg-surface border-l border-border flex flex-col animate-drawerIn shadow-2xl", sizeClass)}>
+        {(title || description) && (
+          <div className="flex items-start justify-between p-5 border-b border-border shrink-0">
+            <div className="min-w-0">
+              {title && <h2 className="font-semibold text-base">{title}</h2>}
+              {description && <p className="text-sm text-muted mt-0.5">{description}</p>}
+            </div>
+            <button onClick={onClose} className="size-7 grid place-items-center rounded-lg text-muted hover:bg-surface-2 transition-colors ml-4 shrink-0"><X className="size-3.5" /></button>
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );

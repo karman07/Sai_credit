@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck, Plus, X, Phone, Car, RefreshCw,
-  ChevronDown, ChevronRight, Edit2, Search, Calendar,
+  ChevronDown, ChevronRight, Edit2, Calendar,
 } from "lucide-react";
-import { insuranceLeadsApi, type InsuranceLead } from "../../../lib/api";
-import { Button, Input, Label, Select, Badge, type BadgeTone } from "../../../components/ui";
+import { insuranceLeadsApi, mastersApi, type InsuranceLead, type InsuranceLeadStats } from "../../../lib/api";
+import { Button, Input, Label, Select, Badge, SearchInput, type BadgeTone } from "../../../components/ui";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,18 @@ function LeadForm({ initial, onSave, onClose }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  const [vehicleTypes, setVehicleTypes] = useState<string[]>([]);
+  const [states, setStates] = useState<string[]>([]);
+  const [cities, setCities] = useState<string[]>([]);
+  const [insurers, setInsurers] = useState<string[]>([]);
+
+  useEffect(() => {
+    mastersApi.list("vehicle-types").then(({ data }) => setVehicleTypes(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+    mastersApi.list("states").then(({ data }) => setStates(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+    mastersApi.list("cities").then(({ data }) => setCities(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+    mastersApi.list("insurance-companies").then(({ data }) => setInsurers(data.filter((d: any) => d.isActive).map((d: any) => d.name))).catch(() => {});
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -101,11 +113,17 @@ function LeadForm({ initial, onSave, onClose }: {
               </div>
               <div className="space-y-1.5">
                 <Label>Area / Location</Label>
-                <Input value={form.location} onChange={(e) => set("location", e.target.value)} />
+                <Select value={form.location} onChange={(e) => set("location", e.target.value)}>
+                  <option value="">Select city…</option>
+                  {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>State</Label>
-                <Input value={form.state} onChange={(e) => set("state", e.target.value)} />
+                <Select value={form.state} onChange={(e) => set("state", e.target.value)}>
+                  <option value="">Select state…</option>
+                  {states.map((s) => <option key={s} value={s}>{s}</option>)}
+                </Select>
               </div>
             </div>
           </div>
@@ -118,9 +136,7 @@ function LeadForm({ initial, onSave, onClose }: {
                 <Label>Vehicle Type</Label>
                 <Select value={form.vehicleType} onChange={(e) => set("vehicleType", e.target.value)}>
                   <option value="">Select…</option>
-                  {["Car", "Truck", "Two Wheeler", "Commercial", "Other"].map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
+                  {vehicleTypes.map((v) => <option key={v} value={v}>{v}</option>)}
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -137,7 +153,10 @@ function LeadForm({ initial, onSave, onClose }: {
               </div>
               <div className="space-y-1.5">
                 <Label>Existing Insurer</Label>
-                <Input placeholder="Current insurance company" value={form.existingInsurer} onChange={(e) => set("existingInsurer", e.target.value)} />
+                <Select value={form.existingInsurer} onChange={(e) => set("existingInsurer", e.target.value)}>
+                  <option value="">Select insurer…</option>
+                  {insurers.map((ins) => <option key={ins} value={ins}>{ins}</option>)}
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Policy Expiry</Label>
@@ -237,7 +256,7 @@ function LeadCard({ lead, onEdit, onStatusChange }: {
           onChange={(e) => onStatusChange(e.target.value)}
           className="text-xs rounded-lg border border-border bg-surface px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         >
-          {STATUS_OPTIONS.filter((o) => o.value !== "converted").map((o) => (
+          {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
@@ -273,6 +292,7 @@ function LeadCard({ lead, onEdit, onStatusChange }: {
 
 export default function InsuranceLeadsPage() {
   const [leads, setLeads] = useState<InsuranceLead[]>([]);
+  const [stats, setStats] = useState<InsuranceLeadStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -282,8 +302,12 @@ export default function InsuranceLeadsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await insuranceLeadsApi.list({ status: statusFilter || undefined, search: search || undefined });
+      const [r, s] = await Promise.all([
+        insuranceLeadsApi.list({ status: statusFilter || undefined, search: search || undefined }),
+        insuranceLeadsApi.stats(),
+      ]);
       setLeads(r.data.leads);
+      setStats(s.data);
     } catch { /* non-fatal */ }
     finally { setLoading(false); }
   }, [statusFilter, search]);
@@ -299,16 +323,9 @@ export default function InsuranceLeadsPage() {
   async function handleStatusChange(id: string, status: string) {
     await insuranceLeadsApi.update(id, { status } as any);
     setLeads((prev) => prev.map((l) => l._id === id ? { ...l, status: status as any } : l));
+    // Refresh stats so the counts strip stays accurate
+    insuranceLeadsApi.stats().then((r) => setStats(r.data)).catch(() => {});
   }
-
-  const counts = {
-    total:      leads.length,
-    new:        leads.filter((l) => l.status === "new").length,
-    contacted:  leads.filter((l) => l.status === "contacted").length,
-    interested: leads.filter((l) => l.status === "interested").length,
-    converted:  leads.filter((l) => l.status === "converted").length,
-    lost:       leads.filter((l) => l.status === "lost").length,
-  };
 
   return (
     <div className="space-y-5">
@@ -322,40 +339,39 @@ export default function InsuranceLeadsPage() {
         </Button>
       </div>
 
-      {/* Status strip */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        {([
-          ["Total",      counts.total,      "text-foreground" ],
-          ["New",        counts.new,        "text-blue-600"   ],
-          ["Contacted",  counts.contacted,  "text-yellow-600" ],
-          ["Interested", counts.interested, "text-orange-600" ],
-          ["Converted",  counts.converted,  "text-green-600"  ],
-          ["Lost",       counts.lost,       "text-red-500"    ],
-        ] as [string, number, string][]).map(([l, v, c]) => (
-          <button
-            key={l}
-            onClick={() => setStatusFilter(l === "Total" ? "" : l.toLowerCase())}
-            className={`bg-surface border border-border rounded-xl p-3 text-center transition-all hover:border-primary/40 ${
-              (l === "Total" ? !statusFilter : statusFilter === l.toLowerCase()) ? "ring-2 ring-primary" : ""
-            }`}
-          >
-            <p className={`text-xl font-bold ${c}`}>{v}</p>
-            <p className="text-[10px] text-muted">{l}</p>
-          </button>
-        ))}
-      </div>
+      {/* Status strip — server-side counts */}
+      {stats && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {([
+            ["Total",      stats.total,      "text-foreground" ],
+            ["New",        stats.new,        "text-blue-600"   ],
+            ["Contacted",  stats.contacted,  "text-yellow-600" ],
+            ["Interested", stats.interested, "text-orange-600" ],
+            ["Converted",  stats.converted,  "text-green-600"  ],
+            ["Lost",       stats.lost,       "text-red-500"    ],
+          ] as [string, number, string][]).map(([l, v, c]) => (
+            <button
+              key={l}
+              onClick={() => setStatusFilter(l === "Total" ? "" : l.toLowerCase())}
+              className={`bg-surface border border-border rounded-xl p-3 text-center transition-all hover:border-primary/40 ${
+                (l === "Total" ? !statusFilter : statusFilter === l.toLowerCase()) ? "ring-2 ring-primary" : ""
+              }`}
+            >
+              <p className={`text-xl font-bold ${c}`}>{v}</p>
+              <p className="text-[10px] text-muted">{l}</p>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted" />
-          <Input
-            placeholder="Search name, contact, vehicle…"
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          value={search}
+          onChange={(v) => setSearch(v)}
+          placeholder="Search name, contact, vehicle…"
+          className="flex-1 min-w-48"
+        />
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-36">
           <option value="">All</option>
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
