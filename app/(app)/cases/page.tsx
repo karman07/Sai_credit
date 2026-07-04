@@ -124,6 +124,17 @@ export default function CasesPage() {
   // Status change
   const [statusChanging, setStatusChanging] = useState(false);
 
+  // New Case modal
+  const [newCaseOpen, setNewCaseOpen] = useState(false);
+  const [newCaseForm, setNewCaseForm] = useState<EditForm & { status: string }>({
+    firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
+    location: "", state: "", pinCode: "", residentialStatus: "",
+    product: "", loanType: "", vehicleModel: "", regNumber: "",
+    loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+    dealerId: "", payoutPct: "", remarks: "", status: "Sales",
+  });
+  const [newCaseSaving, setNewCaseSaving] = useState(false);
+
   // Edit modal
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({
@@ -162,6 +173,7 @@ export default function CasesPage() {
   const [rtoSlipUploading, setRtoSlipUploading] = useState(false);
 
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [customStatuses, setCustomStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
 
   const loadStats = useCallback(async () => {
     try { const { data } = await casesApi.stats(); setStatusCounts(data.statusBreakdown ?? {}); } catch {}
@@ -189,15 +201,17 @@ export default function CasesPage() {
 
   const loadRef = useCallback(async () => {
     try {
-      const [bl, dl, ul, dtl, citl, stl] = await Promise.all([
+      const [bl, dl, ul, dtl, citl, stl, csl] = await Promise.all([
         banksApi.list(), dealersApi.list(),
         usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
         mastersApi.list("cities"), mastersApi.list("states"),
+        mastersApi.list("case-statuses"),
       ]);
       setBanks(bl.data); setDealers(dl.data);
       setSalesUsers(ul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
+      setCustomStatuses(csl.data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })));
     } catch (e: any) { toast("error", "Failed to load references"); }
   }, [toast]);
 
@@ -346,6 +360,46 @@ export default function CasesPage() {
     finally { setEditSaving(false); }
   }
 
+  // ── New Case ───────────────────────────────────────────────────────
+  async function saveNewCase() {
+    const f = newCaseForm;
+    if (!f.firstName.trim()) { toast("error", "First name is required"); return; }
+    if (!f.contact.trim()) { toast("error", "Contact number is required"); return; }
+    setNewCaseSaving(true);
+    try {
+      await casesApi.create({
+        status: f.status || "Sales",
+        customer: {
+          firstName: f.firstName, lastName: f.lastName || undefined,
+          fatherName: f.fatherName || undefined, contact: f.contact,
+          altContact: f.altContact || undefined, location: f.location || undefined,
+          state: f.state || undefined, pinCode: f.pinCode || undefined,
+          residentialStatus: f.residentialStatus || undefined,
+        },
+        product: f.product || undefined, loanType: f.loanType || undefined,
+        vehicleModel: f.vehicleModel || undefined, regNumber: f.regNumber || undefined,
+        loanAmount: f.loanAmount ? Number(f.loanAmount) : undefined,
+        bankId: f.bankId || undefined, bankBranch: f.bankBranch || undefined,
+        bmName: f.bmName || undefined, bmContact: f.bmContact || undefined,
+        bankExecutive: f.bankExecutive || undefined,
+        dealerId: f.dealerId || undefined,
+        payoutPct: f.payoutPct ? Number(f.payoutPct) : undefined,
+        remarks: f.remarks || undefined,
+      });
+      toast("success", "Case created successfully");
+      setNewCaseOpen(false);
+      setNewCaseForm({
+        firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
+        location: "", state: "", pinCode: "", residentialStatus: "",
+        product: "", loanType: "", vehicleModel: "", regNumber: "",
+        loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+        dealerId: "", payoutPct: "", remarks: "", status: "Sales",
+      });
+      load();
+    } catch (e: any) { toast("error", e.message ?? "Failed to create case"); }
+    finally { setNewCaseSaving(false); }
+  }
+
   // ── Doc handlers ───────────────────────────────────────────────────
   async function handleRequestDocs() {
     if (!drawerCase) return;
@@ -414,9 +468,16 @@ export default function CasesPage() {
   }
 
   const hasFilters = bankFilter || productFilter;
+  const allStatuses: string[] = [
+    ...CASE_STATUSES,
+    ...customStatuses.filter((c) => !CASE_STATUSES.includes(c.name as any)).map((c) => c.name),
+  ];
+  const customStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
+    customStatuses.map((c) => [c.name, c.colorClass])
+  );
   const statusTabs = [
     { id: "All", label: "All", count: meta.total },
-    ...CASE_STATUSES.map((s) => ({ id: s, label: s, count: statusCounts[s] ?? 0 })),
+    ...allStatuses.map((s) => ({ id: s, label: s, count: statusCounts[s] ?? 0 })),
   ];
   const allSelected = cases.length > 0 && cases.every((c) => selectedIds.has(c._id));
   function toggleAll() {
@@ -426,13 +487,16 @@ export default function CasesPage() {
 
   return (
     <div className="space-y-4 animate-fadeIn">
-      {/* Header — no New Case button */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Case Management</h1>
           <p className="text-sm text-muted mt-0.5">Track and manage all loan cases</p>
         </div>
-        <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
+          <Button size="sm" onClick={() => setNewCaseOpen(true)}><FileText className="size-3.5" /> New Case</Button>
+        </div>
       </div>
 
       {selectedIds.size > 0 && (
@@ -489,16 +553,16 @@ export default function CasesPage() {
               <tr>
                 <th className="w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" /></th>
                 <th>Case ID</th><th>Date</th><th>Customer</th><th>Product</th>
-                <th>Bank</th><th>Loan Amount</th><th>Status</th><th>Disbursed</th><th>Assigned To</th><th>Actions</th>
+                <th>Bank</th><th>Loan Amount</th><th>Status</th><th>Disbursed</th><th>Assigned To</th><th>Coordinator</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 11 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
+                  <tr key={i}>{Array.from({ length: 12 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
                 ))
               ) : cases.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={FileText} title="No cases found" description="Try adjusting the filters or search term." /></td></tr>
+                <tr><td colSpan={12}><EmptyState icon={FileText} title="No cases found" description="Try adjusting the filters or search term." /></td></tr>
               ) : cases.map((c) => (
                 <tr
                   key={c._id} className="cursor-pointer" onClick={() => openDrawer(c)}
@@ -513,12 +577,17 @@ export default function CasesPage() {
                   <td className="text-xs text-foreground-secondary">{c.product}</td>
                   <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
                   <td className="font-mono text-xs font-semibold">{fmt(c.loanAmount)}</td>
-                  <td><CaseStatusBadge status={c.status} /></td>
+                  <td><CaseStatusBadge status={c.status} colorClass={customStatusColorMap[c.status]} /></td>
                   <td className="text-xs text-muted">{fmtDate(c.disbursementDate)}</td>
                   <td className="text-xs font-medium">
                     {c.assignedToName
                       ? <span className="flex items-center gap-1 text-foreground-secondary"><UserCheck className="size-3 text-teal" />{c.assignedToName}</span>
                       : <span className="text-muted/60">Unassigned</span>}
+                  </td>
+                  <td className="text-xs font-medium">
+                    {c.coordinatorName
+                      ? <span className="flex items-center gap-1 text-foreground-secondary"><UserCheck className="size-3 text-primary" />{c.coordinatorName}</span>
+                      : <span className="text-muted/60">—</span>}
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => openDrawer(c)} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-foreground transition-colors"><Eye className="size-3.5" /></button>
@@ -563,14 +632,14 @@ export default function CasesPage() {
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Status</p>
                       <div className="flex items-center gap-2">
-                        <CaseStatusBadge status={drawerCase.status} />
+                        <CaseStatusBadge status={drawerCase.status} colorClass={customStatusColorMap[drawerCase.status]} />
                         <Select
                           className="h-7 text-xs w-36"
                           value={drawerCase.status}
                           onChange={(e) => changeStatus(e.target.value)}
                           disabled={statusChanging}
                         >
-                          {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          {allStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
                         </Select>
                       </div>
                     </div>
@@ -589,6 +658,12 @@ export default function CasesPage() {
                             <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>
                           ))}
                         </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Coordinator</p>
+                        <p className="h-8 flex items-center text-sm font-medium">
+                          {drawerCase.coordinatorName ?? <span className="text-muted/60">—</span>}
+                        </p>
                       </div>
                       <Button size="sm" variant="secondary" onClick={() => openEditModal(drawerCase)}>
                         <Pencil className="size-3.5" /> Edit
@@ -986,7 +1061,7 @@ export default function CasesPage() {
       <Modal open={bulkModalOpen} onClose={() => setBulkModalOpen(false)} title="Bulk Update Status" size="sm">
         <div className="space-y-4">
           <p className="text-sm text-muted">Update status for {selectedIds.size} selected cases.</p>
-          <div><Label>New Status</Label><Select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>{CASE_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></div>
+          <div><Label>New Status</Label><Select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>{allStatuses.map((s) => <option key={s}>{s}</option>)}</Select></div>
           <div className="flex gap-2 justify-end">
             <Button variant="secondary" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
             <Button size="sm" onClick={() => { setBulkModalOpen(false); setSelectedIds(new Set()); }}>Update {selectedIds.size} Cases</Button>
@@ -1223,6 +1298,126 @@ export default function CasesPage() {
               </div>
             ))}
           </div>
+        </div>
+      </Modal>
+
+      {/* ── New Case Modal ─────────────────────────────────────────── */}
+      <Modal open={newCaseOpen} onClose={() => setNewCaseOpen(false)} title="New Case" size="xl">
+        <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
+
+          {/* Status */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Initial Status</p>
+            <div className="w-48">
+              <Label>Status</Label>
+              <Select value={newCaseForm.status} onChange={(e) => setNewCaseForm(p => ({ ...p, status: e.target.value }))}>
+                {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </div>
+          </div>
+
+          {/* Customer */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Customer Information</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div><Label>First Name *</Label><Input value={newCaseForm.firstName} onChange={(e) => setNewCaseForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
+              <div><Label>Last Name</Label><Input value={newCaseForm.lastName} onChange={(e) => setNewCaseForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
+              <div><Label>Father's Name</Label><Input value={newCaseForm.fatherName} onChange={(e) => setNewCaseForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
+              <div><Label>Contact *</Label><Input value={newCaseForm.contact} onChange={(e) => setNewCaseForm(p => ({ ...p, contact: e.target.value }))} placeholder="+91…" /></div>
+              <div><Label>Alt Contact</Label><Input value={newCaseForm.altContact} onChange={(e) => setNewCaseForm(p => ({ ...p, altContact: e.target.value }))} placeholder="Alt number" /></div>
+              <div>
+                <Label>State</Label>
+                <Select value={newCaseForm.state} onChange={(e) => setNewCaseForm(p => ({ ...p, state: e.target.value }))}>
+                  <option value="">Select state…</option>
+                  {states.map(s => <option key={s} value={s}>{s}</option>)}
+                </Select>
+              </div>
+              <div>
+                <Label>City</Label>
+                {cities.length > 0 ? (
+                  <Select value={newCaseForm.location} onChange={(e) => setNewCaseForm(p => ({ ...p, location: e.target.value }))}>
+                    <option value="">Select city…</option>
+                    {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                ) : (
+                  <Input value={newCaseForm.location} onChange={(e) => setNewCaseForm(p => ({ ...p, location: e.target.value }))} placeholder="City / Area" />
+                )}
+              </div>
+              <div><Label>Pin Code</Label><Input value={newCaseForm.pinCode} onChange={(e) => setNewCaseForm(p => ({ ...p, pinCode: e.target.value }))} placeholder="6-digit PIN" /></div>
+              <div>
+                <Label>Residential Status</Label>
+                <Select value={newCaseForm.residentialStatus} onChange={(e) => setNewCaseForm(p => ({ ...p, residentialStatus: e.target.value }))}>
+                  <option value="">Select…</option>
+                  <option>Own</option><option>Rented</option><option>Family Owned</option>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* Loan Details */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Product</Label>
+                <Select value={newCaseForm.product} onChange={(e) => setNewCaseForm(p => ({ ...p, product: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {PRODUCTS.map(prod => <option key={prod}>{prod}</option>)}
+                </Select>
+              </div>
+              <div>
+                <Label>Loan Type</Label>
+                <Select value={newCaseForm.loanType} onChange={(e) => setNewCaseForm(p => ({ ...p, loanType: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                </Select>
+              </div>
+              <div><Label>Loan Amount</Label><Input type="number" value={newCaseForm.loanAmount} onChange={(e) => setNewCaseForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
+              <div><Label>Vehicle Model</Label><Input value={newCaseForm.vehicleModel} onChange={(e) => setNewCaseForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
+              <div><Label>Reg Number</Label><Input value={newCaseForm.regNumber} onChange={(e) => setNewCaseForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+            </div>
+          </div>
+
+          {/* Bank & Dealer */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Bank</Label>
+                <Select value={newCaseForm.bankId} onChange={(e) => setNewCaseForm(p => ({ ...p, bankId: e.target.value }))}>
+                  <option value="">Select bank…</option>
+                  {banks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                </Select>
+              </div>
+              <div><Label>Branch</Label><Input value={newCaseForm.bankBranch} onChange={(e) => setNewCaseForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
+              <div><Label>BM Name</Label><Input value={newCaseForm.bmName} onChange={(e) => setNewCaseForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
+              <div><Label>BM Contact</Label><Input value={newCaseForm.bmContact} onChange={(e) => setNewCaseForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
+              <div><Label>Bank Executive</Label><Input value={newCaseForm.bankExecutive} onChange={(e) => setNewCaseForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
+              <div>
+                <Label>Dealer</Label>
+                <Select value={newCaseForm.dealerId} onChange={(e) => setNewCaseForm(p => ({ ...p, dealerId: e.target.value }))}>
+                  <option value="">Select dealer…</option>
+                  {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </Select>
+              </div>
+              <div><Label>Payout %</Label><Input type="number" min="0" max="100" value={newCaseForm.payoutPct} onChange={(e) => setNewCaseForm(p => ({ ...p, payoutPct: e.target.value }))} placeholder="0" /></div>
+            </div>
+          </div>
+
+          {/* Remarks */}
+          <div>
+            <Label>Remarks</Label>
+            <textarea
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[70px] mt-1"
+              value={newCaseForm.remarks} onChange={(e) => setNewCaseForm(p => ({ ...p, remarks: e.target.value }))}
+              placeholder="Any additional remarks..."
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-2 justify-end border-t border-border pt-4 mt-4">
+          <Button variant="secondary" size="sm" onClick={() => setNewCaseOpen(false)}>Cancel</Button>
+          <Button size="sm" loading={newCaseSaving} onClick={saveNewCase}>Create Case</Button>
         </div>
       </Modal>
     </div>

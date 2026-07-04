@@ -1,9 +1,36 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   Plus, RefreshCw, ShieldCheck, Edit2, Power, Trash2, Car,
 } from "lucide-react";
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+const IC = {
+  success: "#22C55E", warning: "#F59E0B", danger: "#EF4444",
+  info: "#38BDF8", purple: "#A855F7", teal: "#14B8A6",
+  orange: "#F97316", slate: "#94A3B8",
+};
+
+function InsTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[110px] border border-border">
+      {label && <p className="font-semibold mb-1 border-b border-border pb-1 text-foreground-secondary">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-2 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 import {
   Button, Badge, SearchInput, SectionHeader, Pagination, Modal, Input, Label, Select,
   EmptyState, Skeleton, useToast, Tabs, type BadgeTone,
@@ -266,6 +293,113 @@ export default function InsurancePage() {
       )}
 
       {/* ── All Entries Tab ───────────────────────────────────────────────── */}
+      {tab === "entries" && records.length > 0 && (() => {
+        // Expiry distribution
+        const exp  = records.filter((r) => daysUntil(r.endDate) < 0).length;
+        const d30  = records.filter((r) => { const d = daysUntil(r.endDate); return d >= 0 && d <= 30; }).length;
+        const d60  = records.filter((r) => { const d = daysUntil(r.endDate); return d > 30 && d <= 60; }).length;
+        const act  = records.filter((r) => daysUntil(r.endDate) > 60).length;
+        const expiryPie = [
+          { label: "Expired",   value: exp,  color: IC.danger  },
+          { label: "≤ 30 days", value: d30,  color: IC.warning },
+          { label: "≤ 60 days", value: d60,  color: IC.orange  },
+          { label: "Active",    value: act,  color: IC.success },
+        ].filter((e) => e.value > 0);
+
+        // Coverage type distribution
+        const covCounts: Record<string, number> = {};
+        records.forEach((r) => { if (r.coverageType) covCounts[r.coverageType] = (covCounts[r.coverageType] ?? 0) + 1; });
+        const covColors = [IC.info, IC.warning, IC.purple, IC.teal, IC.orange];
+        const covPie = Object.entries(covCounts).map(([label, value], i) => ({
+          label, value, color: covColors[i % covColors.length],
+        }));
+
+        // Insurer breakdown bar chart
+        const insBreakdown: Record<string, number> = {};
+        records.forEach((r) => { insBreakdown[r.insurer] = (insBreakdown[r.insurer] ?? 0) + 1; });
+        const insBar = Object.entries(insBreakdown)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([insurer, count]) => ({ insurer: insurer.length > 14 ? insurer.slice(0, 14) + "…" : insurer, count }));
+
+        const total = records.length;
+
+        return (
+          <div className="grid lg:grid-cols-3 gap-4 mb-1">
+            {/* Expiry donut */}
+            <div className="card">
+              <p className="text-sm font-semibold mb-3">Expiry Status</p>
+              <ResponsiveContainer width="100%" height={130}>
+                <PieChart>
+                  <Pie data={expiryPie} cx="50%" cy="50%" innerRadius={38} outerRadius={60}
+                    paddingAngle={2} dataKey="value" strokeWidth={0}>
+                    {expiryPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-2">
+                {expiryPie.map((s) => (
+                  <div key={s.label} className="flex items-center gap-2 text-xs">
+                    <span className="size-2 rounded-full shrink-0" style={{ background: s.color }} />
+                    <span className="text-foreground-secondary flex-1">{s.label}</span>
+                    <span className="font-semibold tabular-nums">{s.value}</span>
+                    <span className="text-muted w-7 text-right">{Math.round((s.value / total) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Coverage type donut */}
+            {covPie.length > 0 && (
+              <div className="card">
+                <p className="text-sm font-semibold mb-3">Coverage Type</p>
+                <ResponsiveContainer width="100%" height={130}>
+                  <PieChart>
+                    <Pie data={covPie} cx="50%" cy="50%" innerRadius={38} outerRadius={60}
+                      paddingAngle={2} dataKey="value" strokeWidth={0}>
+                      {covPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-1.5 mt-2">
+                  {covPie.map((s) => (
+                    <div key={s.label} className="flex items-center gap-2 text-xs">
+                      <span className="size-2 rounded-full shrink-0" style={{ background: s.color }} />
+                      <span className="text-foreground-secondary flex-1 truncate">{s.label}</span>
+                      <span className="font-semibold tabular-nums">{s.value}</span>
+                      <span className="text-muted w-7 text-right">{Math.round((s.value / total) * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Insurer bar chart */}
+            {insBar.length > 0 && (
+              <div className="card">
+                <p className="text-sm font-semibold mb-3">Top Insurers</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={insBar} layout="vertical" barSize={14} margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="insurer" width={80}
+                      tick={{ fontSize: 10, fill: "var(--foreground-secondary)" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<InsTip />} cursor={{ fill: "var(--primary-subtle, rgba(102,131,255,0.06))" }} />
+                    <Bar dataKey="count" name="Policies" radius={[0, 4, 4, 0]}>
+                      {insBar.map((_, i) => (
+                        <Cell key={i} fill={`hsl(${200 + i * 20}, 80%, ${58 - i * 3}%)`} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {tab === "entries" && (
         <div className="card p-0 overflow-hidden">
           <div className="flex items-center gap-3 p-3 border-b border-border flex-wrap">

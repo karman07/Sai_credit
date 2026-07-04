@@ -139,11 +139,9 @@ export function Badge({ tone = "neutral", dot, className, children }: {
 }
 
 // Case-status specific badge
-export type CaseStatus =
-  | "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved"
-  | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
+export type CaseStatus = string;
 
-const caseStatusTones: Record<CaseStatus, BadgeTone> = {
+const CORE_STATUS_TONES: Record<string, BadgeTone> = {
   "Draft":      "neutral",
   "Sales":      "info",
   "Pending":    "warning",
@@ -156,8 +154,9 @@ const caseStatusTones: Record<CaseStatus, BadgeTone> = {
   "Cancelled":  "neutral",
 };
 
-export function CaseStatusBadge({ status }: { status: CaseStatus }) {
-  return <Badge tone={caseStatusTones[status]} dot>{status}</Badge>;
+export function CaseStatusBadge({ status, colorClass }: { status: string; colorClass?: string }) {
+  const tone: BadgeTone = CORE_STATUS_TONES[status] ?? toneFor(colorClass) ?? "neutral";
+  return <Badge tone={tone} dot>{status}</Badge>;
 }
 
 export function toneFor(color?: string): BadgeTone {

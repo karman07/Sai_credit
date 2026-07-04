@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Moon, Sun, Bell, LogOut, ChevronDown, Search, Settings, User, Check } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Moon, Sun, Bell, LogOut, ChevronDown, Settings, User, Check } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
 import { useTheme } from "../lib/theme";
@@ -32,8 +32,6 @@ export function Topbar() {
   const { theme, toggle } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [searchVal, setSearchVal] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -59,17 +57,6 @@ export function Topbar() {
     ? (user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "")
     : "··";
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   async function markAllRead(e: React.MouseEvent) {
     e.stopPropagation();
     try {
@@ -81,21 +68,6 @@ export function Topbar() {
 
   return (
     <header className="h-14 sticky top-0 z-10 flex items-center gap-2 px-5 bg-background/85 backdrop-blur-md border-b border-border">
-      {/* Global search */}
-      <div className="relative flex-1 max-w-xs">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted pointer-events-none" />
-        <input
-          ref={searchRef}
-          value={searchVal}
-          onChange={(e) => setSearchVal(e.target.value)}
-          placeholder="Search cases, customers…"
-          className="input-base !pl-8 pr-12 text-xs h-8 bg-surface-2 border-border"
-        />
-        <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted bg-surface-3 border border-border rounded px-1 pointer-events-none hidden sm:block">
-          ⌘K
-        </kbd>
-      </div>
-
       <div className="flex items-center gap-0.5 ml-auto">
         {/* Theme toggle */}
         <button
@@ -114,7 +86,9 @@ export function Topbar() {
           >
             <Bell className="size-[16px]" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 size-[7px] rounded-full bg-danger border border-background" />
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center border border-background leading-none">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
             )}
           </button>
 

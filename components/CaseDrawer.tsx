@@ -642,6 +642,12 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
                           ))}
                         </Select>
                       </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Coordinator</p>
+                        <p className="h-8 flex items-center text-sm font-medium">
+                          {drawerCase.coordinatorName ?? <span className="text-muted/60">—</span>}
+                        </p>
+                      </div>
                       <Button size="sm" variant="secondary" onClick={() => openEditModal(drawerCase)}>
                         <Pencil className="size-3.5" /> Edit
                       </Button>

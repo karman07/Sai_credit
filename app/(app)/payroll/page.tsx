@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import {
   IndianRupee, ChevronDown, ChevronUp, X,
   ChevronLeft, ChevronRight, CheckCircle2,
   Users, UserCheck, Sun, CalendarDays, Palmtree,
@@ -14,6 +17,28 @@ import {
   type LeaveBalance, type Incentive, type AdditionalDeduction, type Claim,
 } from "../../../lib/api";
 import { Button, Input, Label } from "../../../components/ui";
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+function PayrollTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  const fmt = (v: number) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[140px] border border-border">
+      {label && <p className="font-semibold mb-1.5 border-b border-border pb-1 text-foreground-secondary truncate max-w-[160px]">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-2 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">{fmt(Number(p.value))}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -916,6 +941,75 @@ export default function PayrollPage() {
           {paidCount === overview.length && <CheckCircle2 className="size-5 text-green-500 shrink-0" />}
         </div>
       )}
+
+      {/* ── Salary breakdown bar chart ─────────────────────────────── */}
+      {!loading && overview.length > 0 && (() => {
+        const barData = overview.map((r) => {
+          const lop = r.payroll
+            ? r.payroll.lopDeduction
+            : calcLop(r.user.basicSalary, r.attendance.present, r.attendance.halfDay, 0, month);
+          const net = r.payroll
+            ? r.payroll.netPay
+            : Math.max(0, r.user.basicSalary - lop);
+          const incentives = r.payroll ? r.payroll.incentives.reduce((s, i) => s + i.amount, 0) : 0;
+          return {
+            name: r.user.firstName,
+            "Net Pay":   net,
+            "Deduction": lop,
+            "Incentives": incentives,
+          };
+        });
+
+        // Compact height: just enough per employee for 3 snug bars + label
+        const chartH = Math.max(140, overview.length * 46 + 48);
+        const yWidth = Math.max(56, Math.max(...overview.map((r) => r.user.firstName.length)) * 7 + 4);
+
+        return (
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold">Salary Breakdown — {fmtMonth(month)}</p>
+              <div className="flex items-center gap-4 text-[11px] text-muted">
+                {[["Net Pay","#6683FF"],["Deduction","#EF4444"],["Incentives","#22C55E"]].map(([l, c]) => (
+                  <span key={l} className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full inline-block" style={{ background: c }} />{l}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={chartH}>
+              <BarChart
+                data={barData}
+                layout="vertical"
+                barSize={10}
+                barCategoryGap="16%"
+                barGap={2}
+                margin={{ top: 16, right: 20, bottom: 12, left: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10, fill: "var(--muted)" }}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={(v) =>
+                    v >= 100000 ? `${(v / 100000).toFixed(1)}L`
+                    : v >= 1000  ? `${(v / 1000).toFixed(0)}K`
+                    : String(v)
+                  }
+                />
+                <YAxis
+                  type="category" dataKey="name" width={yWidth}
+                  tick={{ fontSize: 11, fill: "var(--foreground-secondary)", fontWeight: 500 }}
+                  axisLine={false} tickLine={false}
+                />
+                <Tooltip content={<PayrollTip />} cursor={{ fill: "var(--primary-subtle, rgba(102,131,255,0.06))" }} />
+                <Bar dataKey="Net Pay"    fill="#6683FF" radius={[0, 3, 3, 0]} minPointSize={2} />
+                <Bar dataKey="Deduction" fill="#EF4444" radius={[0, 3, 3, 0]} minPointSize={2} />
+                <Bar dataKey="Incentives" fill="#22C55E" radius={[0, 3, 3, 0]} minPointSize={2} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      })()}
 
       {/* Employee list */}
       {loading ? (

@@ -5,13 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldCheck, Car, MapPin, Users, FileText,
   Plus, Edit2, Power, RefreshCw, Search, Map,
-  X, Hash, ListOrdered,
+  X, Hash, ListOrdered, Tags,
 } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
-  SearchInput, useToast, type BadgeTone,
+  SearchInput, useToast, CaseStatusBadge, type BadgeTone,
 } from "../../../components/ui";
-import { mastersApi, type MasterItem } from "../../../lib/api";
+import { mastersApi, CASE_STATUSES, type MasterItem } from "../../../lib/api";
 
 // ── Master catalog config ──────────────────────────────────────────────────────
 
@@ -45,6 +45,8 @@ const CATALOG: MasterConfig[] = [
   { slug: "document-types",      label: "Document Types",      description: "Supporting document types for cases",         group: "docs",      icon: FileText,    iconBg: "bg-neutral-500/10",  iconText: "text-neutral-600" },
   // Form Options
   { slug: "enum-sets",           label: "Enum Sets",           description: "Named option lists you can reuse in Form Builder select fields", group: "form-options", icon: ListOrdered, iconBg: "bg-violet-500/10", iconText: "text-violet-600", hasEnumValues: true },
+  // Loan Operations
+  { slug: "case-statuses",       label: "Case Statuses",       description: "Custom case statuses that appear alongside the built-in ones", group: "loan-ops", icon: Tags, iconBg: "bg-sky-500/10", iconText: "text-sky-600", hasColorClass: true },
 ];
 
 const GROUPS = [
@@ -53,6 +55,7 @@ const GROUPS = [
   { id: "geography",    label: "Geography",           icon: Map,         color: "text-orange-600" },
   { id: "docs",         label: "Documents",           icon: FileText,    color: "text-neutral-500"},
   { id: "form-options", label: "Form Options",        icon: ListOrdered, color: "text-violet-600" },
+  { id: "loan-ops",     label: "Loan Operations",     icon: Tags,        color: "text-sky-600"    },
 ];
 
 const COLOR_OPTIONS = [
@@ -254,6 +257,41 @@ function MastersContent() {
           )}
         </div>
 
+        {/* Built-in statuses block (case-statuses only) */}
+        {config.slug === "case-statuses" && (
+          <div className="px-6 pt-4 pb-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2">Built-in Statuses</p>
+            <div className="rounded-xl border border-border overflow-hidden bg-surface mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-surface-2/50">
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Name</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted w-24">Preview</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted w-24">Type</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {CASE_STATUSES.map((s) => (
+                    <tr key={s} className="opacity-70">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="size-7 rounded-md grid place-items-center shrink-0 bg-surface-2">
+                            <Tags className="size-3.5 text-muted" />
+                          </div>
+                          <span className="font-medium text-sm">{s}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><CaseStatusBadge status={s} /></td>
+                      <td className="px-4 py-3"><Badge tone="neutral">Built-in</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2">Custom Statuses</p>
+          </div>
+        )}
+
         {/* Table */}
         <div className="px-6 py-4">
           {loading ? (
@@ -270,8 +308,8 @@ function MastersContent() {
             <div className="card mt-4">
               <EmptyState
                 icon={config.icon}
-                title={search ? "No matches found" : `No ${config.label.toLowerCase()} yet`}
-                description={search ? "Try a different search term." : `Add your first ${config.label.toLowerCase().replace(/s$/, "")} using the button above.`}
+                title={search ? "No matches found" : `No ${config.slug === "case-statuses" ? "custom " : ""}${config.label.toLowerCase()} yet`}
+                description={search ? "Try a different search term." : `Add ${config.slug === "case-statuses" ? "a custom" : "your first"} ${config.label.toLowerCase().replace(/s$/, "")} using the button above.`}
                 action={!search ? (
                   <Button size="sm" onClick={() => { setEditItem(null); setFormOpen(true); }}>
                     <Plus className="size-3.5" /> Add Entry

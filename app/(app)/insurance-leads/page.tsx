@@ -424,6 +424,7 @@ function LeadCard({ lead, onEdit, onConvert, onDelete, onStatusChange }: {
             <p><span className="text-muted">Source:</span> {SOURCE_OPTIONS.find((s) => s.value === lead.source)?.label ?? lead.source}</p>
             {lead.assignedTo && <p><span className="text-muted">Assigned:</span> {(lead.assignedTo as any).firstName} {(lead.assignedTo as any).lastName}</p>}
             {lead.followUpDate && <p><span className="text-muted">Follow-up:</span> {fmtDate(lead.followUpDate)}</p>}
+            {lead.convertedAt && <p><span className="text-muted">Converted on:</span> {fmtDate(lead.convertedAt)}</p>}
             {lead.remarks && <p className="text-muted mt-1 text-xs">{lead.remarks}</p>}
           </div>
         </div>

@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 import { Users, CalendarDays, LogIn, LogOut, Timer, Edit2, Check, X } from "lucide-react";
 import { MonthPicker } from "../../../components/MonthPicker";
 import { Button, Input, Select, Label } from "../../../components/ui";
@@ -8,6 +12,34 @@ import {
   attendanceApi, usersApi,
   type AttendanceRecord, type StaffAttendanceSummary, type AdminUser,
 } from "../../../lib/api";
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+const ATT_C = {
+  present:  "#22C55E",
+  half_day: "#38BDF8",
+  on_leave: "#A855F7",
+  absent:   "#EF4444",
+  holiday:  "#F59E0B",
+};
+
+function AttTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[130px] border border-border">
+      {label && <p className="font-semibold mb-1.5 border-b border-border pb-1 text-foreground-secondary truncate max-w-[160px]">{label}</p>}
+      {payload.map((p: any, i: number) => p.value > 0 && (
+        <div key={i} className="flex items-center justify-between gap-2 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const STATUS_OPTS = [
   { value: "present",  label: "Present",  color: "text-green-700 bg-green-50 border-green-200" },
@@ -154,6 +186,140 @@ export default function AdminAttendancePage() {
 
       {/* Staff Overview Tab */}
       {tab === "staff" && (
+        <>
+        {/* ── Attendance Charts ────────────────────────────────── */}
+        {!loading && staffList.length > 0 && (() => {
+          // Aggregate totals for the donut
+          const totals = staffList.reduce(
+            (acc, s) => ({
+              present:  acc.present  + s.present,
+              half_day: acc.half_day + s.halfDay,
+              on_leave: acc.on_leave + s.onLeave,
+              absent:   acc.absent   + s.absent,
+            }),
+            { present: 0, half_day: 0, on_leave: 0, absent: 0 },
+          );
+          const summaryPie = [
+            { label: "Present",   value: totals.present,  color: ATT_C.present  },
+            { label: "Half Day",  value: totals.half_day, color: ATT_C.half_day },
+            { label: "On Leave",  value: totals.on_leave, color: ATT_C.on_leave },
+            { label: "Absent",    value: totals.absent,   color: ATT_C.absent   },
+          ].filter((e) => e.value > 0);
+          const totalDays = summaryPie.reduce((a, e) => a + e.value, 0);
+
+          // Per-staff stacked bar chart data
+          const barData = staffList.map((s) => ({
+            name: s.name.split(" ")[0],
+            Present:  s.present,
+            "Half Day": s.halfDay,
+            "On Leave": s.onLeave,
+            Absent:   s.absent,
+          }));
+
+          const hasAnyData = totalDays > 0;
+          // Use full name for bar chart; deduplicate by userId if same first name
+          const barDataFull = staffList.map((s) => ({
+            name: s.name.length > 12 ? s.name.split(" ")[0] : s.name,
+            fullName: s.name,
+            Present:    s.present,
+            "Half Day": s.halfDay,
+            "On Leave": s.onLeave,
+            Absent:     s.absent,
+          }));
+          const barH = Math.max(180, staffList.length * 52);
+
+          return (
+            <div className="grid lg:grid-cols-3 gap-4 mb-5">
+              {/* Summary donut */}
+              <div className="card flex flex-col p-4">
+                <p className="text-sm font-semibold mb-3">Month Summary</p>
+                {!hasAnyData ? (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-muted">
+                    <CalendarDays className="size-9 opacity-20" />
+                    <p className="text-xs text-center">No attendance marked<br />for this month yet</p>
+                  </div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={130}>
+                      <PieChart>
+                        <Pie data={summaryPie} cx="50%" cy="50%" innerRadius={38} outerRadius={60}
+                          paddingAngle={2} dataKey="value" strokeWidth={0}>
+                          {summaryPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <Tooltip formatter={(v: any, n: any) => [`${v} days`, n]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-1.5 mt-2">
+                      {[
+                        { label: "Present",  value: totals.present,  color: ATT_C.present  },
+                        { label: "Half Day", value: totals.half_day, color: ATT_C.half_day },
+                        { label: "On Leave", value: totals.on_leave, color: ATT_C.on_leave },
+                        { label: "Absent",   value: totals.absent,   color: ATT_C.absent   },
+                      ].map((s) => (
+                        <div key={s.label} className="flex items-center gap-2 text-xs">
+                          <span className="size-2 rounded-full shrink-0" style={{ background: s.color }} />
+                          <span className="text-foreground-secondary flex-1">{s.label}</span>
+                          <span className="font-semibold tabular-nums">{s.value}</span>
+                          <span className="text-muted w-7 text-right">
+                            {totalDays > 0 ? `${Math.round((s.value / totalDays) * 100)}%` : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Per-staff stacked bar */}
+              <div className="card lg:col-span-2 p-4">
+                <p className="text-sm font-semibold mb-4">Attendance by Staff</p>
+                {!hasAnyData ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted">
+                    <Users className="size-9 opacity-20" />
+                    <p className="text-xs">Attendance data will appear here once marked</p>
+                  </div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={barH}>
+                      <BarChart
+                        data={barDataFull}
+                        barSize={Math.max(14, Math.min(28, 120 / staffList.length))}
+                        barCategoryGap="28%"
+                        margin={{ top: 4, right: 8, bottom: 4, left: -16 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 11, fill: "var(--muted)" }}
+                          axisLine={false} tickLine={false}
+                          interval={0}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: "var(--muted)" }}
+                          axisLine={false} tickLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip content={<AttTip />} cursor={{ fill: "var(--surface-3, rgba(0,0,0,0.04))" }} />
+                        <Bar dataKey="Present"   stackId="a" fill={ATT_C.present}  radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Half Day"  stackId="a" fill={ATT_C.half_day} radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="On Leave"  stackId="a" fill={ATT_C.on_leave} radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Absent"    stackId="a" fill={ATT_C.absent}   radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-wrap gap-4 mt-3 text-[11px] text-muted justify-center">
+                      {[["Present", ATT_C.present], ["Half Day", ATT_C.half_day], ["On Leave", ATT_C.on_leave], ["Absent", ATT_C.absent]].map(([l, c]) => (
+                        <span key={l} className="flex items-center gap-1.5">
+                          <span className="size-2 rounded-full inline-block" style={{ background: c }} />{l}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="card overflow-hidden">
           {loading ? (
             <div className="p-8 text-center text-sm text-muted">Loading…</div>
@@ -189,6 +355,7 @@ export default function AdminAttendancePage() {
             </div>
           )}
         </div>
+        </>
       )}
 
       {/* Daily Log Tab */}

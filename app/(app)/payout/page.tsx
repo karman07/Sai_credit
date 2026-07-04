@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import { Plus, Check, Clock, Minus, Download, Pencil, Trash2, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 import {
   Button, Badge, Tabs, SectionHeader, Pagination, Modal, Input, Label, Select,
@@ -11,6 +15,54 @@ import {
   type PayoutRecord, type Bank, type LoanCase, type LinkedCase,
   type SectionDef, type FieldDef,
 } from "../../../lib/api";
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+const PC = {
+  primary: "#6683FF",
+  success: "#22C55E",
+  warning: "#F59E0B",
+  orange:  "#F97316",
+  teal:    "#14B8A6",
+  slate:   "#94A3B8",
+  purple:  "#A855F7",
+};
+
+function PayoutChartTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[130px] border border-border">
+      {label && <p className="font-semibold mb-1.5 border-b border-border pb-1.5 text-foreground-secondary">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-3 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">₹{Number(p.value).toLocaleString("en-IN")}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CountChartTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[120px] border border-border">
+      {label && <p className="font-semibold mb-1.5 border-b border-border pb-1.5 text-foreground-secondary">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-3 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -356,6 +408,119 @@ export default function PayoutPage() {
           ))}
         </div>
       )}
+
+      {/* ── Charts ─────────────────────────────────────────────────────── */}
+      {!loading && allRows.length > 0 && (() => {
+        // Monthly commission + payout volume bar chart data
+        const monthlyChart = months.slice(0, 8).reverse().map((m) => {
+          const mRows = allRows.filter((r) => r.businessMonth === m);
+          return {
+            month: m.slice(5),
+            Commission: mRows.reduce((a, r) => a + (r.commission || 0), 0),
+            "Total Payout": mRows.reduce((a, r) => a + (r.totalAmount || 0), 0),
+          };
+        });
+
+        // Invoice status pie
+        const invCounts: Record<string, number> = {};
+        allRows.forEach((r) => { invCounts[r.invoiceStatus] = (invCounts[r.invoiceStatus] ?? 0) + 1; });
+        const invPie = Object.entries(invCounts).map(([label, value], i) => ({
+          label, value,
+          color: [PC.warning, PC.primary, PC.success, PC.slate][i % 4],
+        }));
+
+        // Payout status pie
+        const payCounts: Record<string, number> = {};
+        allRows.forEach((r) => { payCounts[r.payoutStatus] = (payCounts[r.payoutStatus] ?? 0) + 1; });
+        const payPie = Object.entries(payCounts).map(([label, value]) => ({
+          label, value,
+          color: label === "Received" ? PC.success : label === "Pending" ? PC.warning : PC.slate,
+        }));
+
+        const totalAll = allRows.length;
+
+        return (
+          <div className="grid lg:grid-cols-3 gap-4">
+
+            {/* Monthly commission bar */}
+            <div className="card lg:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm font-semibold">Monthly Commission vs Payout</p>
+                <span className="text-[11px] text-muted bg-surface-2 border border-border px-2 py-0.5 rounded-full">₹ in actuals</span>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={monthlyChart} barSize={18} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => v >= 100000 ? `${(v / 100000).toFixed(0)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
+                  <Tooltip content={<PayoutChartTip />} cursor={{ fill: "var(--primary-subtle, rgba(102,131,255,0.06))" }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Bar dataKey="Commission" fill={PC.primary} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Total Payout" fill={PC.teal} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Status pies */}
+            <div className="card flex flex-col gap-4">
+              {/* Invoice status */}
+              <div>
+                <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Invoice Status</p>
+                <div className="flex items-center gap-3">
+                  <ResponsiveContainer width={90} height={90}>
+                    <PieChart>
+                      <Pie data={invPie} cx="50%" cy="50%" innerRadius={28} outerRadius={44}
+                        paddingAngle={2} dataKey="value" strokeWidth={0}>
+                        {invPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-1.5 flex-1">
+                    {invPie.map((s) => (
+                      <div key={s.label} className="flex items-center gap-1.5 text-xs">
+                        <span className="size-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-foreground-secondary flex-1 truncate">{s.label}</span>
+                        <span className="font-semibold tabular-nums">{s.value}</span>
+                        <span className="text-muted w-7 text-right">{Math.round((s.value / totalAll) * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border" />
+
+              {/* Payout status */}
+              <div>
+                <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Payout Status</p>
+                <div className="flex items-center gap-3">
+                  <ResponsiveContainer width={90} height={90}>
+                    <PieChart>
+                      <Pie data={payPie} cx="50%" cy="50%" innerRadius={28} outerRadius={44}
+                        paddingAngle={2} dataKey="value" strokeWidth={0}>
+                        {payPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-1.5 flex-1">
+                    {payPie.map((s) => (
+                      <div key={s.label} className="flex items-center gap-1.5 text-xs">
+                        <span className="size-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-foreground-secondary flex-1 truncate">{s.label}</span>
+                        <span className="font-semibold tabular-nums">{s.value}</span>
+                        <span className="text-muted w-7 text-right">{Math.round((s.value / totalAll) * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Month tabs */}
       {monthTabs.length > 1 && (

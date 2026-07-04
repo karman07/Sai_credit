@@ -148,6 +148,7 @@ export interface LoanCase {
   status: CaseStatus; disbursementDate?: string;
   remarks?: string;
   assignedTo?: string; assignedToName?: string;
+  coordinatorId?: string; coordinatorName?: string;
   pipeline: PipelineItem[];
   documents: CaseDocument[];
   docRequests: DocRequest[];
@@ -298,6 +299,7 @@ export const notificationsApi = {
   list: (limit?: number) => api.get<AppNotification[]>("/notifications", limit ? { limit } : undefined),
   unreadCount: () => api.get<{ count: number }>("/notifications/unread-count"),
   markRead: (id: string) => api.patch<AppNotification>(`/notifications/${id}/read`),
+  markUnread: (id: string) => api.patch<AppNotification>(`/notifications/${id}/unread`),
   markAllRead: () => api.patch<{ ok: boolean }>("/notifications/read-all"),
 };
 
@@ -316,6 +318,7 @@ export interface AdminUser {
   department?: string;
   joiningDate?: string;
   annualLeaveQuota?: number;
+  coordinatorId?: string;
 }
 
 export interface CreateUserBody {
@@ -327,6 +330,7 @@ export interface CreateUserBody {
   medicalAllowance?: number; otherAllowance?: number;
   designation?: string; department?: string; joiningDate?: string;
   annualLeaveQuota?: number;
+  coordinatorId?: string;
 }
 
 export interface UpdateUserBody {
@@ -338,6 +342,7 @@ export interface UpdateUserBody {
   medicalAllowance?: number; otherAllowance?: number;
   designation?: string; department?: string; joiningDate?: string;
   annualLeaveQuota?: number;
+  coordinatorId?: string;
 }
 
 export const usersApi = {
@@ -623,6 +628,7 @@ export interface InsuranceLead {
   assignedTo?: { _id: string; firstName: string; lastName: string; role: string } | null;
   assignedToName?: string;
   convertedMisId?: string;
+  convertedAt?: string;
   createdByName: string;
   createdAt: string;
   isActive: boolean;

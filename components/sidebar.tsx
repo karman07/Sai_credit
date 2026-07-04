@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import {
   LayoutDashboard, FileText, Users, Building2, Car, CreditCard,
   ShieldCheck, Clipboard, BarChart3, UserCog, Bell,
   ChevronLeft, ChevronRight, Banknote, Database,
   ChevronDown, ChevronUp, Map, MapPin,
-  CalendarDays, Receipt, Palmtree, IndianRupee, Sliders, ListOrdered,
+  CalendarDays, Receipt, Palmtree, IndianRupee, Sliders, ListOrdered, Tags,
 } from "lucide-react";
 import { cn } from "./ui";
+import { notificationsApi } from "../lib/api";
 
 // ── Catalog sub-items definition ──────────────────────────────────────────────
 
@@ -30,6 +31,8 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
   { kind: "item", slug: "document-types",      label: "Document Types",      icon: FileText,    dot: "bg-neutral-400" },
   { kind: "sep",  group: "Form Options" },
   { kind: "item", slug: "enum-sets",           label: "Enum Sets",           icon: ListOrdered, dot: "bg-violet-500"  },
+  { kind: "sep",  group: "Loan Operations" },
+  { kind: "item", slug: "case-statuses",        label: "Case Statuses",       icon: Tags,        dot: "bg-sky-500"     },
 ];
 
 // ── Catalog dropdown (needs useSearchParams → wrap in Suspense) ───────────────
@@ -201,6 +204,20 @@ const sections: NavSection[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [notifUnread, setNotifUnread] = useState(0);
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      const { data } = await notificationsApi.unreadCount();
+      setNotifUnread(data.count);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    refreshUnread();
+    const iv = setInterval(refreshUnread, 30000);
+    return () => clearInterval(iv);
+  }, [refreshUnread]);
 
   return (
     <aside className={cn(
@@ -237,6 +254,7 @@ export function Sidebar() {
               const active =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const badge = item.href === "/notifications" ? notifUnread : (item.badge ?? 0);
               return (
                 <Link
                   key={item.href}
@@ -251,18 +269,23 @@ export function Sidebar() {
                   )}
                 >
                   {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full bg-primary" />}
-                  <item.icon className="size-[15px] shrink-0" />
+                  <span className="relative shrink-0">
+                    <item.icon className="size-[15px]" />
+                    {badge > 0 && collapsed && (
+                      <span className="absolute -top-0.5 -right-0.5 size-[7px] rounded-full bg-danger border border-sidebar" />
+                    )}
+                  </span>
                   {!collapsed && (
                     <span className="text-[13px] font-medium truncate">{item.label}</span>
                   )}
-                  {item.badge && !collapsed && (
+                  {badge > 0 && !collapsed && (
                     <span className="ml-auto text-[10px] font-bold bg-danger text-white rounded-full px-1.5 py-0.5 leading-none">
-                      {item.badge}
+                      {badge > 99 ? "99+" : badge}
                     </span>
                   )}
                   {collapsed && (
                     <span className="absolute left-full ml-2 px-2 py-1 bg-surface border border-border rounded-md text-xs text-foreground font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity shadow-lg z-50">
-                      {item.label}
+                      {item.label}{badge > 0 ? ` (${badge})` : ""}
                     </span>
                   )}
                 </Link>

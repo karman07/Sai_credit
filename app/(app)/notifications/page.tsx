@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Bell, ShieldCheck, FileText, AlertTriangle, Clock, Check, CheckCircle2, RefreshCw } from "lucide-react";
+import { Bell, ShieldCheck, FileText, Clock, Check, CheckCircle2, RefreshCw, Plus, EyeOff } from "lucide-react";
 import { Button, Badge, Tabs, SectionHeader, Skeleton, EmptyState, useToast, type BadgeTone } from "../../../components/ui";
 import { notificationsApi, type AppNotification } from "../../../lib/api";
 
@@ -11,6 +11,7 @@ const TYPE_META: Record<string, { label: string; icon: React.ElementType; tone: 
   rto_complete:       { label: "RTO",        icon: CheckCircle2,  tone: "success"  },
   pipeline_complete:  { label: "Disbursed",  icon: CheckCircle2,  tone: "teal"     },
   document:           { label: "Document",   icon: FileText,      tone: "orange"   },
+  new_case:           { label: "New Case",   icon: Plus,          tone: "info"     },
   default:            { label: "Alert",      icon: Bell,          tone: "neutral"  },
 };
 
@@ -50,10 +51,15 @@ export default function NotificationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function markRead(id: string) {
+  async function toggleRead(n: AppNotification) {
     try {
-      await notificationsApi.markRead(id);
-      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
+      if (n.isRead) {
+        await notificationsApi.markUnread(n._id);
+        setNotifications(prev => prev.map(x => x._id === n._id ? { ...x, isRead: false } : x));
+      } else {
+        await notificationsApi.markRead(n._id);
+        setNotifications(prev => prev.map(x => x._id === n._id ? { ...x, isRead: true } : x));
+      }
     } catch {}
   }
 
@@ -164,10 +170,9 @@ export default function NotificationsPage() {
             return (
               <div
                 key={n._id}
-                className={`card p-4 flex gap-4 transition-all animate-fadeIn cursor-pointer ${
+                className={`card p-4 flex gap-4 transition-all animate-fadeIn ${
                   !n.isRead ? "border-l-4 border-l-primary bg-primary/5" : ""
                 }`}
-                onClick={() => { if (!n.isRead) markRead(n._id); }}
               >
                 <div className="size-9 rounded-full grid place-items-center shrink-0 mt-0.5 bg-surface-2">
                   <Icon className="size-4 text-muted" />
@@ -181,7 +186,16 @@ export default function NotificationsPage() {
                       {!n.isRead && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                     </div>
-                    <span className="text-[11px] text-muted whitespace-nowrap shrink-0">{timeAgo(n.createdAt)}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-muted whitespace-nowrap">{timeAgo(n.createdAt)}</span>
+                      <button
+                        onClick={() => toggleRead(n)}
+                        title={n.isRead ? "Mark as unread" : "Mark as read"}
+                        className="size-6 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-foreground transition-colors"
+                      >
+                        {n.isRead ? <EyeOff className="size-3.5" /> : <Check className="size-3.5" />}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-muted mt-1 leading-relaxed">{n.message}</p>
                   {n.caseCode && (

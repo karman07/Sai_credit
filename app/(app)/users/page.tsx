@@ -10,23 +10,24 @@ import {
 import { ApiError, usersApi, type AdminUser, type PageMeta, type CreateUserBody, type UpdateUserBody } from "../../../lib/api";
 import { UserDrawer } from "../../../components/UserDrawer";
 
-const ROLES = [
-  { value: "owner",                label: "Owner" },
-  { value: "admin",                label: "Admin" },
-  { value: "operations",           label: "Operations" },
-  { value: "sales_executive",      label: "Sales Executive" },
-  { value: "telecaller",           label: "Telecaller" },
-  { value: "relationship_manager", label: "Relationship Manager" },
+const PRIMARY_ROLES = [
+  { value: "admin",           label: "Admin" },
+  { value: "sales_executive", label: "Sales" },
+  { value: "coordinator",     label: "Coordinator" },
 ] as const;
-type AppRole = typeof ROLES[number]["value"];
+type AppRole = string;
+
+const SALES_ROLE_VALUES = ["sales_executive", "telecaller", "relationship_manager"];
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin", sales_executive: "Sales", owner: "Owner",
   operations: "Operations", telecaller: "Telecaller", relationship_manager: "Rel. Manager",
+  coordinator: "Coordinator",
 };
 const ROLE_TONE: Record<string, BadgeTone> = {
   admin: "info", sales_executive: "success", owner: "purple",
   operations: "orange", telecaller: "neutral", relationship_manager: "neutral",
+  coordinator: "teal",
 };
 const AVATAR_COLORS = ["#6683FF", "#4ADE80", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF"];
 
@@ -46,11 +47,22 @@ export default function UsersPage() {
   const [pwdUser, setPwdUser] = useState<AdminUser | null>(null);
   const [toggleTarget, setToggleTarget] = useState<AdminUser | null>(null);
   const [drawerUser, setDrawerUser] = useState<AdminUser | null>(null);
+  const [coordinators, setCoordinators] = useState<AdminUser[]>([]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    usersApi.list({ role: "coordinator", limit: 100 }).then(({ data }) => setCoordinators(data)).catch(() => {});
+  }, []);
+
+  const coordinatorName = useCallback((id?: string) => {
+    if (!id) return null;
+    const c = coordinators.find((x) => x._id === id);
+    return c ? `${c.firstName} ${c.lastName}` : null;
+  }, [coordinators]);
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +120,7 @@ export default function UsersPage() {
                 <th>User</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Coordinator</th>
                 <th>Status</th>
                 <th className="w-28">Actions</th>
               </tr>
@@ -116,13 +129,13 @@ export default function UsersPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 5 }).map((_, j) => (
+                    {Array.from({ length: 6 }).map((_, j) => (
                       <td key={j}><div className="h-4 bg-surface-2 rounded animate-pulse" /></td>
                     ))}
                   </tr>
                 ))
               ) : users.length === 0 ? (
-                <tr><td colSpan={5}><EmptyState title="No users found" description={search ? "Try a different search term." : "Add your first user above."} /></td></tr>
+                <tr><td colSpan={6}><EmptyState title="No users found" description={search ? "Try a different search term." : "Add your first user above."} /></td></tr>
               ) : (
                 users.map((u, idx) => (
                   <tr
@@ -143,6 +156,9 @@ export default function UsersPage() {
                     </td>
                     <td className="text-sm text-foreground-secondary">{u.email}</td>
                     <td><Badge tone={ROLE_TONE[u.role] ?? "neutral"}>{ROLE_LABEL[u.role] ?? u.role}</Badge></td>
+                    <td className="text-sm text-foreground-secondary">
+                      {SALES_ROLE_VALUES.includes(u.role) ? (coordinatorName(u.coordinatorId) ?? <span className="text-muted">Unassigned</span>) : <span className="text-muted">—</span>}
+                    </td>
                     <td><Badge tone={u.isActive ? "success" : "neutral"} dot>{u.isActive ? "Active" : "Inactive"}</Badge></td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
@@ -192,6 +208,7 @@ export default function UsersPage() {
       {(addOpen || !!editUser) && (
         <UserFormModal
           user={editUser}
+          coordinators={coordinators}
           onClose={() => { setAddOpen(false); setEditUser(null); }}
           onSaved={() => { setAddOpen(false); setEditUser(null); load(); }}
         />
@@ -230,9 +247,10 @@ export default function UsersPage() {
 // ── Add / Edit user modal ──────────────────────────────────────────
 
 function UserFormModal({
-  user, onClose, onSaved,
+  user, coordinators, onClose, onSaved,
 }: {
   user: AdminUser | null;
+  coordinators: AdminUser[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -257,7 +275,12 @@ function UserFormModal({
     designation:     user?.designation  ?? "",
     department:      user?.department   ?? "",
     joiningDate:     user?.joiningDate ? user.joiningDate.slice(0, 10) : "",
+    coordinatorId:   user?.coordinatorId ?? "",
   });
+  const isSalesRoleForm = SALES_ROLE_VALUES.includes(form.role);
+  const roleOptions = PRIMARY_ROLES.some((r) => r.value === form.role)
+    ? PRIMARY_ROLES
+    : [{ value: form.role, label: ROLE_LABEL[form.role] ?? form.role }, ...PRIMARY_ROLES];
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -302,6 +325,7 @@ function UserFormModal({
           designation:  form.designation  || undefined,
           department:   form.department   || undefined,
           joiningDate:  form.joiningDate  || undefined,
+          coordinatorId: isSalesRoleForm ? (form.coordinatorId || undefined) : undefined,
           ...allowanceBody,
         };
         await usersApi.update(user!._id, body);
@@ -318,6 +342,7 @@ function UserFormModal({
           designation:  form.designation  || undefined,
           department:   form.department   || undefined,
           joiningDate:  form.joiningDate  || undefined,
+          coordinatorId: isSalesRoleForm ? (form.coordinatorId || undefined) : undefined,
           ...allowanceBody,
         };
         await usersApi.create(body);
@@ -363,9 +388,17 @@ function UserFormModal({
             </div>
             <div><Label>Role <span className="text-danger">*</span></Label>
               <Select value={form.role} onChange={(e) => set("role", e.target.value as AppRole)} required>
-                {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </Select>
             </div>
+            {isSalesRoleForm && (
+              <div><Label>Assigned Coordinator</Label>
+                <Select value={form.coordinatorId} onChange={(e) => set("coordinatorId", e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {coordinators.map((c) => <option key={c._id} value={c._id}>{c.firstName} {c.lastName}</option>)}
+                </Select>
+              </div>
+            )}
           </div>
         </div>
 
