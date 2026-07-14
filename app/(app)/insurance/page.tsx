@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee } from "lucide-react";
+import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee, RotateCw } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
   useToast, Tabs, SearchInput, type BadgeTone,
@@ -109,6 +109,16 @@ export default function InsurancePage() {
     }
   }
 
+  async function handleRequestRenewal(id: string) {
+    try {
+      const { data } = await insuranceApi.requestRenewal(id);
+      setEntries((prev) => prev.map((e) => e._id === id ? data : e));
+      toast("success", "Renewal requested — admins and the coordinator have been notified");
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to request renewal");
+    }
+  }
+
   return (
     <div className="space-y-5 animate-fadeIn">
       {/* Header */}
@@ -187,6 +197,7 @@ export default function InsurancePage() {
               index={i}
               onEdit={() => { setEditEntry(e); setAddOpen(true); }}
               onDelete={() => handleDelete(e._id)}
+              onRequestRenewal={() => handleRequestRenewal(e._id)}
             />
           ))}
         </div>
@@ -224,10 +235,10 @@ export default function InsurancePage() {
 // ── Insurance Entry Card ──────────────────────────────────────────────────────
 
 function InsuranceCard({
-  entry: e, index, onEdit, onDelete,
+  entry: e, index, onEdit, onDelete, onRequestRenewal,
 }: {
   entry: InsuranceMIS; index: number;
-  onEdit: () => void; onDelete: () => void;
+  onEdit: () => void; onDelete: () => void; onRequestRenewal: () => void;
 }) {
   const days = daysUntil(e.endDate);
   const tone = statusTone(days);
@@ -276,6 +287,9 @@ function InsuranceCard({
         )}
         <Badge tone={e.ownerType === "Financer" ? "purple" : "info"}>{e.ownerType}</Badge>
         {e.renewal && <Badge tone="success" dot>Renewal Tagged</Badge>}
+        {!!e.renewalHistory?.length && (
+          <Badge tone="success">Renewed{e.renewalHistory.length > 1 ? ` ×${e.renewalHistory.length}` : ""}</Badge>
+        )}
       </div>
 
       {/* Stats grid */}
@@ -308,6 +322,12 @@ function InsuranceCard({
 
       {/* Actions */}
       <div className="flex gap-2 mt-3 pt-3 border-t border-border justify-end">
+        <Button
+          variant="secondary" size="sm" onClick={onRequestRenewal} disabled={e.renewal}
+          className="text-success hover:bg-success/10"
+        >
+          <RotateCw className="size-3.5" /> {e.renewal ? "Renewal Requested" : "Request Renewal"}
+        </Button>
         <Button variant="secondary" size="sm" onClick={onEdit}>Edit</Button>
         <Button variant="secondary" size="sm" onClick={onDelete} className="text-danger hover:bg-danger/10">
           <Trash2 className="size-3.5" />
@@ -355,6 +375,7 @@ function EntryModal({
     policyId: entry?.policyId ?? "",
     caseId: entry?.caseId ?? "",
     customerName: entry?.customerName ?? "",
+    customerEmail: entry?.customerEmail ?? "",
     vehicleModel: entry?.vehicleModel ?? "",
     insurer: entry?.insurer ?? "",
     coverageType: entry?.coverageType ?? "",
@@ -486,6 +507,15 @@ function EntryModal({
               value={form.customerName}
               onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
               placeholder="Auto-filled from case"
+            />
+          </div>
+          <div>
+            <Label>Customer Email</Label>
+            <Input
+              type="email"
+              value={form.customerEmail}
+              onChange={(e) => setForm((f) => ({ ...f, customerEmail: e.target.value }))}
+              placeholder="For expiry reminder emails"
             />
           </div>
           <div>

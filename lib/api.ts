@@ -136,11 +136,13 @@ export interface InsurancePolicy {
 }
 
 export interface InsuranceMIS {
-  _id: string; caseId?: string; caseCode?: string; customerName?: string; vehicleModel?: string;
+  _id: string; caseId?: string; caseCode?: string; customerName?: string; customerEmail?: string; vehicleModel?: string;
   policyId?: string; policyName?: string; coverageType?: string; vehicleType?: string;
   premiumAmount: number; insurer: string; ownerType: string; startDate: string; endDate: string;
   holdAmount: number; renewal: boolean; createdByName?: string; isActive: boolean; createdAt: string;
   customFields?: Record<string, any>;
+  renewalHistory?: { renewedAt: string; oldEndDate?: string; newEndDate: string; renewedByName?: string }[];
+  lastRenewedAt?: string;
 }
 
 export interface RTORecord {
@@ -226,6 +228,7 @@ export const insuranceApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<InsuranceMIS[]>("/insurance-mis", q),
   create: (body: unknown) => api.post<InsuranceMIS>("/insurance-mis", body),
   update: (id: string, body: unknown) => api.put<InsuranceMIS>(`/insurance-mis/${id}`, body),
+  requestRenewal: (id: string) => api.put<InsuranceMIS>(`/insurance-mis/${id}/request-renewal`),
   delete: (id: string) => api.del(`/insurance-mis/${id}`),
 };
 
