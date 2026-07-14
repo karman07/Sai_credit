@@ -14,11 +14,23 @@ class Endorsement {
 }
 const EndorsementSchema = SchemaFactory.createForClass(Endorsement);
 
+/** One entry per renewal — recorded automatically whenever an update extends endDate. */
+@Schema({ _id: false })
+class RenewalEvent {
+  @Prop({ required: true }) renewedAt: Date;
+  @Prop() oldEndDate?: Date;
+  @Prop({ required: true }) newEndDate: Date;
+  @Prop({ type: Types.ObjectId, ref: 'User' }) renewedBy?: Types.ObjectId;
+  @Prop() renewedByName?: string;
+}
+const RenewalEventSchema = SchemaFactory.createForClass(RenewalEvent);
+
 @Schema({ timestamps: true, collection: 'insurance_mis' })
 export class InsuranceMIS extends Document {
   @Prop({ type: Types.ObjectId, ref: 'LoanCase', index: true }) caseId?: Types.ObjectId;
   @Prop() caseCode?: string;
   @Prop() customerName?: string;
+  @Prop() customerEmail?: string;
   @Prop() vehicleModel?: string;
   @Prop({ type: Types.ObjectId, ref: 'InsurancePolicy', index: true }) policyId?: Types.ObjectId;
   @Prop() policyName?: string;
@@ -38,6 +50,8 @@ export class InsuranceMIS extends Document {
   @Prop({ required: true }) endDate: Date;
   @Prop({ default: 0 }) holdAmount: number;
   @Prop({ default: false }) renewal: boolean;
+  @Prop({ type: [RenewalEventSchema], default: [] }) renewalHistory: RenewalEvent[];
+  @Prop() lastRenewedAt?: Date;
   @Prop({ type: Types.ObjectId, ref: 'User', index: true }) createdBy: Types.ObjectId;
   @Prop() createdByName?: string;
   @Prop({ default: true }) isActive: boolean;

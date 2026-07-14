@@ -4,9 +4,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { InsuranceMIS } from '../insurance-mis/schemas/insurance-mis.schema';
 import { LoanCase } from '../cases/schemas/case.schema';
+import { User } from '../users/schemas/user.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AttendanceService } from '../attendance/attendance.service';
-import { CaseStatus } from '../common/enums';
+import { MailService } from '../mail/mail.service';
+import { CaseStatus, ADMIN_PORTAL_ROLES } from '../common/enums';
+
+/** Days-before-expiry milestones at which an insurance policy expiry email is sent. */
+const EXPIRY_EMAIL_MILESTONES = [30, 15, 7, 1];
 
 @Injectable()
 export class ScheduleService {
@@ -15,8 +20,10 @@ export class ScheduleService {
   constructor(
     @InjectModel(InsuranceMIS.name) private readonly insuranceModel: Model<InsuranceMIS>,
     @InjectModel(LoanCase.name) private readonly casesModel: Model<LoanCase>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly notifications: NotificationsService,
     private readonly attendanceSvc: AttendanceService,
+    private readonly mail: MailService,
   ) {}
 
   /** Daily at 8 AM — fire reminders for insurance records due today. */
@@ -44,6 +51,48 @@ export class ScheduleService {
       });
     }
     this.logger.log(`Insurance reminders sent: ${due.length}`);
+  }
+
+  /** Daily at 8:15 AM — email expiry reminders at 30/15/7/1 days before a policy's endDate. */
+  @Cron('15 8 * * *')
+  async insuranceExpiryEmailReminders() {
+    this.logger.log('Running insurance expiry email job…');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    const admins = await this.userModel.find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email').lean();
+    const adminEmails = admins.map((a) => a.email).filter(Boolean);
+
+    let sent = 0;
+    for (const daysLeft of EXPIRY_EMAIL_MILESTONES) {
+      const target = new Date(today); target.setDate(target.getDate() + daysLeft);
+      const nextDay = new Date(target); nextDay.setDate(nextDay.getDate() + 1);
+
+      const due = await this.insuranceModel.find({
+        isActive: true,
+        endDate: { $gte: target, $lt: nextDay },
+      }).lean();
+
+      for (const rec of due) {
+        const endStr = new Date(rec.endDate).toLocaleDateString('en-IN');
+        const who = rec.customerName ?? rec.insuredName ?? 'the customer';
+        const label = rec.caseCode ?? rec.policyName ?? 'the policy';
+
+        let creatorEmail: string | undefined;
+        if (rec.createdBy) {
+          const creator = await this.userModel.findById(rec.createdBy, 'email').lean();
+          creatorEmail = creator?.email;
+        }
+
+        const recipients = [rec.customerEmail, creatorEmail, ...adminEmails];
+        await this.mail.sendTemplate(
+          'insurance_expiry_reminder',
+          { customerName: who, policyLabel: label, insurer: rec.insurer, endDate: endStr, daysLeft },
+          recipients,
+        );
+        sent++;
+      }
+    }
+    this.logger.log(`Insurance expiry emails sent: ${sent}`);
   }
 
   /** Daily at 9 AM — alert on cases with no status change in 7 days. */

@@ -6,11 +6,12 @@ import { Model, Types } from 'mongoose';
 import { Leave } from './schemas/leave.schema';
 import { Attendance } from '../attendance/schemas/attendance.schema';
 import { User } from '../users/schemas/user.schema';
-import { LeaveStatus, LeaveType, AttendanceStatus, isSelfServiceRole, UserRole } from '../common/enums';
+import { LeaveStatus, LeaveType, AttendanceStatus, isSelfServiceRole, UserRole, ADMIN_PORTAL_ROLES } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CreateLeaveDto, ReviewLeaveDto } from './leaves.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { LeavePolicyService } from '../leave-policy/leave-policy.service';
+import { MailService } from '../mail/mail.service';
 
 const PAID_LEAVE_TYPES: LeaveType[] = [LeaveType.Casual, LeaveType.Sick, LeaveType.Earned];
 
@@ -33,6 +34,7 @@ export class LeavesService {
     @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly notifSvc: NotificationsService,
     private readonly policyService: LeavePolicyService,
+    private readonly mail: MailService,
   ) {}
 
   async create(actor: AuthUser, dto: CreateLeaveDto) {
@@ -54,7 +56,7 @@ export class LeavesService {
       }
     }
 
-    return this.model.create({
+    const leave = await this.model.create({
       userId: new Types.ObjectId(actor.id),
       type: dto.type as LeaveType,
       startDate: start,
@@ -62,6 +64,37 @@ export class LeavesService {
       totalDays,
       reason: dto.reason,
     });
+
+    this.notifyLeaveApplied(leave, actor);
+
+    return leave;
+  }
+
+  /** Emails admins + the staff member's coordinator that a leave was applied for (non-blocking). */
+  private notifyLeaveApplied(leave: Leave, actor: AuthUser) {
+    const from = leave.startDate.toISOString().slice(0, 10);
+    const to = leave.endDate.toISOString().slice(0, 10);
+    const vars = {
+      staffName: `${actor.firstName} ${actor.lastName}`.trim(),
+      leaveType: leave.type,
+      dateRange: from === to ? from : `${from} to ${to}`,
+      totalDays: leave.totalDays,
+      reason: leave.reason,
+    };
+
+    this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email')
+      .lean()
+      .then(async (admins) => {
+        const recipients = admins.map((u) => u.email);
+        const creator = await this.userModel.findById(actor.id, 'coordinatorId').lean();
+        if (creator?.coordinatorId) {
+          const coordinator = await this.userModel.findById(creator.coordinatorId, 'email').lean();
+          if (coordinator?.email) recipients.push(coordinator.email);
+        }
+        return this.mail.sendTemplate('leave_applied', vars, recipients);
+      })
+      .catch(() => { /* non-blocking — don't fail leave creation */ });
   }
 
   async list(actor: AuthUser, query: {

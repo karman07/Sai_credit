@@ -4,23 +4,58 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Claim } from './schemas/claim.schema';
-import { ClaimStatus, isSelfServiceRole, UserRole } from '../common/enums';
+import { User } from '../users/schemas/user.schema';
+import { ClaimStatus, isSelfServiceRole, UserRole, ADMIN_PORTAL_ROLES } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CreateClaimDto, ReviewClaimDto } from './claims.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class ClaimsService {
   constructor(
     @InjectModel(Claim.name) private readonly model: Model<Claim>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly notifSvc: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   async create(actor: AuthUser, dto: CreateClaimDto) {
-    return this.model.create({
+    const claim = await this.model.create({
       userId: new Types.ObjectId(actor.id),
       ...dto,
     });
+
+    this.notifyClaimSubmitted(claim, actor);
+
+    return claim;
+  }
+
+  /** Emails admins + the staff member's coordinator that a claim was submitted (non-blocking). */
+  private notifyClaimSubmitted(claim: Claim, actor: AuthUser) {
+    const typeLabel = claim.type.charAt(0).toUpperCase() + claim.type.slice(1);
+    const amtFmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(claim.amount);
+    const vars = {
+      staffName: `${actor.firstName} ${actor.lastName}`.trim(),
+      claimType: typeLabel,
+      amount: amtFmt,
+      month: claim.month,
+      description: claim.description,
+    };
+
+    this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email')
+      .lean()
+      .then(async (admins) => {
+        const recipients = admins.map((u) => u.email);
+        const creator = await this.userModel.findById(actor.id, 'coordinatorId').lean();
+        if (creator?.coordinatorId) {
+          const coordinator = await this.userModel.findById(creator.coordinatorId, 'email').lean();
+          if (coordinator?.email) recipients.push(coordinator.email);
+        }
+        return this.mail.sendTemplate('claim_submitted', vars, recipients);
+      })
+      .catch(() => { /* non-blocking — don't fail claim creation */ });
   }
 
   async list(actor: AuthUser, query: { userId?: string; month?: string; status?: string; page?: number; limit?: number }) {

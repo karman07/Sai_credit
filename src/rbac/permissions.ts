@@ -21,6 +21,7 @@ export type Permission =
   | 'rto.read' | 'rto.update'
   | 'users.manage'
   | 'master.manage'
+  | 'mail_templates.manage'
   | 'reports.view'
   | 'audit.view'
   | 'dashboard.admin' | 'dashboard.sales'
@@ -43,7 +44,7 @@ const ALL: Permission[] = [
   'payout.read','payout.create','payout.update',
   'insurance.read','insurance.create','insurance.update',
   'rto.read','rto.update',
-  'users.manage','master.manage','reports.view','audit.view',
+  'users.manage','master.manage','mail_templates.manage','reports.view','audit.view',
   'dashboard.admin','dashboard.sales',
   'attendance.read','attendance.clock','attendance.manage',
   'claims.create','claims.read','claims.manage',

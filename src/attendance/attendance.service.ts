@@ -30,26 +30,24 @@ export class AttendanceService {
   // Admin can still override status to absent afterwards.
   async autoClockIn(userId: string, ip?: string): Promise<void> {
     const date = todayStr();
-    const existing = await this.model.findOne({ userId: new Types.ObjectId(userId), date }).lean();
+    const uid = new Types.ObjectId(userId);
 
-    if (!existing) {
-      // First login today — create a fresh present record
-      await this.model.create({
-        userId: new Types.ObjectId(userId),
-        date,
-        clockIn: new Date(),
-        status: AttendanceStatus.Present,
-        ipAddress: ip,
-      });
-    } else if (!existing.clockIn) {
+    // Atomic upsert — avoids a find-then-create race when two logins land concurrently
+    // (both would otherwise see "no record" and collide on the userId+date unique index).
+    const doc = await this.model.findOneAndUpdate(
+      { userId: uid, date },
+      { $setOnInsert: { userId: uid, date, clockIn: new Date(), status: AttendanceStatus.Present, ipAddress: ip } },
+      { upsert: true, new: true },
+    );
+
+    // Record pre-existed without a clock-in (e.g. admin pre-marked absent) — stamp it present now.
+    if (!doc.clockIn) {
       // Don't override approved leave or holiday — user logging in on leave doesn't cancel it
       const protectedStatuses = [AttendanceStatus.OnLeave, AttendanceStatus.Holiday];
-      if (protectedStatuses.includes(existing.status as AttendanceStatus)) return;
+      if (protectedStatuses.includes(doc.status as AttendanceStatus)) return;
 
-      // Record exists (e.g. admin pre-marked absent) but user has now actually logged in
-      // — update to present and stamp the real clock-in time
       await this.model.updateOne(
-        { _id: existing._id },
+        { _id: doc._id },
         { $set: { clockIn: new Date(), status: AttendanceStatus.Present, ipAddress: ip } },
       );
     }
@@ -280,17 +278,22 @@ export class AttendanceService {
       let holidayMarked = 0;
       for (const u of users) {
         const uid = new Types.ObjectId(u._id as any);
-        const exists = await this.model.exists({ userId: uid, date });
-        if (!exists) {
-          await this.model.create({
-            userId: uid,
-            date,
-            status: AttendanceStatus.Holiday,
-            note: policy?.publicHolidays?.find((h) => h.date === date)?.name ?? 'Public Holiday',
-            markedBy: new Types.ObjectId(actorId),
-          });
-          holidayMarked++;
-        }
+        // Atomic upsert — avoids a find-then-create race if this runs concurrently
+        // (e.g. cron + a manual "run auto-mark" click for the same date).
+        const result = await this.model.updateOne(
+          { userId: uid, date },
+          {
+            $setOnInsert: {
+              userId: uid,
+              date,
+              status: AttendanceStatus.Holiday,
+              note: policy?.publicHolidays?.find((h) => h.date === date)?.name ?? 'Public Holiday',
+              markedBy: new Types.ObjectId(actorId),
+            },
+          },
+          { upsert: true },
+        );
+        if (result.upsertedCount) holidayMarked++;
       }
       return { marked: 0, skipped: holidayMarked };
     }
@@ -318,25 +321,22 @@ export class AttendanceService {
         endDate: { $gte: dateObj },
       }).lean();
 
-      if (approvedLeave) {
-        // Sync missing on_leave record (can happen if leave was approved after attendance was expected)
-        await this.model.create({
-          userId: uid,
-          date,
-          status: AttendanceStatus.OnLeave,
-          note: `Leave: ${approvedLeave.type}`,
-          markedBy: new Types.ObjectId(actorId),
-        });
-        skipped++;
+      // Atomic upsert — avoids a find-then-create race if this runs concurrently
+      // (e.g. cron + a manual backfill/mark for the same date).
+      const setOnInsert = approvedLeave
+        ? { userId: uid, date, status: AttendanceStatus.OnLeave, note: `Leave: ${approvedLeave.type}`, markedBy: new Types.ObjectId(actorId) }
+        : { userId: uid, date, status: AttendanceStatus.Absent, note: 'Auto-marked absent', markedBy: new Types.ObjectId(actorId) };
+
+      const result = await this.model.updateOne(
+        { userId: uid, date },
+        { $setOnInsert: setOnInsert },
+        { upsert: true },
+      );
+
+      if (result.upsertedCount) {
+        if (approvedLeave) skipped++; else marked++;
       } else {
-        await this.model.create({
-          userId: uid,
-          date,
-          status: AttendanceStatus.Absent,
-          note: 'Auto-marked absent',
-          markedBy: new Types.ObjectId(actorId),
-        });
-        marked++;
+        skipped++; // created concurrently between our check and the upsert
       }
     }
 

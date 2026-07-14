@@ -7,6 +7,7 @@ import { LeavesService } from './leaves.service';
 import { LeavesController } from './leaves.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { LeavePolicyModule } from '../leave-policy/leave-policy.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { LeavePolicyModule } from '../leave-policy/leave-policy.module';
     ]),
     NotificationsModule,
     LeavePolicyModule,
+    MailModule,
   ],
   controllers: [LeavesController],
   providers: [LeavesService],

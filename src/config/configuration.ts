@@ -17,4 +17,8 @@ export default () => ({
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001')
     .split(',')
     .map((s) => s.trim()),
+  resend: {
+    apiKey: process.env.RESEND_API_KEY ?? '',
+    fromEmail: process.env.MAIL_FROM ?? 'notifications@saicreditsolutions.com',
+  },
 });

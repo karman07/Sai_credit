@@ -7,6 +7,7 @@ export const CreateInsuranceMISSchema = z.object({
   caseId: objectId.optional(),
   caseCode: z.string().optional(),
   customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
   vehicleModel: z.string().optional(),
   policyId: objectId.optional(),
   policyName: z.string().optional(),

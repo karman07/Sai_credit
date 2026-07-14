@@ -10,6 +10,7 @@ import { CounterModule } from '../common/counter/counter.module';
 import { CustomersModule } from '../customers/customers.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { UsersModule } from '../users/users.module';
     CustomersModule,
     NotificationsModule,
     UsersModule,
+    MailModule,
   ],
   controllers: [CasesController],
   providers: [CasesService],

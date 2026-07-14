@@ -16,6 +16,7 @@ import { DealersService } from '../dealers/dealers.service';
 import { CustomersService } from '../customers/customers.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/schemas/user.schema';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class CasesService {
@@ -28,6 +29,7 @@ export class CasesService {
     private readonly dealers: DealersService,
     private readonly customersService: CustomersService,
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   async list(params: {
@@ -113,6 +115,39 @@ export class CasesService {
     return { coordinatorId: rep.coordinatorId, coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim() };
   }
 
+  /** Emails admins + the case's coordinator whenever a case's status changes (non-blocking). */
+  private notifyStatusChanged(params: {
+    caseCode: string;
+    customerName?: string;
+    coordinatorId?: Types.ObjectId;
+    oldStatus: string;
+    newStatus: string;
+    note?: string;
+    actor: AuthUser;
+  }) {
+    const { caseCode, customerName, coordinatorId, oldStatus, newStatus, note, actor } = params;
+    const vars = {
+      caseCode,
+      customerName: customerName?.trim() || '—',
+      oldStatus, newStatus,
+      changedByName: `${actor.firstName} ${actor.lastName}`.trim(),
+      note: note?.trim() || '—',
+    };
+
+    this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email')
+      .lean()
+      .then(async (admins) => {
+        const recipients = admins.map((u) => u.email);
+        if (coordinatorId) {
+          const coordinator = await this.userModel.findById(coordinatorId, 'email').lean();
+          if (coordinator?.email) recipients.push(coordinator.email);
+        }
+        return this.mail.sendTemplate('case_status_changed', vars, recipients);
+      })
+      .catch(() => { /* non-blocking — don't fail the status-changing action */ });
+  }
+
   async create(dto: CreateCaseDto, actor: AuthUser) {
     const status = dto.status ?? CaseStatus.Sales;
 
@@ -191,41 +226,49 @@ export class CasesService {
       description: `Case ${caseCode} created` + (status === CaseStatus.Draft ? ' as Draft' : ''), actor,
     });
 
-    // Notify all admin-portal users about the new case (non-blocking)
+    const customerName = [dto.customer?.firstName, dto.customer?.lastName].filter(Boolean).join(' ') || '—';
+    const createdByName = `${actor.firstName} ${actor.lastName}`.trim();
+    const caseCreatedMessage = `${createdByName} created case ${caseCode}${customerName !== '—' ? ` for ${customerName}` : ''}`;
+    const caseCreatedMailVars = { caseCode, customerName, createdByName, status };
+
+    // Notify + email all admin-portal users about the new case (non-blocking)
     this.userModel
-      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, '_id')
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, '_id email')
       .lean()
       .then((admins) => {
+        if (!admins.length) return;
         const adminIds = admins.map((u) => String(u._id));
-        if (adminIds.length) {
-          const customerName = [dto.customer?.firstName, dto.customer?.lastName].filter(Boolean).join(' ');
-          return this.notifications.notifyMany(adminIds, {
+        return Promise.all([
+          this.notifications.notifyMany(adminIds, {
             type: 'new_case',
             title: 'New case added',
-            message: `${actor.firstName} ${actor.lastName} created case ${caseCode}${customerName ? ` for ${customerName}` : ''}`,
+            message: caseCreatedMessage,
             caseCode,
             caseId: String(created._id),
-          });
-        }
+          }),
+          this.mail.sendTemplate('case_created', caseCreatedMailVars, admins.map((u) => u.email)),
+        ]);
       })
       .catch(() => { /* non-blocking — don't fail case creation */ });
 
-    // Notify the creator's assigned coordinator, if any (non-blocking)
+    // Notify + email the creator's assigned coordinator, if any (non-blocking)
     this.userModel
       .findById(actor.id, 'coordinatorId')
       .lean()
-      .then((creator) => {
-        if (creator?.coordinatorId) {
-          const customerName = [dto.customer?.firstName, dto.customer?.lastName].filter(Boolean).join(' ');
-          return this.notifications.notify({
+      .then(async (creator) => {
+        if (!creator?.coordinatorId) return;
+        const coordinator = await this.userModel.findById(creator.coordinatorId, 'email').lean();
+        return Promise.all([
+          this.notifications.notify({
             userId: String(creator.coordinatorId),
             type: 'new_case',
             title: 'New case added',
-            message: `${actor.firstName} ${actor.lastName} created case ${caseCode}${customerName ? ` for ${customerName}` : ''}`,
+            message: caseCreatedMessage,
             caseCode,
             caseId: String(created._id),
-          });
-        }
+          }),
+          this.mail.sendTemplate('case_created', caseCreatedMailVars, coordinator?.email),
+        ]);
       })
       .catch(() => { /* non-blocking — don't fail case creation */ });
 
@@ -333,6 +376,13 @@ export class CasesService {
       note: dto.note, oldStatus, newStatus: dto.status, actor,
     });
 
+    this.notifyStatusChanged({
+      caseCode: existing.caseCode,
+      customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId: existing.coordinatorId,
+      oldStatus, newStatus: dto.status, note: dto.note, actor,
+    });
+
     // Keep customer's latestCaseStatus in sync (non-blocking)
     if (existing.customer?.contact) {
       this.customersService.syncCaseStatus(
@@ -400,6 +450,16 @@ export class CasesService {
       description: `Document deficiency raised: ${dto.docTypes.join(', ')}`,
       note: dto.remarks, oldStatus, newStatus: CaseStatus.Incomplete, actor,
     });
+
+    if (oldStatus !== CaseStatus.Incomplete) {
+      this.notifyStatusChanged({
+        caseCode: existing.caseCode,
+        customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+        coordinatorId: existing.coordinatorId,
+        oldStatus, newStatus: CaseStatus.Incomplete, note: dto.remarks, actor,
+      });
+    }
+
     return updated;
   }
 
@@ -518,6 +578,14 @@ export class CasesService {
       description: `Documents resubmitted for verification`,
       oldStatus, newStatus: CaseStatus.Pending, actor,
     });
+
+    this.notifyStatusChanged({
+      caseCode: existing.caseCode,
+      customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId: existing.coordinatorId,
+      oldStatus, newStatus: CaseStatus.Pending, actor,
+    });
+
     return updated;
   }
 
@@ -562,6 +630,15 @@ export class CasesService {
         description: `Auto-advanced to Disbursed — all pipeline stages complete`,
         oldStatus: before, newStatus: CaseStatus.Disbursed, actor,
       });
+
+      this.notifyStatusChanged({
+        caseCode: doc.caseCode,
+        customerName: [doc.customer?.firstName, doc.customer?.lastName].filter(Boolean).join(' '),
+        coordinatorId: doc.coordinatorId,
+        oldStatus: before, newStatus: CaseStatus.Disbursed,
+        note: 'Auto-advanced — all pipeline stages complete', actor,
+      });
+
       if (doc.assignedTo) {
         await this.notifications.notify({
           userId: String(doc.assignedTo),

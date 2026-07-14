@@ -40,8 +40,15 @@ export class InsuranceMISController {
   update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateInsuranceMISSchema)) dto: UpdateInsuranceMISDto,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.svc.update(id, dto);
+    return this.svc.update(id, dto, actor);
+  }
+
+  @Put(':id/request-renewal')
+  @RequirePermissions('insurance.update')
+  requestRenewal(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.requestRenewal(id, actor);
   }
 
   @Delete(':id')
