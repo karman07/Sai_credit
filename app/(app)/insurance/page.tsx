@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee } from "lucide-react";
+import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee, RotateCw } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
   useToast, Tabs, SearchInput, type BadgeTone,
@@ -55,6 +55,7 @@ export default function InsurancePage() {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<InsuranceMIS | null>(null);
+  const [renewTarget, setRenewTarget] = useState<InsuranceMIS | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -186,6 +187,7 @@ export default function InsurancePage() {
               index={i}
               onEdit={() => { setEditEntry(e); setAddOpen(true); }}
               onDelete={() => handleDelete(e._id)}
+              onRenew={() => setRenewTarget(e)}
             />
           ))}
         </div>
@@ -216,6 +218,18 @@ export default function InsurancePage() {
           }}
         />
       )}
+
+      {/* Renew modal */}
+      {renewTarget && (
+        <RenewModal
+          entry={renewTarget}
+          onClose={() => setRenewTarget(null)}
+          onSaved={(rec) => {
+            setEntries((prev) => prev.map((x) => x._id === rec._id ? rec : x));
+            setRenewTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -223,10 +237,10 @@ export default function InsurancePage() {
 // ── Insurance Entry Card ──────────────────────────────────────────────────────
 
 function InsuranceCard({
-  entry: e, index, onEdit, onDelete,
+  entry: e, index, onEdit, onDelete, onRenew,
 }: {
   entry: InsuranceMIS; index: number;
-  onEdit: () => void; onDelete: () => void;
+  onEdit: () => void; onDelete: () => void; onRenew: () => void;
 }) {
   const days = daysUntil(e.endDate);
   const tone = statusTone(days);
@@ -275,6 +289,9 @@ function InsuranceCard({
         )}
         <Badge tone={e.ownerType === "Financer" ? "purple" : "info"}>{e.ownerType}</Badge>
         {e.renewal && <Badge tone="success" dot>Renewal Tagged</Badge>}
+        {!!e.renewalHistory?.length && (
+          <Badge tone="success">Renewed{e.renewalHistory.length > 1 ? ` ×${e.renewalHistory.length}` : ""}</Badge>
+        )}
       </div>
 
       {/* Stats grid */}
@@ -307,12 +324,102 @@ function InsuranceCard({
 
       {/* Actions */}
       <div className="flex gap-2 mt-3 pt-3 border-t border-border justify-end">
+        <Button variant="secondary" size="sm" onClick={onRenew} className="text-success hover:bg-success/10">
+          <RotateCw className="size-3.5" /> Renew
+        </Button>
         <Button variant="secondary" size="sm" onClick={onEdit}>Edit</Button>
         <Button variant="secondary" size="sm" onClick={onDelete} className="text-danger hover:bg-danger/10">
           <Trash2 className="size-3.5" />
         </Button>
       </div>
     </div>
+  );
+}
+
+// ── Renew Modal ────────────────────────────────────────────────────────────────
+
+function addYears(dateStr: string, years: number) {
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+function RenewModal({
+  entry, onClose, onSaved,
+}: {
+  entry: InsuranceMIS;
+  onClose: () => void;
+  onSaved: (rec: InsuranceMIS) => void;
+}) {
+  const toast = useToast();
+  const currentEndDate = entry.endDate.slice(0, 10);
+  const [newEndDate, setNewEndDate] = useState(addYears(currentEndDate, 1));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isValid = newEndDate > currentEndDate;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isValid) {
+      setError("New end date must be after the current end date");
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const { data } = await insuranceApi.update(entry._id, { endDate: newEndDate });
+      toast("success", "Policy renewed — admins and the customer will be emailed");
+      onSaved(data);
+    } catch (e: any) {
+      setError(e.message ?? "Renewal failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Renew Policy" size="sm">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-foreground-secondary space-y-0.5">
+          <p><span className="text-muted">Customer:</span> {entry.customerName ?? "—"}</p>
+          <p><span className="text-muted">Insurer:</span> {entry.insurer}</p>
+          <p><span className="text-muted">Current end date:</span> {new Date(entry.endDate).toLocaleDateString("en-IN")}</p>
+        </div>
+
+        <div>
+          <Label>New End Date <span className="text-danger">*</span></Label>
+          <Input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} min={currentEndDate} required />
+          <div className="flex gap-1.5 mt-2">
+            <button
+              type="button"
+              onClick={() => setNewEndDate(addYears(currentEndDate, 1))}
+              className="text-xs px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 text-foreground-secondary transition-colors"
+            >
+              +1 year
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewEndDate(addYears(currentEndDate, 2))}
+              className="text-xs px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 text-foreground-secondary transition-colors"
+            >
+              +2 years
+            </button>
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        <p className="text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2">
+          This will be recorded as a renewal and emailed to admins and the customer (if an email is on file).
+        </p>
+
+        <div className="flex gap-2 justify-end border-t border-border pt-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" loading={saving} disabled={!isValid}>Confirm Renewal</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -354,6 +461,7 @@ function EntryModal({
     policyId: entry?.policyId ?? "",
     caseId: entry?.caseId ?? "",
     customerName: entry?.customerName ?? "",
+    customerEmail: entry?.customerEmail ?? "",
     vehicleModel: entry?.vehicleModel ?? "",
     insurer: entry?.insurer ?? "",
     coverageType: entry?.coverageType ?? "",
@@ -485,6 +593,15 @@ function EntryModal({
               value={form.customerName}
               onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
               placeholder="Auto-filled from case"
+            />
+          </div>
+          <div>
+            <Label>Customer Email</Label>
+            <Input
+              type="email"
+              value={form.customerEmail}
+              onChange={(e) => setForm((f) => ({ ...f, customerEmail: e.target.value }))}
+              placeholder="For expiry reminder emails"
             />
           </div>
           <div>
