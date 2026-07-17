@@ -78,12 +78,17 @@ export class ScheduleService {
         const label = rec.caseCode ?? rec.policyName ?? 'the policy';
 
         let creatorEmail: string | undefined;
+        let coordinatorEmail: string | undefined;
         if (rec.createdBy) {
-          const creator = await this.userModel.findById(rec.createdBy, 'email').lean();
+          const creator = await this.userModel.findById(rec.createdBy, 'email coordinatorId').lean();
           creatorEmail = creator?.email;
+          if (creator?.coordinatorId) {
+            const coordinator = await this.userModel.findById(creator.coordinatorId, 'email').lean();
+            coordinatorEmail = coordinator?.email;
+          }
         }
 
-        const recipients = [rec.customerEmail, creatorEmail, ...adminEmails];
+        const recipients = [rec.customerEmail, creatorEmail, coordinatorEmail, ...adminEmails];
         await this.mail.sendTemplate(
           'insurance_expiry_reminder',
           { customerName: who, policyLabel: label, insurer: rec.insurer, endDate: endStr, daysLeft },
