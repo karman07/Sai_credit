@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
-  Plus, RefreshCw, ShieldCheck, Edit2, Power, Trash2, Car,
+  Plus, RefreshCw, ShieldCheck, Edit2, Power, Trash2, Car, RotateCw,
 } from "lucide-react";
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ import {
   Button, Badge, SearchInput, SectionHeader, Pagination, Modal, Input, Label, Select,
   EmptyState, Skeleton, useToast, Tabs, type BadgeTone,
 } from "../../../components/ui";
+import { InsuranceEntryFields } from "../../../components/InsuranceEntryFields";
 import {
   insuranceApi, insurancePoliciesApi, casesApi, mastersApi, formSchemasApi,
   INSURANCE_OWNER_TYPES,
@@ -93,6 +94,7 @@ export default function InsurancePage() {
   const [filterInsurer, setFilterInsurer] = useState("all");
   const [addEntryOpen, setAddEntryOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<InsuranceMIS | null>(null);
+  const [renewTarget, setRenewTarget] = useState<InsuranceMIS | null>(null);
   const [page, setPage] = useState(1);
   const LIMIT = 12;
 
@@ -325,9 +327,9 @@ export default function InsurancePage() {
         const total = records.length;
 
         return (
-          <div className="grid lg:grid-cols-3 gap-4 mb-1">
+          <div className="grid lg:grid-cols-3 gap-4 mb-4">
             {/* Expiry donut */}
-            <div className="card">
+            <div className="card p-4">
               <p className="text-sm font-semibold mb-3">Expiry Status</p>
               <ResponsiveContainer width="100%" height={130}>
                 <PieChart>
@@ -352,7 +354,7 @@ export default function InsurancePage() {
 
             {/* Coverage type donut */}
             {covPie.length > 0 && (
-              <div className="card">
+              <div className="card p-4">
                 <p className="text-sm font-semibold mb-3">Coverage Type</p>
                 <ResponsiveContainer width="100%" height={130}>
                   <PieChart>
@@ -378,7 +380,7 @@ export default function InsurancePage() {
 
             {/* Insurer bar chart */}
             {insBar.length > 0 && (
-              <div className="card">
+              <div className="card p-4">
                 <p className="text-sm font-semibold mb-3">Top Insurers</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={insBar} layout="vertical" barSize={14} margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
@@ -428,7 +430,7 @@ export default function InsurancePage() {
                   <th>Premium</th>
                   <th>Reminder</th>
                   <th>Expiry</th>
-                  <th className="w-10"></th>
+                  <th className="w-16"></th>
                 </tr>
               </thead>
               <tbody>
@@ -448,10 +450,16 @@ export default function InsurancePage() {
                       onClick={() => { setEditEntry(r); setAddEntryOpen(true); }}
                     >
                       <td>
-                        <p className="font-mono text-xs text-primary font-semibold">{r.caseCode ?? "—"}</p>
-                        <p className="text-xs text-foreground-secondary">{r.customerName ?? "—"}</p>
+                        {r.caseCode ? (
+                          <>
+                            <p className="font-mono text-xs text-primary font-semibold">{r.caseCode}</p>
+                            <p className="text-xs text-foreground-secondary mt-0.5">{r.customerName ?? "—"}</p>
+                          </>
+                        ) : (
+                          <p className="text-sm font-medium">{r.customerName ?? "—"}</p>
+                        )}
                       </td>
-                      <td className="text-xs text-foreground-secondary">{r.insuredName ?? "—"}</td>
+                      <td className="text-xs text-foreground-secondary">{r.insuredName || r.customerName || "—"}</td>
                       <td className="text-sm font-medium">{r.insurer}</td>
                       <td>
                         {r.ownerType ? (
@@ -467,6 +475,16 @@ export default function InsurancePage() {
                         {new Date(r.startDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
                         {" → "}
                         {new Date(r.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
+                        {!!r.renewalHistory?.length && (
+                          <div
+                            className="mt-1"
+                            title={`Last renewed ${r.lastRenewedAt ? new Date(r.lastRenewedAt).toLocaleDateString("en-IN") : ""}`}
+                          >
+                            <Badge tone="success">
+                              Renewed{r.renewalHistory.length > 1 ? ` ×${r.renewalHistory.length}` : ""}
+                            </Badge>
+                          </div>
+                        )}
                       </td>
                       <td className="font-mono text-xs">{r.premiumAmount > 0 ? fmt(r.premiumAmount) : "—"}</td>
                       <td>
@@ -478,13 +496,22 @@ export default function InsurancePage() {
                       </td>
                       <td><Badge tone={expiryTone(days)} dot>{expiryLabel(days)}</Badge></td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => handleDeleteEntry(r._id)}
-                          className="size-7 grid place-items-center rounded hover:bg-danger/10 text-muted hover:text-danger transition-colors"
-                          title="Remove entry"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setRenewTarget(r)}
+                            className="size-7 grid place-items-center rounded hover:bg-success/10 text-muted hover:text-success transition-colors"
+                            title="Renew policy"
+                          >
+                            <RotateCw className="size-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteEntry(r._id)}
+                            className="size-7 grid place-items-center rounded hover:bg-danger/10 text-muted hover:text-danger transition-colors"
+                            title="Remove entry"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -535,6 +562,18 @@ export default function InsurancePage() {
         />
       )}
 
+      {/* ── Renew Entry Modal ─────────────────────────────────────────────── */}
+      {renewTarget && (
+        <RenewModal
+          entry={renewTarget}
+          onClose={() => setRenewTarget(null)}
+          onSaved={(rec) => {
+            setRecords((prev) => prev.map((r) => r._id === rec._id ? rec : r));
+            setRenewTarget(null);
+          }}
+        />
+      )}
+
       {/* ── Delete Policy Confirm ─────────────────────────────────────────── */}
       {polDelTarget && (
         <Modal open onClose={() => setPolDelTarget(null)} title="Remove Policy" size="sm">
@@ -550,6 +589,93 @@ export default function InsurancePage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// ── Renew Entry Modal ──────────────────────────────────────────────────────────
+
+function addYears(dateStr: string, years: number) {
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+function RenewModal({
+  entry, onClose, onSaved,
+}: {
+  entry: InsuranceMIS;
+  onClose: () => void;
+  onSaved: (rec: InsuranceMIS) => void;
+}) {
+  const toast = useToast();
+  const currentEndDate = entry.endDate.slice(0, 10);
+  const [newEndDate, setNewEndDate] = useState(addYears(currentEndDate, 1));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isValid = newEndDate > currentEndDate;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isValid) {
+      setError("New end date must be after the current end date");
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const { data } = await insuranceApi.update(entry._id, { endDate: newEndDate });
+      toast("success", "Policy renewed — admins, coordinator and customer will be emailed");
+      onSaved(data);
+    } catch (e: any) {
+      setError(e.message ?? "Renewal failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Renew Policy" size="sm">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-foreground-secondary space-y-0.5">
+          <p><span className="text-muted">Customer:</span> {entry.customerName ?? entry.insuredName ?? "—"}</p>
+          <p><span className="text-muted">Insurer:</span> {entry.insurer}</p>
+          <p><span className="text-muted">Current end date:</span> {new Date(entry.endDate).toLocaleDateString("en-IN")}</p>
+        </div>
+
+        <div>
+          <Label>New End Date <span className="text-danger">*</span></Label>
+          <Input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} min={currentEndDate} required />
+          <div className="flex gap-1.5 mt-2">
+            <button
+              type="button"
+              onClick={() => setNewEndDate(addYears(currentEndDate, 1))}
+              className="text-xs px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 text-foreground-secondary transition-colors"
+            >
+              +1 year
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewEndDate(addYears(currentEndDate, 2))}
+              className="text-xs px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 text-foreground-secondary transition-colors"
+            >
+              +2 years
+            </button>
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        <p className="text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2">
+          This will be recorded as a renewal and emailed to admins, the coordinator, and the customer (if an email is on file).
+        </p>
+
+        <div className="flex gap-2 justify-end border-t border-border pt-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" loading={saving} disabled={!isValid}>Confirm Renewal</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -822,6 +948,7 @@ function EntryFormModal({
     policyId: entry?.policyId ?? "",
     caseId: entry?.caseId ?? "",
     customerName: entry?.customerName ?? "",
+    customerEmail: entry?.customerEmail ?? "",
     vehicleModel: entry?.vehicleModel ?? "",
     insurer: entry?.insurer ?? "",
     coverageType: entry?.coverageType ?? "",
@@ -865,9 +992,11 @@ function EntryFormModal({
   function handleCaseSelect(caseId: string) {
     const c = cases.find((x) => x._id === caseId);
     if (c) {
+      const customerName = `${c.customer.firstName} ${c.customer.lastName}`;
       setForm((f) => ({
         ...f, caseId,
-        customerName: `${c.customer.firstName} ${c.customer.lastName}`,
+        customerName,
+        insuredName: f.insuredName || customerName,
         vehicleModel: (c as any).vehicleModel ?? f.vehicleModel,
       }));
     } else {
@@ -892,6 +1021,7 @@ function EntryFormModal({
         policyId: form.policyId || undefined,
         caseId: form.caseId || undefined,
         customerName: form.customerName || undefined,
+        customerEmail: form.customerEmail || undefined,
         vehicleModel: form.vehicleModel || undefined,
         insurer: form.insurer,
         coverageType: form.coverageType || undefined,
@@ -962,93 +1092,59 @@ function EntryFormModal({
             </div>
           </div>
 
-          {/* Row 2: Insurer | Coverage | Owner Type */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label>Insurer <span className="text-danger">*</span></Label>
-              <Select value={form.insurer} onChange={e => sf("insurer", e.target.value)}>
-                <option value="">Select…</option>
-                {insurerOptions.map(ins => <option key={ins}>{ins}</option>)}
-              </Select>
-            </div>
-            <div>
-              <Label>Coverage Type</Label>
-              <Select value={form.coverageType} onChange={e => sf("coverageType", e.target.value)}>
-                <option value="">Select…</option>
-                {COVERAGE_TYPES.map(c => <option key={c}>{c}</option>)}
-              </Select>
-            </div>
-            <div>
-              <Label>Owner Type</Label>
-              <Select value={form.ownerType} onChange={e => sf("ownerType", e.target.value)}>
-                {INSURANCE_OWNER_TYPES.map(t => <option key={t}>{t}</option>)}
-              </Select>
-            </div>
-          </div>
-
-          {/* Row 3: Insured Name | Agent | Premium */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label>Insured Name</Label>
-              <Input
-                list="ins-insured-opts"
-                value={form.insuredName}
-                onChange={e => sf("insuredName", e.target.value)}
-                placeholder="Select or type…"
-              />
-              <datalist id="ins-insured-opts">
-                {form.customerName && <option value={form.customerName} />}
-              </datalist>
-            </div>
-            <div>
-              <Label>Insurance Agent</Label>
-              <Input
-                list="ins-agent-opts"
-                value={form.agentName}
-                onChange={e => sf("agentName", e.target.value)}
-                placeholder="Select or type…"
-              />
-              <datalist id="ins-agent-opts">
-                {agentOptions.map(a => <option key={a} value={a} />)}
-              </datalist>
-            </div>
-            <div>
-              <Label>Premium (₹)</Label>
-              <Input type="number" min="0" value={form.premiumAmount} onChange={e => sf("premiumAmount", e.target.value)} placeholder="0" />
-            </div>
-          </div>
-
-          {/* Row 4: Customer Name | Vehicle Model | Hold Amount */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Customer Name | Customer Email */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Customer Name</Label>
               <Input value={form.customerName} onChange={e => sf("customerName", e.target.value)} placeholder="Auto-filled from case" />
             </div>
             <div>
-              <Label>Vehicle Model</Label>
-              <Input value={form.vehicleModel} onChange={e => sf("vehicleModel", e.target.value)} placeholder="Model / Reg. No." />
-            </div>
-            <div>
-              <Label>Hold Amount (₹)</Label>
-              <Input type="number" min="0" value={form.holdAmount} onChange={e => sf("holdAmount", e.target.value)} placeholder="0" />
+              <Label>Customer Email</Label>
+              <Input type="email" value={form.customerEmail} onChange={e => sf("customerEmail", e.target.value)} placeholder="For expiry reminder emails" />
             </div>
           </div>
 
-          {/* Row 5: Start Date | End Date | Reminder */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Vehicle Model */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Start Date <span className="text-danger">*</span></Label>
-              <Input type="date" value={form.startDate} onChange={e => sf("startDate", e.target.value)} required />
-            </div>
-            <div>
-              <Label>End Date <span className="text-danger">*</span></Label>
-              <Input type="date" value={form.endDate} onChange={e => sf("endDate", e.target.value)} required />
-            </div>
-            <div>
-              <Label>Reminder Date</Label>
-              <Input type="date" value={form.reminderDate} onChange={e => sf("reminderDate", e.target.value)} />
+              <Label>Vehicle Model</Label>
+              <Input value={form.vehicleModel} onChange={e => sf("vehicleModel", e.target.value)} placeholder="Model / Reg. No." />
             </div>
           </div>
+
+          {/* Shared core fields — kept in sync with the Convert to Insurance MIS dialog */}
+          <InsuranceEntryFields
+            form={form}
+            onChange={sf}
+            ownerTypeOptions={INSURANCE_OWNER_TYPES}
+            insurerOptions={insurerOptions}
+            agentOptions={agentOptions}
+            insuredNameOptions={form.customerName ? [form.customerName] : []}
+          />
+
+          {isEdit && entry && new Date(form.endDate) > new Date(entry.endDate) && (
+            <p className="text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2">
+              Extending the end date past {new Date(entry.endDate).toLocaleDateString("en-IN")} will record this as a renewal and email admins, the coordinator, and the customer (if an email is on file).
+            </p>
+          )}
+
+          {!!entry?.renewalHistory?.length && (
+            <div>
+              <Label>Renewal History</Label>
+              <div className="space-y-1 mt-1">
+                {[...entry.renewalHistory].reverse().map((h, i) => (
+                  <div key={i} className="text-xs text-foreground-secondary flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5">
+                    <Badge tone="success">Renewed</Badge>
+                    <span>
+                      {h.oldEndDate ? new Date(h.oldEndDate).toLocaleDateString("en-IN") : "—"} → {new Date(h.newEndDate).toLocaleDateString("en-IN")}
+                      {" "}on {new Date(h.renewedAt).toLocaleDateString("en-IN")}
+                      {h.renewedByName ? ` by ${h.renewedByName}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Endorsement toggle */}
           <div className="border border-border rounded-xl overflow-hidden">

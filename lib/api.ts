@@ -178,7 +178,7 @@ export interface InsurancePolicy {
 }
 
 export interface InsuranceMIS {
-  _id: string; caseId?: string; caseCode?: string; customerName?: string; vehicleModel?: string;
+  _id: string; caseId?: string; caseCode?: string; customerName?: string; customerEmail?: string; vehicleModel?: string;
   policyId?: string; policyName?: string; coverageType?: string; vehicleType?: string;
   premiumAmount: number; insurer: string; ownerType: string;
   insuredName?: string; agentName?: string;
@@ -187,6 +187,8 @@ export interface InsuranceMIS {
   startDate: string; endDate: string;
   holdAmount: number; renewal: boolean; createdByName?: string; isActive: boolean; createdAt: string;
   customFields?: Record<string, any>;
+  renewalHistory?: { renewedAt: string; oldEndDate?: string; newEndDate: string; renewedByName?: string }[];
+  lastRenewedAt?: string;
 }
 
 export interface RTORecord {
@@ -276,6 +278,7 @@ export const insuranceApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<InsuranceMIS[]>("/insurance-mis", q),
   create: (body: unknown) => api.post<InsuranceMIS>("/insurance-mis", body),
   update: (id: string, body: unknown) => api.put<InsuranceMIS>(`/insurance-mis/${id}`, body),
+  requestRenewal: (id: string) => api.put<InsuranceMIS>(`/insurance-mis/${id}/request-renewal`),
   delete: (id: string) => api.del(`/insurance-mis/${id}`),
 };
 
@@ -359,6 +362,19 @@ export const mastersApi = {
   create: (resource: string, body: unknown) => api.post<MasterItem>(`/master/${resource}`, body),
   update: (resource: string, id: string, body: unknown) => api.put<MasterItem>(`/master/${resource}/${id}`, body),
   toggle: (resource: string, id: string) => api.put<{ id: string; isActive: boolean }>(`/master/${resource}/${id}/toggle-status`),
+};
+
+export interface MailTemplate {
+  _id: string; key: string; name: string; description?: string;
+  variables: string[]; subject: string; html: string; isActive: boolean;
+  updatedAt: string;
+}
+
+export const mailTemplatesApi = {
+  list: () => api.get<MailTemplate[]>("/mail-templates"),
+  get: (key: string) => api.get<MailTemplate>(`/mail-templates/${key}`),
+  update: (key: string, body: { subject: string; html: string; isActive?: boolean }) =>
+    api.put<MailTemplate>(`/mail-templates/${key}`, body),
 };
 
 // ── Form Schema Types & API ───────────────────────────────────────────

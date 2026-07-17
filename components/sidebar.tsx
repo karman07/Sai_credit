@@ -5,7 +5,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import {
   LayoutDashboard, FileText, Users, Building2, Car, CreditCard,
-  ShieldCheck, Clipboard, BarChart3, UserCog, Bell,
+  ShieldCheck, Clipboard, BarChart3, UserCog, Bell, Mail,
   ChevronLeft, ChevronRight, Banknote, Database,
   ChevronDown, ChevronUp, Map, MapPin,
   CalendarDays, Receipt, Palmtree, IndianRupee, Sliders, ListOrdered, Tags,
@@ -195,6 +195,7 @@ const sections: NavSection[] = [
     items: [
       { label: "Users & Roles",  href: "/users",         icon: UserCog },
       { label: "Notifications",  href: "/notifications", icon: Bell    },
+      { label: "Mail Templates", href: "/mail-templates",icon: Mail    },
     ],
   },
 ];

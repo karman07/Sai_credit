@@ -7,10 +7,11 @@ import {
   ChevronDown, ChevronRight, Calendar, Edit2, Trash2,
 } from "lucide-react";
 import {
-  insuranceLeadsApi, usersApi,
+  insuranceLeadsApi, usersApi, INSURANCE_OWNER_TYPES,
   type InsuranceLead, type InsuranceLeadStats, type ConvertLeadBody,
 } from "../../../lib/api";
-import { Button, Input, Label, Select, Badge, type BadgeTone } from "../../../components/ui";
+import { Button, Input, Label, Select, Badge, Modal, type BadgeTone } from "../../../components/ui";
+import { InsuranceEntryFields, type InsuranceCoreForm } from "../../../components/InsuranceEntryFields";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ function ConvertModal({ lead, onClose, onDone }: {
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [form, setForm] = useState<Record<string, any>>({
+  const [form, setForm] = useState<InsuranceCoreForm & { policyName: string }>({
     premiumAmount: "", insurer: lead.existingInsurer ?? "",
     coverageType: "Comprehensive", insuredName: `${lead.firstName} ${lead.lastName}`,
     agentName: "", startDate: "", endDate: "", ownerType: "Sai Credit",
@@ -229,7 +230,9 @@ function ConvertModal({ lead, onClose, onDone }: {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  function sf<K extends keyof typeof form>(k: K, v: typeof form[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -243,7 +246,7 @@ function ConvertModal({ lead, onClose, onDone }: {
         coverageType: form.coverageType,
         insuredName: form.insuredName,
         agentName: form.agentName || undefined,
-        ownerType: form.ownerType,
+        ownerType: form.ownerType as ConvertLeadBody["ownerType"],
         holdAmount: form.holdAmount ? parseFloat(form.holdAmount) : undefined,
         reminderDate: form.reminderDate || undefined,
         policyName: form.policyName || undefined,
@@ -255,80 +258,36 @@ function ConvertModal({ lead, onClose, onDone }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-border sticky top-0 bg-surface z-10">
+    <Modal
+      open
+      onClose={onClose}
+      title="Convert to Insurance MIS"
+      description={`${lead.leadCode} · ${lead.firstName} ${lead.lastName}`}
+      size="lg"
+    >
+      <form onSubmit={submit}>
+        <div className="max-h-[70vh] overflow-y-auto space-y-3 pr-1">
           <div>
-            <h2 className="font-bold text-base">Convert to Insurance MIS</h2>
-            <p className="text-xs text-muted mt-0.5">{lead.leadCode} · {lead.firstName} {lead.lastName}</p>
+            <Label>Policy Name</Label>
+            <Input value={form.policyName} onChange={(e) => sf("policyName", e.target.value)} placeholder="e.g. Comprehensive 1+5" />
           </div>
-          <button onClick={onClose} className="size-8 flex items-center justify-center rounded-full text-muted hover:bg-surface-2">
-            <X className="size-4" />
-          </button>
+
+          <InsuranceEntryFields
+            form={form}
+            onChange={sf}
+            ownerTypeOptions={INSURANCE_OWNER_TYPES}
+          />
         </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1.5">
-              <Label>Insurer *</Label>
-              <Input value={form.insurer} onChange={(e) => set("insurer", e.target.value)} required placeholder="Insurance company name" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Policy Name</Label>
-              <Input value={form.policyName} onChange={(e) => set("policyName", e.target.value)} placeholder="e.g. Comprehensive 1+5" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Coverage Type</Label>
-              <Select value={form.coverageType} onChange={(e) => set("coverageType", e.target.value)}>
-                {["Comprehensive", "Third Party", "Own Damage"].map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Premium Amount (₹) *</Label>
-              <Input type="number" required value={form.premiumAmount} onChange={(e) => set("premiumAmount", e.target.value)} placeholder="0" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Hold Amount (₹)</Label>
-              <Input type="number" value={form.holdAmount} onChange={(e) => set("holdAmount", e.target.value)} placeholder="0" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Policy Start Date *</Label>
-              <Input type="date" required value={form.startDate} onChange={(e) => set("startDate", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Policy End Date *</Label>
-              <Input type="date" required value={form.endDate} onChange={(e) => set("endDate", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Insured Name</Label>
-              <Input value={form.insuredName} onChange={(e) => set("insuredName", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Agent Name</Label>
-              <Input value={form.agentName} onChange={(e) => set("agentName", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Owner Type</Label>
-              <Select value={form.ownerType} onChange={(e) => set("ownerType", e.target.value)}>
-                {["Bank", "Sai Credit", "Dealer"].map((v) => <option key={v} value={v}>{v}</option>)}
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Reminder Date</Label>
-              <Input type="date" value={form.reminderDate} onChange={(e) => set("reminderDate", e.target.value)} />
-            </div>
-          </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex gap-2.5 pt-1">
-            <Button variant="secondary" size="md" className="flex-1" type="button" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" size="md" className="flex-1" type="submit" loading={saving}>
-              <ShieldCheck className="size-3.5" /> Convert Lead
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+
+        {error && <div className="mt-3 rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-sm text-danger">{error}</div>}
+        <div className="flex gap-2 justify-end border-t border-border pt-3 mt-3">
+          <Button variant="secondary" size="sm" type="button" onClick={onClose}>Cancel</Button>
+          <Button size="sm" type="submit" loading={saving}>
+            <ShieldCheck className="size-3.5" /> Convert Lead
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
