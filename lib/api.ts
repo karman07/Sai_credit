@@ -189,10 +189,13 @@ export interface InsurancePolicy {
   description?: string; isActive: boolean; createdAt: string;
 }
 
+export const INSURANCE_OWNER_TYPES = ["Bank", "Sai Credit", "Dealer"] as const;
+
 export interface InsuranceMIS {
   _id: string; caseId?: string; caseCode?: string; customerName?: string; customerEmail?: string; vehicleModel?: string;
   policyId?: string; policyName?: string; coverageType?: string; vehicleType?: string;
   premiumAmount: number; insurer: string; ownerType: string; startDate: string; endDate: string;
+  insuredName?: string; agentName?: string; reminderDate?: string;
   holdAmount: number; renewal: boolean; createdByName?: string; isActive: boolean; createdAt: string;
   customFields?: Record<string, any>;
   renewalHistory?: { renewedAt: string; oldEndDate?: string; newEndDate: string; renewedByName?: string }[];

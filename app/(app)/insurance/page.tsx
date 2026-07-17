@@ -6,14 +6,14 @@ import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
   useToast, Tabs, SearchInput, type BadgeTone,
 } from "../../../components/ui";
+import { InsuranceEntryFields } from "../../../components/InsuranceEntryFields";
 import {
   insuranceApi, insurancePoliciesApi, casesApi, mastersApi, formSchemasApi,
+  INSURANCE_OWNER_TYPES,
   type InsuranceMIS, type InsurancePolicy, type LoanCase, type SectionDef, type FieldDef,
 } from "../../../lib/api";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-const COVERAGE_TYPES = ["Comprehensive", "Third Party", "Own Damage"] as const;
 
 function daysUntil(endDate: string) {
   return Math.round((new Date(endDate).getTime() - Date.now()) / 86400000);
@@ -200,6 +200,7 @@ export default function InsurancePage() {
           policies={policies}
           cases={cases}
           insurerOptions={insurerOptions}
+          agentOptions={[...new Set(entries.map(r => r.agentName).filter((a): a is string => !!a))].sort()}
           sections={insSections}
           onClose={() => { setAddOpen(false); setEditEntry(null); }}
           onSaved={(rec) => {
@@ -287,7 +288,7 @@ function InsuranceCard({
             <Car className="size-2.5" />{e.vehicleModel}
           </span>
         )}
-        <Badge tone={e.ownerType === "Financer" ? "purple" : "info"}>{e.ownerType}</Badge>
+        <Badge tone="neutral">{e.ownerType}</Badge>
         {e.renewal && <Badge tone="success" dot>Renewal Tagged</Badge>}
         {!!e.renewalHistory?.length && (
           <Badge tone="success">Renewed{e.renewalHistory.length > 1 ? ` ×${e.renewalHistory.length}` : ""}</Badge>
@@ -445,12 +446,13 @@ function InsDynField({ field, value, onChange }: { field: FieldDef; value: strin
 }
 
 function EntryModal({
-  entry, policies, cases, insurerOptions, sections, onClose, onSaved,
+  entry, policies, cases, insurerOptions, agentOptions, sections, onClose, onSaved,
 }: {
   entry: InsuranceMIS | null;
   policies: InsurancePolicy[];
   cases: LoanCase[];
   insurerOptions: string[];
+  agentOptions: string[];
   sections: SectionDef[];
   onClose: () => void;
   onSaved: (rec: InsuranceMIS) => void;
@@ -465,16 +467,23 @@ function EntryModal({
     vehicleModel: entry?.vehicleModel ?? "",
     insurer: entry?.insurer ?? "",
     coverageType: entry?.coverageType ?? "",
+    insuredName: entry?.insuredName ?? "",
+    agentName: entry?.agentName ?? "",
     premiumAmount: entry?.premiumAmount?.toString() ?? "",
-    ownerType: entry?.ownerType ?? "Individual",
+    ownerType: entry?.ownerType ?? "Bank",
     startDate: entry?.startDate ? entry.startDate.slice(0, 10) : "",
     endDate: entry?.endDate ? entry.endDate.slice(0, 10) : "",
+    reminderDate: entry?.reminderDate ? entry.reminderDate.slice(0, 10) : "",
     holdAmount: entry?.holdAmount?.toString() ?? "",
     renewal: entry?.renewal ?? false,
     customFields: Object.fromEntries(Object.entries((entry as any)?.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])) as Record<string, string>,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function sf<K extends keyof typeof form>(k: K, v: typeof form[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
 
   const selectedPolicy = policies.find((p) => p._id === form.policyId);
 
@@ -501,10 +510,12 @@ function EntryModal({
   function handleCaseSelect(caseId: string) {
     const c = cases.find((x) => x._id === caseId);
     if (c) {
+      const customerName = `${c.customer.firstName} ${c.customer.lastName}`;
       setForm((f) => ({
         ...f,
         caseId,
-        customerName: `${c.customer.firstName} ${c.customer.lastName}`,
+        customerName,
+        insuredName: f.insuredName || customerName,
         vehicleModel: (c as any).vehicleModel ?? f.vehicleModel,
       }));
     } else {
@@ -573,7 +584,7 @@ function EntryModal({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {/* Case link */}
           <div className="col-span-2">
             <Label>Link to Case (optional)</Label>
@@ -589,120 +600,54 @@ function EntryModal({
 
           <div>
             <Label>Customer Name</Label>
-            <Input
-              value={form.customerName}
-              onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
-              placeholder="Auto-filled from case"
-            />
+            <Input value={form.customerName} onChange={(e) => sf("customerName", e.target.value)} placeholder="Auto-filled from case" />
           </div>
           <div>
             <Label>Customer Email</Label>
-            <Input
-              type="email"
-              value={form.customerEmail}
-              onChange={(e) => setForm((f) => ({ ...f, customerEmail: e.target.value }))}
-              placeholder="For expiry reminder emails"
-            />
+            <Input type="email" value={form.customerEmail} onChange={(e) => sf("customerEmail", e.target.value)} placeholder="For expiry reminder emails" />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Vehicle Model</Label>
-            <Input
-              value={form.vehicleModel}
-              onChange={(e) => setForm((f) => ({ ...f, vehicleModel: e.target.value }))}
-              placeholder="Model / Reg. No."
-            />
+            <Input value={form.vehicleModel} onChange={(e) => sf("vehicleModel", e.target.value)} placeholder="Model / Reg. No." />
           </div>
+        </div>
 
-          <div>
-            <Label>Insurer <span className="text-danger">*</span></Label>
-            <Select value={form.insurer} onChange={(e) => setForm((f) => ({ ...f, insurer: e.target.value }))}>
-              <option value="">Select insurer…</option>
-              {insurerOptions.map((ins) => <option key={ins}>{ins}</option>)}
-            </Select>
-          </div>
-          <div>
-            <Label>Coverage Type</Label>
-            <Select value={form.coverageType} onChange={(e) => setForm((f) => ({ ...f, coverageType: e.target.value }))}>
-              <option value="">Select…</option>
-              {COVERAGE_TYPES.map((c) => <option key={c}>{c}</option>)}
-            </Select>
-          </div>
+        {/* Shared core fields — kept in sync with admin's Add Insurance Entry / Convert to Insurance MIS dialogs */}
+        <InsuranceEntryFields
+          form={form}
+          onChange={sf}
+          ownerTypeOptions={INSURANCE_OWNER_TYPES}
+          insurerOptions={insurerOptions}
+          agentOptions={agentOptions}
+          insuredNameOptions={form.customerName ? [form.customerName] : []}
+        />
 
-          <div>
-            <Label>Owner Type</Label>
-            <Select value={form.ownerType} onChange={(e) => setForm((f) => ({ ...f, ownerType: e.target.value }))}>
-              <option>Individual</option>
-              <option>Financer</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Premium Amount (₹)</Label>
-            <Input
-              type="number"
-              min="0"
-              value={form.premiumAmount}
-              onChange={(e) => setForm((f) => ({ ...f, premiumAmount: e.target.value }))}
-              placeholder="0"
-            />
-          </div>
+        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+          <input type="checkbox" checked={form.renewal} onChange={(e) => sf("renewal", e.target.checked)} className="rounded" />
+          Tag for Renewal
+        </label>
 
-          <div>
-            <Label>Start Date <span className="text-danger">*</span></Label>
-            <Input
-              type="date"
-              value={form.startDate}
-              onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
-              required
-            />
-          </div>
-          <div>
-            <Label>End Date <span className="text-danger">*</span></Label>
-            <Input
-              type="date"
-              value={form.endDate}
-              onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
-              required
-            />
-          </div>
-
-          <div>
-            <Label>Hold Amount (₹)</Label>
-            <Input
-              type="number"
-              min="0"
-              value={form.holdAmount}
-              onChange={(e) => setForm((f) => ({ ...f, holdAmount: e.target.value }))}
-              placeholder="0"
-            />
-          </div>
-          <div className="flex items-center gap-2 mt-6">
-            <input
-              type="checkbox"
-              id="renewal-coordinator"
-              checked={form.renewal}
-              onChange={(e) => setForm((f) => ({ ...f, renewal: e.target.checked }))}
-              className="rounded"
-            />
-            <label htmlFor="renewal-coordinator" className="text-sm font-medium">Tag for Renewal</label>
-          </div>
-
-          {/* Custom fields from Form Builder */}
-          {sections.flatMap(sec => sec.fields.filter(f => !f.isCore && f.isActive)).length > 0 && (
-            <>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-t border-border pt-3">Additional Fields</p>
+        {/* Custom fields from Form Builder */}
+        {sections.flatMap(sec => sec.fields.filter(f => !f.isCore && f.isActive)).length > 0 && (
+          <div className="border-t border-border pt-3 space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Additional Fields</p>
+            <div className="grid grid-cols-2 gap-3">
               {sections.flatMap(sec => sec.fields.filter(f => !f.isCore && f.isActive)).map(field => (
                 <div key={field.key} className={field.type === "boolean" ? "col-span-2" : ""}>
                   <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
                   <InsDynField
                     field={field}
                     value={form.customFields[field.key] ?? field.defaultValue ?? ""}
-                    onChange={v => setForm(f => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
+                    onChange={v => sf("customFields", { ...form.customFields, [field.key]: v })}
                   />
                 </div>
               ))}
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-sm text-danger">
