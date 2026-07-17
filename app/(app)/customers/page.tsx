@@ -122,7 +122,7 @@ export default function CustomersPage() {
                 <Th>Cases</Th>
                 <Th>Assigned To</Th>
                 <Th>Created</Th>
-                <Th></Th>
+                <Th>{""}</Th>
               </tr>
             </thead>
             <tbody>
