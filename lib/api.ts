@@ -93,7 +93,8 @@ export const api = {
 
 export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
 export const CASE_STATUSES: CaseStatus[] = ["Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
-export const PRODUCTS = ["Car Loan", "Truck", "Personal Loan", "BT Topup", "Two Wheeler"] as const;
+/** Products where vehicle RTO registration transfer is relevant. */
+export const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
 
 export interface Bank { _id: string; name: string; branch?: string; bmName?: string; bmContact?: string; executive?: string; isActive: boolean; }
 export interface Dealer { _id: string; name: string; contact?: string; location?: string; isActive: boolean; }
@@ -116,7 +117,7 @@ export interface LoanCase {
     location?: string; state?: string; district?: string; pinCode?: string;
     residentialStatus?: string; ebillOwner?: boolean;
   };
-  product: string; loanAmount?: number; loanType?: string;
+  product: string; loanAmount?: number; loanType?: string; firm?: string;
   vehicleModel?: string; regNumber?: string; ownerSerial?: string;
   existingInsurer?: string; hypothecation?: boolean; nocRequired?: boolean; challanCount?: number;
   bankId?: string; bankName?: string; bankBranch?: string; bmName?: string; bmContact?: string; bankExecutive?: string;
@@ -180,6 +181,8 @@ export const banksApi = {
 
 export const dealersApi = {
   list: () => api.get<Dealer[]>("/dealers"),
+  create: (body: { name: string; contact?: string; location?: string; address?: string }) =>
+    api.post<Dealer>("/dealers", body),
 };
 
 export interface InsurancePolicy {
