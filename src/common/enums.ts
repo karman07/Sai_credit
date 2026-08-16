@@ -114,6 +114,8 @@ export enum MasterType {
   DocumentType = 'document_type',
   EnumSet = 'enum_set',
   CaseStatus = 'case_status',
+  RtoStatus = 'rto_status',
+  Product = 'product',
 }
 
 export enum EntityType {
@@ -140,18 +142,29 @@ export enum CaseStatus {
   Cancelled = 'Cancelled',
 }
 
-export enum ProductType {
-  CarLoan = 'Car Loan',
-  Truck = 'Truck',
-  PersonalLoan = 'Personal Loan',
-  BTTopup = 'BT Topup',
-  TwoWheeler = 'Two Wheeler',
+/** Built-in RTO record statuses — admins may add custom ones via the `rto-statuses` master. */
+export enum RTOStatus {
+  Pending = 'Pending',
+  DocumentsPending = 'Documents Pending',
+  UnderVerification = 'Under Verification',
+  Approved = 'Approved',
+  InsuranceEndorsementPending = 'Insurance Endorsement Pending',
+  Completed = 'Completed',
+  OnHold = 'On Hold',
+  Rejected = 'Rejected',
 }
 
 export enum LoanType {
   New = 'New',
   Used = 'Used',
   Refinance = 'Refinance',
+}
+
+/** The Sai Credit entity a case is booked under. */
+export enum Firm {
+  SaiCreditPartner = 'Sai Credit Solutions Partner',
+  SaiCreditProprietor = 'Sai Credit Solutions Proprietor',
+  SaiCarz = 'Sai Carz',
 }
 
 export enum ChecklistItemStatus {
@@ -225,12 +238,3 @@ export enum PayrollStatus {
   Processed = 'processed',
   Paid = 'paid',
 }
-
-/** Maps ProductType to the caseCode prefix. */
-export const PRODUCT_CODE_PREFIX: Record<ProductType, string> = {
-  [ProductType.CarLoan]: 'CAR',
-  [ProductType.Truck]: 'TRK',
-  [ProductType.PersonalLoan]: 'PL',
-  [ProductType.BTTopup]: 'BT',
-  [ProductType.TwoWheeler]: 'TW',
-};

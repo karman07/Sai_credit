@@ -12,6 +12,8 @@ export const SLUG_TO_TYPE: Record<string, MasterType> = {
   'document-types':      MasterType.DocumentType,
   'enum-sets':           MasterType.EnumSet,
   'case-statuses':       MasterType.CaseStatus,
+  'rto-statuses':        MasterType.RtoStatus,
+  products:              MasterType.Product,
 };
 
 export const CreateMasterSchema = z.object({

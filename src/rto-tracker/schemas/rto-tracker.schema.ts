@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { ChecklistItemStatus } from '../../common/enums';
+import { ChecklistItemStatus, RTOStatus } from '../../common/enums';
 
 const statusEnum = Object.values(ChecklistItemStatus);
 
@@ -15,6 +15,10 @@ export class RTORecord extends Document {
   @Prop({ type: Types.ObjectId, ref: 'LoanCase', index: true }) caseId?: Types.ObjectId;
   @Prop() caseCode?: string;
   @Prop() customerName?: string;
+
+  // Overall lifecycle status — built-in values plus any admin-defined custom ones (see the
+  // `rto-statuses` master), same pattern as LoanCase.status.
+  @Prop({ required: true, default: RTOStatus.Pending, index: true }) status: string;
 
   // Ownership
   @Prop({ enum: Object.values(RTOOwnershipType) }) rtoOwnershipType?: string;

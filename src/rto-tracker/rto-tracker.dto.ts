@@ -10,6 +10,7 @@ export const CreateRTOSchema = z.object({
   caseId: objectId.optional(),
   caseCode: z.string().optional(),
   customerName: z.string().optional(),
+  status: z.string().min(1).optional(),
 
   rtoOwnershipType: z.enum(Object.values(RTOOwnershipType) as [string, ...string[]]).optional(),
   rtoOwnership: checklistStatus.optional(),

@@ -84,7 +84,7 @@ const SALES_SENIOR: Permission[] = [
   'followups.create','followups.read','followups.update',
   'documents.upload','documents.read',
   'cases.create','cases.read','cases.update','cases.assign',
-  'banks.read','dealers.read',
+  'banks.read','dealers.read','dealers.create',
   'insurance.read','insurance.create','insurance.update',
   'rto.read','rto.update',
   'payout.read',
@@ -105,7 +105,7 @@ const TELECALLER: Permission[] = [
   'followups.create','followups.read','followups.update',
   'documents.upload','documents.read',
   'cases.read','cases.update',
-  'banks.read','dealers.read',
+  'banks.read','dealers.read','dealers.create',
   'payout.read',
   'dashboard.sales',
   'attendance.read','attendance.clock',
@@ -121,7 +121,7 @@ const TELECALLER: Permission[] = [
 // leave/reimbursement/attendance/payslip records just like a sales user.
 const COORDINATOR: Permission[] = [
   'cases.read','cases.update',
-  'banks.read','dealers.read',
+  'banks.read','dealers.read','dealers.create',
   'insurance.read','insurance.create','insurance.update','policies.read',
   'payout.read','payout.create','payout.update',
   'dashboard.sales',

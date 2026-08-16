@@ -61,7 +61,7 @@ export class RTOTrackerService {
     const doc = await this.model.findOneAndUpdate(
       { caseId: new Types.ObjectId(caseId) },
       update,
-      { new: true, upsert: true },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
     ).lean();
 
     await this.checkAndNotifyComplete(doc!, actor);

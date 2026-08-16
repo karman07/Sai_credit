@@ -21,4 +21,8 @@ export default () => ({
     apiKey: process.env.RESEND_API_KEY ?? '',
     fromEmail: process.env.MAIL_FROM ?? 'notifications@saicreditsolutions.com',
   },
+  notify: {
+    // Extra fixed recipient CC'd on all case-update emails, in addition to admins/coordinator/sales rep.
+    caseUpdatesEmail: process.env.CASE_UPDATE_NOTIFY_EMAIL ?? '',
+  },
 });

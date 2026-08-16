@@ -25,8 +25,28 @@ export class CasesController {
 
   @Get('stats')
   @RequirePermissions('cases.read')
-  stats() {
-    return this.svc.stats();
+  stats(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('bankId') bankId?: string,
+    @Query('product') product?: string,
+    @Query('firm') firm?: string,
+  ) {
+    return this.svc.stats({ from, to, bankId, product, firm });
+  }
+
+  @Get('stats/trend')
+  @RequirePermissions('cases.read')
+  trend(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: 'day' | 'month',
+    @Query('bankId') bankId?: string,
+    @Query('product') product?: string,
+    @Query('firm') firm?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.svc.trend({ from, to, groupBy, bankId, product, firm, status });
   }
 
   @Get()
@@ -39,6 +59,7 @@ export class CasesController {
     @Query('bankId') bankId?: string,
     @Query('dealerId') dealerId?: string,
     @Query('product') product?: string,
+    @Query('firm') firm?: string,
     @Query('assignedTo') assignedTo?: string,
     @CurrentUser() actor?: AuthUser,
   ) {
@@ -47,7 +68,7 @@ export class CasesController {
     return this.svc.list({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 25,
-      search, status, bankId, dealerId, product,
+      search, status, bankId, dealerId, product, firm,
       assignedTo,
       userId: actor?.id,
       scopeToUser: isSales,

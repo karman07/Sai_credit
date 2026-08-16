@@ -35,6 +35,9 @@ export class MastersService {
 
   async create(slug: string, dto: CreateMasterDto, actor: AuthUser) {
     const type = this.resolveType(slug);
+    if (type === MasterType.Product && !dto.code?.trim()) {
+      throw new BadRequestException('Product code is required');
+    }
     const created = await this.masters.create({ ...dto, type });
     await this.audit.log({
       user: actor, action: AuditAction.Create, entityType: `master:${type}`,
@@ -47,6 +50,9 @@ export class MastersService {
     const type = this.resolveType(slug);
     const before = await this.masters.findOne({ _id: id, type }).lean();
     if (!before) throw new NotFoundException('Record not found');
+    if (type === MasterType.Product && dto.code !== undefined && !dto.code.trim()) {
+      throw new BadRequestException('Product code is required');
+    }
     const after = await this.masters.findByIdAndUpdate(id, dto, { new: true }).lean();
     await this.audit.log({
       user: actor, action: AuditAction.Update, entityType: `master:${type}`,

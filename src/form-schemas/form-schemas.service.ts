@@ -29,7 +29,7 @@ const DEFAULT_NEW_CASE: any = {
       id: 'vehicle-loan',
       title: 'Vehicle & Loan',
       fields: [
-        { key: 'product',        label: 'Product Type',        type: 'select',  required: true,  placeholder: '',                      defaultValue: '',    options: ['Car Loan', 'Truck', 'Personal Loan', 'BT Topup', 'Two Wheeler'], order: 1,  isCore: true, isActive: true },
+        { key: 'product',        label: 'Product Type',        type: 'select',  required: true,  placeholder: '',                      defaultValue: '',    options: [], order: 1,  isCore: true, isActive: true },
         { key: 'loanType',       label: 'Loan Type',           type: 'select',  required: false, placeholder: '',                      defaultValue: 'New', options: ['New', 'Used', 'Refinance'], order: 2, isCore: true, isActive: true },
         { key: 'vehicleModel',   label: 'Vehicle Model',       type: 'text',    required: false, placeholder: 'e.g. Maruti Swift 2024', defaultValue: '',    options: [], order: 3, isCore: true, isActive: true },
         { key: 'regNumber',      label: 'Registration Number', type: 'text',    required: false, placeholder: 'e.g. MH02-AB-1234',     defaultValue: '',    options: [], order: 4, isCore: true, isActive: true },
@@ -209,12 +209,100 @@ const DEFAULT_INSURANCE_LEAD: any = {
   ],
 };
 
+// ── Per-product extra fields (isCore:false — land in LoanCase.customFields) ──
+// Car Loan / Commercial Vehicle Loan keep using the existing hardcoded vehicle
+// fields above; these 5 are the genuinely new, non-vehicle products.
+
+const DEFAULT_PRODUCT_PL: any = {
+  formId: 'product-fields:pl',
+  sections: [{
+    id: 'personal-loan-details', title: 'Personal Loan Details',
+    fields: [
+      { key: 'purpose',        label: 'Loan Purpose',            type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Medical', 'Travel', 'Wedding', 'Education', 'Debt Consolidation', 'Home Renovation', 'Other'], order: 1, isCore: false, isActive: true },
+      { key: 'employmentType', label: 'Employment Type',         type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Salaried', 'Self-Employed', 'Business Owner', 'Professional'], order: 2, isCore: false, isActive: true },
+      { key: 'monthlyIncome',  label: 'Monthly Income (₹)',      type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: false, isActive: true },
+      { key: 'companyName',    label: 'Company / Employer Name', type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 4, isCore: false, isActive: true },
+    ],
+  }],
+};
+
+const DEFAULT_PRODUCT_BL: any = {
+  formId: 'product-fields:bl',
+  sections: [{
+    id: 'business-details', title: 'Business Details',
+    fields: [
+      { key: 'businessName',         label: 'Business Name',            type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 1, isCore: false, isActive: true },
+      { key: 'businessType',         label: 'Business Type',            type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Other'], order: 2, isCore: false, isActive: true },
+      { key: 'annualTurnover',       label: 'Annual Turnover (₹)',      type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: false, isActive: true },
+      { key: 'businessVintageYears', label: 'Business Vintage (Years)', type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 4, isCore: false, isActive: true },
+      { key: 'gstNumber',            label: 'GST Number',               type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 5, isCore: false, isActive: true },
+    ],
+  }],
+};
+
+const DEFAULT_PRODUCT_HL: any = {
+  formId: 'product-fields:hl',
+  sections: [{
+    id: 'property-details', title: 'Property Details',
+    fields: [
+      { key: 'propertyAddress',   label: 'Property Address',   type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 1, isCore: false, isActive: true },
+      { key: 'propertyType',      label: 'Property Type',      type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Apartment', 'Independent House', 'Plot + Construction', 'Under Construction'], order: 2, isCore: false, isActive: true },
+      { key: 'propertyValue',     label: 'Property Value (₹)', type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: false, isActive: true },
+      { key: 'constructionStage', label: 'Construction Stage', type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Ready to Move', 'Under Construction', 'Resale'], order: 4, isCore: false, isActive: true },
+    ],
+  }],
+};
+
+const DEFAULT_PRODUCT_LAP: any = {
+  formId: 'product-fields:lap',
+  sections: [{
+    id: 'property-details', title: 'Property Details',
+    fields: [
+      { key: 'propertyAddress',         label: 'Property Address',              type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 1, isCore: false, isActive: true },
+      { key: 'propertyType',            label: 'Property Type',                 type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Residential', 'Commercial', 'Industrial'], order: 2, isCore: false, isActive: true },
+      { key: 'propertyValue',           label: 'Property Value (₹)',            type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: false, isActive: true },
+      { key: 'loanToValuePct',          label: 'Loan-to-Value (%)',             type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 4, isCore: false, isActive: true },
+      { key: 'existingLoanOutstanding', label: 'Existing Loan Outstanding (₹)', type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 5, isCore: false, isActive: true },
+    ],
+  }],
+};
+
+const DEFAULT_PRODUCT_EL: any = {
+  formId: 'product-fields:el',
+  sections: [{
+    id: 'education-details', title: 'Education Details',
+    fields: [
+      { key: 'institutionName',     label: 'Institution Name',        type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 1, isCore: false, isActive: true },
+      { key: 'courseName',          label: 'Course Name',             type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 2, isCore: false, isActive: true },
+      { key: 'courseDurationYears', label: 'Course Duration (Years)', type: 'number', required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: false, isActive: true },
+      { key: 'coApplicantName',     label: 'Co-Applicant Name',       type: 'text',   required: false, placeholder: '', defaultValue: '', options: [], order: 4, isCore: false, isActive: true },
+      { key: 'coApplicantRelation', label: 'Co-Applicant Relation',   type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Father', 'Mother', 'Guardian', 'Spouse', 'Other'], order: 5, isCore: false, isActive: true },
+      { key: 'admissionStatus',     label: 'Admission Status',        type: 'select', required: false, placeholder: '', defaultValue: '', options: ['Confirmed', 'Provisional', 'Awaiting'], order: 6, isCore: false, isActive: true },
+    ],
+  }],
+};
+
+// Car Loan / CVL already have their 8 vehicle fields hardcoded in the app (not
+// managed here); seed one empty section so admins can still add extra fields
+// on top via Form Builder (which can't create new sections, only fields within one).
+const DEFAULT_PRODUCT_EMPTY_SECTION = (formId: string) => ({
+  formId,
+  sections: [{ id: 'extra-details', title: 'Extra Details', fields: [] }],
+});
+
 const DEFAULTS: Record<string, any> = {
   'new-case':       DEFAULT_NEW_CASE,
   'rto':            DEFAULT_RTO,
   'insurance':      DEFAULT_INSURANCE,
   'payout':         DEFAULT_PAYOUT,
   'insurance-lead': DEFAULT_INSURANCE_LEAD,
+  'product-fields:car': DEFAULT_PRODUCT_EMPTY_SECTION('product-fields:car'),
+  'product-fields:cvl': DEFAULT_PRODUCT_EMPTY_SECTION('product-fields:cvl'),
+  'product-fields:pl':  DEFAULT_PRODUCT_PL,
+  'product-fields:bl':  DEFAULT_PRODUCT_BL,
+  'product-fields:hl':  DEFAULT_PRODUCT_HL,
+  'product-fields:lap': DEFAULT_PRODUCT_LAP,
+  'product-fields:el':  DEFAULT_PRODUCT_EL,
 };
 
 @Injectable()

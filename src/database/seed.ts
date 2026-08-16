@@ -77,6 +77,12 @@ const MASTERS: M[] = [
     ['Axis Bank', 'Axis'], ['Kotak Mahindra Bank', 'Kotak'], ['Bajaj Finserv', 'Bajaj'],
     ['Mahindra Finance', 'M&M Fin'], ['Tata Capital', 'Tata Cap'],
   ].map(([name, shortName], i) => ({ type: 'bank', name, shortName, sortOrder: i })),
+  // loan products
+  ...[
+    ['Car Loan', 'CAR'], ['Commercial Vehicle Loan', 'CVL'], ['Personal Loan', 'PL'],
+    ['Business Loan', 'BL'], ['Home Loan', 'HL'], ['Loan Against Property', 'LAP'],
+    ['Education Loan', 'EL'],
+  ].map(([name, code], i) => ({ type: 'product', name, code, sortOrder: i })),
   // States & cities are seeded via the geography seed script (fetched from countrystatecity.in)
 ];
 

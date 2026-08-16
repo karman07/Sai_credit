@@ -42,6 +42,19 @@ const DEFAULT_TEMPLATES: DefaultTemplate[] = [
       '<p>— Sai Credit CRM</p>',
   },
   {
+    key: 'case_updated',
+    name: 'Case Updated',
+    description: 'Sent to admins, the case\'s coordinator, and the assigned sales rep whenever a case is edited or reassigned.',
+    variables: ['caseCode', 'customerName', 'changeDescription', 'changedByName'],
+    subject: 'Case Updated — {{caseCode}}',
+    html:
+      '<p>Hi,</p>' +
+      '<p>Case <b>{{caseCode}}</b> for <b>{{customerName}}</b> was updated.</p>' +
+      '<p>Change: {{changeDescription}}</p>' +
+      '<p>Updated by: {{changedByName}}</p>' +
+      '<p>— Sai Credit CRM</p>',
+  },
+  {
     key: 'insurance_policy_renewed',
     name: 'Insurance Policy Renewed',
     description: 'Sent to the customer, admins, and the policy\'s coordinator whenever a policy\'s end date is extended (renewed).',

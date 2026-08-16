@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { CaseStatus, ProductType, LoanType } from '../../common/enums';
+import { CaseStatus, LoanType, Firm } from '../../common/enums';
 
 export const PIPELINE_STAGES = [
   'CIBIL & TVR',
@@ -14,6 +14,16 @@ export const PIPELINE_STAGES = [
   'Disbursed',
 ] as const;
 export type PipelineStageName = typeof PIPELINE_STAGES[number];
+
+/** Products where vehicle RTO registration transfer is relevant. */
+export const VEHICLE_PRODUCTS = ['Car Loan', 'Commercial Vehicle Loan'];
+
+/** RTO Documents only applies to vehicle-loan products. */
+export function pipelineStagesFor(product?: string): readonly string[] {
+  return product && VEHICLE_PRODUCTS.includes(product)
+    ? PIPELINE_STAGES
+    : PIPELINE_STAGES.filter((s) => s !== 'RTO Documents');
+}
 
 @Schema({ _id: false })
 class PipelineItem {
@@ -72,8 +82,9 @@ export class LoanCase extends Document {
 
   @Prop({ type: CustomerInfoSchema, required: true }) customer: CustomerInfo;
 
-  @Prop({ enum: Object.values(ProductType) }) product?: string;
+  @Prop() product?: string;
   @Prop({ enum: Object.values(LoanType) }) loanType?: string;
+  @Prop({ enum: Object.values(Firm) }) firm?: string;
   @Prop() vehicleModel?: string;
   @Prop() regNumber?: string;
   @Prop() ownerSerial?: string;

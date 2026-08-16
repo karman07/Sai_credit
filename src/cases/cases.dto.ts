@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProductType, LoanType } from '../common/enums';
+import { LoanType, Firm } from '../common/enums';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
 
@@ -19,8 +19,9 @@ const CustomerSchema = z.object({
 
 export const CreateCaseSchema = z.object({
   customer: CustomerSchema,
-  product: z.enum(Object.values(ProductType) as [string, ...string[]]).optional(),
+  product: z.string().min(1).optional(),
   loanType: z.enum(Object.values(LoanType) as [string, ...string[]]).optional(),
+  firm: z.enum(Object.values(Firm) as [string, ...string[]]).optional(),
   vehicleModel: z.string().optional(),
   regNumber: z.string().optional(),
   ownerSerial: z.string().optional(),

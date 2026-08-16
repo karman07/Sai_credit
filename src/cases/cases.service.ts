@@ -1,13 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
-import { LoanCase, PIPELINE_STAGES } from './schemas/case.schema';
+import { LoanCase, pipelineStagesFor } from './schemas/case.schema';
 import {
   CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto,
   AssignCaseDto, RequestDocsDto, UploadDocDto, EditDocDto,
   UpdatePipelineStageDto,
 } from './cases.dto';
-import { ActivityType, CaseStatus, isSalesRole, PRODUCT_CODE_PREFIX, ProductType, ADMIN_PORTAL_ROLES, UserRole } from '../common/enums';
+import { ActivityType, CaseStatus, isSalesRole, MasterType, ADMIN_PORTAL_ROLES, UserRole } from '../common/enums';
 import { AuthUser } from '../common/types';
 import { CounterService } from '../common/counter/counter.service';
 import { ActivitiesService } from '../activities/activities.service';
@@ -16,6 +17,7 @@ import { DealersService } from '../dealers/dealers.service';
 import { CustomersService } from '../customers/customers.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/schemas/user.schema';
+import { Master } from '../masters/schemas/master.schema';
 import { MailService } from '../mail/mail.service';
 
 @Injectable()
@@ -23,6 +25,7 @@ export class CasesService {
   constructor(
     @InjectModel(LoanCase.name) private readonly model: Model<LoanCase>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Master.name) private readonly masterModel: Model<Master>,
     private readonly counter: CounterService,
     private readonly activities: ActivitiesService,
     private readonly banks: BanksService,
@@ -30,14 +33,24 @@ export class CasesService {
     private readonly customersService: CustomersService,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Looks up the case-code prefix for a product from the `products` master; falls back to 'CASE'. */
+  private async resolveProductPrefix(product?: string): Promise<string> {
+    if (!product) return 'CASE';
+    const m = await this.masterModel
+      .findOne({ type: MasterType.Product, name: product, isActive: true }, 'code')
+      .lean();
+    return m?.code?.toUpperCase() ?? 'CASE';
+  }
 
   async list(params: {
     page?: number; limit?: number; search?: string; status?: string;
-    bankId?: string; dealerId?: string; product?: string;
+    bankId?: string; dealerId?: string; product?: string; firm?: string;
     assignedTo?: string; userId?: string; scopeToUser?: boolean; coordinatorId?: string;
   }) {
-    const { page = 1, limit = 25, search, status, bankId, dealerId, product, assignedTo, userId, scopeToUser, coordinatorId } = params;
+    const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId } = params;
     const filter: Record<string, any> = { isActive: true };
 
     // Coordinators only see cases assigned to the sales reps assigned to them
@@ -67,6 +80,7 @@ export class CasesService {
     if (bankId) filter.bankId = new Types.ObjectId(bankId);
     if (dealerId) filter.dealerId = new Types.ObjectId(dealerId);
     if (product) filter.product = product;
+    if (firm) filter.firm = firm;
 
     const total = await this.model.countDocuments(filter);
     const data = await this.model
@@ -115,17 +129,39 @@ export class CasesService {
     return { coordinatorId: rep.coordinatorId, coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim() };
   }
 
-  /** Emails admins + the case's coordinator whenever a case's status changes (non-blocking). */
+  /** Admins + the case's coordinator + the assigned sales rep + the fixed ops CC address. */
+  private async caseNotificationRecipients(coordinatorId?: Types.ObjectId, assignedTo?: Types.ObjectId): Promise<string[]> {
+    const admins = await this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email')
+      .lean();
+    const recipients = admins.map((u) => u.email);
+
+    const extraEmail = this.config.get<string>('notify.caseUpdatesEmail');
+    if (extraEmail) recipients.push(extraEmail);
+
+    if (coordinatorId) {
+      const coordinator = await this.userModel.findById(coordinatorId, 'email').lean();
+      if (coordinator?.email) recipients.push(coordinator.email);
+    }
+    if (assignedTo) {
+      const rep = await this.userModel.findById(assignedTo, 'email').lean();
+      if (rep?.email) recipients.push(rep.email);
+    }
+    return recipients;
+  }
+
+  /** Emails admins + coordinator + sales rep whenever a case's status changes (non-blocking). */
   private notifyStatusChanged(params: {
     caseCode: string;
     customerName?: string;
     coordinatorId?: Types.ObjectId;
+    assignedTo?: Types.ObjectId;
     oldStatus: string;
     newStatus: string;
     note?: string;
     actor: AuthUser;
   }) {
-    const { caseCode, customerName, coordinatorId, oldStatus, newStatus, note, actor } = params;
+    const { caseCode, customerName, coordinatorId, assignedTo, oldStatus, newStatus, note, actor } = params;
     const vars = {
       caseCode,
       customerName: customerName?.trim() || '—',
@@ -134,18 +170,31 @@ export class CasesService {
       note: note?.trim() || '—',
     };
 
-    this.userModel
-      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, 'email')
-      .lean()
-      .then(async (admins) => {
-        const recipients = admins.map((u) => u.email);
-        if (coordinatorId) {
-          const coordinator = await this.userModel.findById(coordinatorId, 'email').lean();
-          if (coordinator?.email) recipients.push(coordinator.email);
-        }
-        return this.mail.sendTemplate('case_status_changed', vars, recipients);
-      })
+    this.caseNotificationRecipients(coordinatorId, assignedTo)
+      .then((recipients) => this.mail.sendTemplate('case_status_changed', vars, recipients))
       .catch(() => { /* non-blocking — don't fail the status-changing action */ });
+  }
+
+  /** Emails admins + coordinator + sales rep whenever a case is edited or reassigned (non-blocking). */
+  private notifyCaseUpdated(params: {
+    caseCode: string;
+    customerName?: string;
+    coordinatorId?: Types.ObjectId;
+    assignedTo?: Types.ObjectId;
+    changeDescription: string;
+    actor: AuthUser;
+  }) {
+    const { caseCode, customerName, coordinatorId, assignedTo, changeDescription, actor } = params;
+    const vars = {
+      caseCode,
+      customerName: customerName?.trim() || '—',
+      changeDescription,
+      changedByName: `${actor.firstName} ${actor.lastName}`.trim(),
+    };
+
+    this.caseNotificationRecipients(coordinatorId, assignedTo)
+      .then((recipients) => this.mail.sendTemplate('case_updated', vars, recipients))
+      .catch(() => { /* non-blocking — don't fail the update */ });
   }
 
   async create(dto: CreateCaseDto, actor: AuthUser) {
@@ -177,6 +226,9 @@ export class CasesService {
       if (!dto.product) {
         throw new BadRequestException('Product Type is required');
       }
+      if (!dto.firm) {
+        throw new BadRequestException('Firm is required');
+      }
       if (!dto.loanAmount) {
         throw new BadRequestException('Loan Amount is required');
       }
@@ -188,7 +240,7 @@ export class CasesService {
       }
     }
 
-    const prefix = dto.product ? (PRODUCT_CODE_PREFIX[dto.product as ProductType] ?? 'CASE') : 'CASE';
+    const prefix = await this.resolveProductPrefix(dto.product);
     const caseCode = await this.counter.code(prefix, `case:${prefix.toLowerCase()}`);
 
     // Denormalize names for fast display
@@ -219,6 +271,7 @@ export class CasesService {
       assignedTo, assignedToName, coordinatorId, coordinatorName,
       createdBy: actor.id, isActive: true,
       documents: [], docRequests: [],
+      pipeline: pipelineStagesFor(dto.product).map((stage) => ({ stage, status: 'Pending' })),
     });
 
     await this.activities.log({
@@ -298,6 +351,7 @@ export class CasesService {
     const merged = {
       customer: { ...existing.customer, ...dto.customer },
       product: dto.product !== undefined ? dto.product : existing.product,
+      firm: dto.firm !== undefined ? dto.firm : existing.firm,
       loanAmount: dto.loanAmount !== undefined ? dto.loanAmount : existing.loanAmount,
       bankId: dto.bankId !== undefined ? dto.bankId : existing.bankId,
       dealerId: dto.dealerId !== undefined ? dto.dealerId : existing.dealerId,
@@ -330,6 +384,9 @@ export class CasesService {
       if (!merged.product) {
         throw new BadRequestException('Product Type is required');
       }
+      if (!merged.firm) {
+        throw new BadRequestException('Firm is required');
+      }
       if (!merged.loanAmount) {
         throw new BadRequestException('Loan Amount is required');
       }
@@ -355,6 +412,16 @@ export class CasesService {
       caseId: id, type: ActivityType.Remark,
       description: `Case updated`, actor,
     });
+
+    this.notifyCaseUpdated({
+      caseCode: existing.caseCode,
+      customerName: [merged.customer?.firstName, merged.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId: existing.coordinatorId,
+      assignedTo: existing.assignedTo,
+      changeDescription: 'Case details updated',
+      actor,
+    });
+
     return updated;
   }
 
@@ -380,6 +447,7 @@ export class CasesService {
       caseCode: existing.caseCode,
       customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
       coordinatorId: existing.coordinatorId,
+      assignedTo: existing.assignedTo,
       oldStatus, newStatus: dto.status, note: dto.note, actor,
     });
 
@@ -417,6 +485,16 @@ export class CasesService {
       caseId: id, type: ActivityType.Assigned,
       description: `Case assigned to ${dto.userName}`, actor,
     });
+
+    this.notifyCaseUpdated({
+      caseCode: existing.caseCode,
+      customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId,
+      assignedTo: newAssignee,
+      changeDescription: `Case reassigned to ${dto.userName}`,
+      actor,
+    });
+
     return updated;
   }
 
@@ -456,6 +534,7 @@ export class CasesService {
         caseCode: existing.caseCode,
         customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
         coordinatorId: existing.coordinatorId,
+        assignedTo: existing.assignedTo,
         oldStatus, newStatus: CaseStatus.Incomplete, note: dto.remarks, actor,
       });
     }
@@ -583,6 +662,7 @@ export class CasesService {
       caseCode: existing.caseCode,
       customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
       coordinatorId: existing.coordinatorId,
+      assignedTo: existing.assignedTo,
       oldStatus, newStatus: CaseStatus.Pending, actor,
     });
 
@@ -594,12 +674,13 @@ export class CasesService {
     if (!doc) throw new NotFoundException('Case not found');
     await this.assertCanAccessCase(actor, doc);
 
-    const validStage = (PIPELINE_STAGES as readonly string[]).includes(stage);
+    const stagesForCase = pipelineStagesFor(doc.product);
+    const validStage = stagesForCase.includes(stage);
     if (!validStage) throw new BadRequestException(`Unknown pipeline stage: ${stage}`);
 
     // Ensure pipeline array is initialised (for legacy cases created before this feature)
     if (!doc.pipeline || doc.pipeline.length === 0) {
-      doc.pipeline = PIPELINE_STAGES.map((s) => ({ stage: s, status: 'Pending' }) as any);
+      doc.pipeline = stagesForCase.map((s) => ({ stage: s, status: 'Pending' }) as any);
     }
 
     const item = doc.pipeline.find((p: any) => p.stage === stage);
@@ -635,6 +716,7 @@ export class CasesService {
         caseCode: doc.caseCode,
         customerName: [doc.customer?.firstName, doc.customer?.lastName].filter(Boolean).join(' '),
         coordinatorId: doc.coordinatorId,
+        assignedTo: doc.assignedTo,
         oldStatus: before, newStatus: CaseStatus.Disbursed,
         note: 'Auto-advanced — all pipeline stages complete', actor,
       });
@@ -667,35 +749,53 @@ export class CasesService {
     return { id };
   }
 
-  async stats() {
+  /**
+   * `from`/`to` (YYYY-MM-DD) and bankId/product/firm are all optional. With no
+   * range given, behaves exactly as before (all-time totals + this-calendar-month
+   * disbursed figures) — existing callers see no change. With a range given,
+   * every figure scopes to it (leads/status/bank/product by createdAt, disbursed
+   * figures by disbursementDate).
+   */
+  async stats(params: { from?: string; to?: string; bankId?: string; product?: string; firm?: string } = {}) {
+    const { from, to, bankId, product, firm } = params;
+
+    const baseMatch: Record<string, any> = { isActive: true };
+    if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
+    if (product) baseMatch.product = product;
+    if (firm) baseMatch.firm = firm;
+
+    const hasRange = !!(from || to);
+    const rangeStart = from ? new Date(from) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const rangeEnd = to ? new Date(new Date(to).getTime() + 86_400_000 - 1) : new Date();
+
+    const leadsMatch = { ...baseMatch, ...(hasRange ? { createdAt: { $gte: rangeStart, $lte: rangeEnd } } : {}) };
+    const disbursedMatch = { ...baseMatch, status: CaseStatus.Disbursed, disbursementDate: { $gte: rangeStart, $lte: rangeEnd } };
+    const activeMatch = { ...baseMatch, status: { $nin: [CaseStatus.Disbursed, CaseStatus.Rejected, CaseStatus.Cancelled] } };
+
     const [totalLeads, disbursedMTD, activeCases, statusBreakdown] = await Promise.all([
-      this.model.countDocuments({ isActive: true }),
-      this.model.countDocuments({
-        isActive: true,
-        status: CaseStatus.Disbursed,
-        disbursementDate: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
-      }),
-      this.model.countDocuments({ isActive: true, status: { $nin: [CaseStatus.Disbursed, CaseStatus.Rejected, CaseStatus.Cancelled] } }),
+      this.model.countDocuments(leadsMatch),
+      this.model.countDocuments(disbursedMatch),
+      this.model.countDocuments(activeMatch),
       this.model.aggregate([
-        { $match: { isActive: true } },
+        { $match: leadsMatch },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
     ]);
 
     const disbursedMTDAmount = await this.model.aggregate([
-      { $match: { isActive: true, status: CaseStatus.Disbursed, disbursementDate: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } } },
+      { $match: disbursedMatch },
       { $group: { _id: null, total: { $sum: '$loanAmount' } } },
     ]);
 
     const bankWise = await this.model.aggregate([
-      { $match: { isActive: true, bankName: { $exists: true, $ne: '' } } },
+      { $match: { ...leadsMatch, bankName: { $exists: true, $ne: '' } } },
       { $group: { _id: '$bankName', count: { $sum: 1 }, volume: { $sum: '$loanAmount' } } },
       { $sort: { volume: -1 } },
       { $limit: 8 },
     ]);
 
     const productMix = await this.model.aggregate([
-      { $match: { isActive: true } },
+      { $match: leadsMatch },
       { $group: { _id: '$product', count: { $sum: 1 } } },
     ]);
 
@@ -708,5 +808,72 @@ export class CasesService {
       bankWise,
       productMix,
     };
+  }
+
+  /**
+   * Time-bucketed trend: leads created + cases disbursed (count & ₹ volume) per
+   * bucket, gap-filled so the chart has a continuous axis with no missing days.
+   * Defaults to the trailing 30 days when no range is given.
+   */
+  async trend(params: {
+    from?: string; to?: string; groupBy?: 'day' | 'month';
+    bankId?: string; product?: string; firm?: string; status?: string;
+  }) {
+    const { from, to, groupBy = 'day', bankId, product, firm, status } = params;
+
+    const toDate = to ? new Date(new Date(to).getTime() + 86_400_000 - 1) : new Date();
+    const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 29 * 86_400_000);
+
+    if (groupBy === 'day' && (toDate.getTime() - fromDate.getTime()) / 86_400_000 > 366) {
+      throw new BadRequestException('Date range too large for daily grouping — use monthly grouping or a shorter range');
+    }
+
+    const baseMatch: Record<string, any> = { isActive: true };
+    if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
+    if (product) baseMatch.product = product;
+    if (firm) baseMatch.firm = firm;
+    if (status && status !== 'All') baseMatch.status = status;
+
+    const dateFormat = groupBy === 'month' ? '%Y-%m' : '%Y-%m-%d';
+
+    const [leadsAgg, disbursedAgg] = await Promise.all([
+      this.model.aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: fromDate, $lte: toDate } } },
+        { $group: { _id: { $dateToString: { format: dateFormat, date: '$createdAt' } }, count: { $sum: 1 } } },
+      ]),
+      this.model.aggregate([
+        { $match: { ...baseMatch, status: CaseStatus.Disbursed, disbursementDate: { $gte: fromDate, $lte: toDate } } },
+        { $group: { _id: { $dateToString: { format: dateFormat, date: '$disbursementDate' } }, count: { $sum: 1 }, volume: { $sum: '$loanAmount' } } },
+      ]),
+    ]);
+
+    const buckets: string[] = [];
+    if (groupBy === 'month') {
+      const cur = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+      const end = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+      while (cur <= end) {
+        buckets.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
+        cur.setMonth(cur.getMonth() + 1);
+      }
+    } else {
+      const cur = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+      const end = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+      while (cur <= end) {
+        buckets.push(
+          `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`,
+        );
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+
+    const leadsMap = new Map(leadsAgg.map((r) => [r._id as string, r.count as number]));
+    const disbursedMap = new Map(disbursedAgg.map((r) => [r._id as string, { count: r.count as number, volume: r.volume as number }]));
+
+    return buckets.map((key) => ({
+      date: key,
+      leads: leadsMap.get(key) ?? 0,
+      disbursed: disbursedMap.get(key)?.count ?? 0,
+      volume: disbursedMap.get(key)?.volume ?? 0,
+    }));
   }
 }
