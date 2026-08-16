@@ -87,6 +87,8 @@ const CORE_STATUS_TONES: Record<string, BadgeTone> = {
   "Draft": "neutral", "Sales": "info", "Pending": "warning", "In Credit": "purple",
   "Incomplete": "orange", "Approved": "success",
   "Disbursed": "success", "Hold": "warning", "Rejected": "danger", "Cancelled": "neutral",
+  "Documents Pending": "orange", "Under Verification": "purple",
+  "Insurance Endorsement Pending": "orange", "Completed": "success", "On Hold": "warning",
 };
 export function CaseStatusBadge({ status }: { status: string }) {
   return <Badge tone={CORE_STATUS_TONES[status] ?? "neutral"} dot>{status}</Badge>;

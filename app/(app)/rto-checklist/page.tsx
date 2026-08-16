@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Save, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
-import { Label, ProgressBar, Badge } from "../../../components/ui";
+import { Label, ProgressBar, Badge, CaseStatusBadge } from "../../../components/ui";
 import {
   casesApi, rtoApi, formSchemasApi,
   type LoanCase, type RTORecord, type FieldDef, type SectionDef,
 } from "../../../lib/api";
 
-const VEHICLE_PRODUCTS = ["Car Loan", "Truck", "Two Wheeler"];
+const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
 const CHECKLIST_OPTS   = ["Pending", "Received", "Not Required"] as const;
 const STAGE_OPTS       = ["Pending", "Done"] as const;
 const OWNERSHIP_TYPES  = ["Banker", "Dealer", "Sai Credit Solutions"] as const;
@@ -272,6 +272,7 @@ export default function RTOChecklistPage() {
                   <span className="text-sm font-medium">{c.customer.firstName} {c.customer.lastName}</span>
                   <Badge tone="neutral">{c.product}</Badge>
                   {c.vehicleModel && <span className="text-xs text-muted">· {c.vehicleModel}</span>}
+                  <CaseStatusBadge status={r?.status ?? "Pending"} />
                 </div>
                 <div className="mt-1.5">
                   <ProgressBar value={pct} tone={pct >= 80 ? "success" : pct >= 50 ? "warning" : "danger"} size="sm" />
