@@ -152,6 +152,11 @@ const CORE_STATUS_TONES: Record<string, BadgeTone> = {
   "Hold":       "warning",
   "Rejected":   "danger",
   "Cancelled":  "neutral",
+  "Documents Pending":             "orange",
+  "Under Verification":            "purple",
+  "Insurance Endorsement Pending": "orange",
+  "Completed":                     "success",
+  "On Hold":                       "warning",
 };
 
 export function CaseStatusBadge({ status, colorClass }: { status: string; colorClass?: string }) {

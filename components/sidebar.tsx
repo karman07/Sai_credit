@@ -8,7 +8,7 @@ import {
   ShieldCheck, Clipboard, BarChart3, UserCog, Bell, Mail,
   ChevronLeft, ChevronRight, Banknote, Database,
   ChevronDown, ChevronUp, Map, MapPin,
-  CalendarDays, Receipt, Palmtree, IndianRupee, Sliders, ListOrdered, Tags,
+  CalendarDays, Receipt, Palmtree, IndianRupee, Sliders, ListOrdered, Tags, Layers,
 } from "lucide-react";
 import { cn } from "./ui";
 import { notificationsApi } from "../lib/api";
@@ -32,7 +32,9 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
   { kind: "sep",  group: "Form Options" },
   { kind: "item", slug: "enum-sets",           label: "Enum Sets",           icon: ListOrdered, dot: "bg-violet-500"  },
   { kind: "sep",  group: "Loan Operations" },
+  { kind: "item", slug: "products",            label: "Loan Products",       icon: Layers,      dot: "bg-purple-500" },
   { kind: "item", slug: "case-statuses",        label: "Case Statuses",       icon: Tags,        dot: "bg-sky-500"     },
+  { kind: "item", slug: "rto-statuses",         label: "RTO Statuses",        icon: Tags,        dot: "bg-teal-500"    },
 ];
 
 // ── Catalog dropdown (needs useSearchParams → wrap in Suspense) ───────────────

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Plus, Save, Trash2, ChevronUp, ChevronDown, Eye, EyeOff,
-  Lock, Settings2, GripVertical, RotateCcw, FileText, Clipboard, ShieldCheck, IndianRupee, Users,
+  Lock, Settings2, GripVertical, RotateCcw, FileText, Clipboard, ShieldCheck, IndianRupee, Users, Package,
 } from "lucide-react";
 import {
   Button, Input, Label, Select, Modal, useToast, Badge, cn,
@@ -15,15 +15,15 @@ import {
 
 // ── Form catalogue ─────────────────────────────────────────────────────────────
 
-const FORMS = [
-  { id: "new-case",        label: "New Case",        icon: FileText,    desc: "Fields in the case creation wizard" },
-  { id: "rto",             label: "RTO",             icon: Clipboard,   desc: "Fields in the RTO tracker form" },
-  { id: "insurance",       label: "Insurance MIS",   icon: ShieldCheck, desc: "Fields in the insurance entry form" },
-  { id: "payout",          label: "Payout",          icon: IndianRupee, desc: "Fields in the payout record form" },
-  { id: "insurance-lead",  label: "Insurance Lead",  icon: Users,       desc: "Fields in the insurance lead capture form" },
-] as const;
+interface FormMeta { id: string; label: string; icon: React.ElementType; desc: string; group?: "universal" | "product" }
 
-type FormId = typeof FORMS[number]["id"];
+const BASE_FORMS: FormMeta[] = [
+  { id: "new-case",        label: "New Case",        icon: FileText,    desc: "Fields in the case creation wizard", group: "universal" },
+  { id: "rto",             label: "RTO",             icon: Clipboard,   desc: "Fields in the RTO tracker form", group: "universal" },
+  { id: "insurance",       label: "Insurance MIS",   icon: ShieldCheck, desc: "Fields in the insurance entry form", group: "universal" },
+  { id: "payout",          label: "Payout",          icon: IndianRupee, desc: "Fields in the payout record form", group: "universal" },
+  { id: "insurance-lead",  label: "Insurance Lead",  icon: Users,       desc: "Fields in the insurance lead capture form", group: "universal" },
+];
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text:    "Text",
@@ -303,36 +303,40 @@ function FieldRow({ field, fieldIdx, totalFields, onToggle, onEdit, onDelete, on
 
 export default function FormBuilderPage() {
   const toast = useToast();
-  const [activeFormId, setActiveFormId] = useState<FormId>("new-case");
-  const [schemas, setSchemas] = useState<Record<FormId, FormSchema | null>>({
-    "new-case": null, rto: null, insurance: null, payout: null, "insurance-lead": null,
-  });
-  const [dirty, setDirty] = useState<Record<FormId, boolean>>({
-    "new-case": false, rto: false, insurance: false, payout: false, "insurance-lead": false,
-  });
+  const [activeFormId, setActiveFormId] = useState<string>("new-case");
+  const [schemas, setSchemas] = useState<Record<string, FormSchema | null>>({});
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const [editingField, setEditingField] = useState<{ sectionIdx: number; field: FieldDef | null } | null>(null);
   const [enumSets, setEnumSets] = useState<MasterItem[]>([]);
+  const [products, setProducts] = useState<MasterItem[]>([]);
+
+  const productForms: FormMeta[] = products
+    .filter(p => p.isActive && p.code)
+    .map(p => ({
+      id: `product-fields:${p.code!.toLowerCase()}`,
+      label: `${p.name} Fields`,
+      icon: Package,
+      desc: `Extra fields shown only when the case's product is "${p.name}"`,
+      group: "product" as const,
+    }));
+  const FORMS: FormMeta[] = [...BASE_FORMS, ...productForms];
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [schemasRes, enumRes] = await Promise.all([
+      const [schemasRes, enumRes, productsRes] = await Promise.all([
         formSchemasApi.list(),
         mastersApi.list("enum-sets"),
+        mastersApi.list("products"),
       ]);
       const map: Record<string, FormSchema> = {};
       for (const s of schemasRes.data) map[s.formId] = s;
-      setSchemas({
-        "new-case":       map["new-case"]       ?? null,
-        rto:              map.rto               ?? null,
-        insurance:        map.insurance         ?? null,
-        payout:           map.payout            ?? null,
-        "insurance-lead": map["insurance-lead"] ?? null,
-      });
+      setSchemas(map);
       setEnumSets(enumRes.data.filter(e => e.isActive));
+      setProducts(productsRes.data);
     } catch {
       toast("error", "Failed to load form schemas");
     } finally {
@@ -344,6 +348,15 @@ export default function FormBuilderPage() {
 
   // Reset section idx when switching forms
   useEffect(() => { setActiveSectionIdx(0); }, [activeFormId]);
+
+  // Lazily fetch a schema the first time its tab is opened (covers products with
+  // no seeded default, e.g. Car Loan/CVL — the backend auto-creates an empty shell).
+  useEffect(() => {
+    if (loading || activeFormId in schemas) return;
+    formSchemasApi.get(activeFormId)
+      .then(({ data }) => setSchemas(prev => ({ ...prev, [activeFormId]: data })))
+      .catch(() => toast("error", "Failed to load form"));
+  }, [activeFormId, schemas, loading, toast]);
 
   const activeSchema = schemas[activeFormId];
 
@@ -454,8 +467,8 @@ export default function FormBuilderPage() {
         </div>
 
         {/* Form tabs */}
-        <div className="flex gap-0">
-          {FORMS.map(form => {
+        <div className="flex flex-wrap gap-0">
+          {BASE_FORMS.map(form => {
             const isActive = form.id === activeFormId;
             const hasDirty = dirty[form.id];
             return (
@@ -478,6 +491,36 @@ export default function FormBuilderPage() {
             );
           })}
         </div>
+
+        {productForms.length > 0 && (
+          <div className="pb-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted/70 pt-2 pb-1.5">Product-Specific Fields</p>
+            <div className="flex flex-wrap gap-0">
+              {productForms.map(form => {
+                const isActive = form.id === activeFormId;
+                const hasDirty = dirty[form.id];
+                return (
+                  <button
+                    key={form.id}
+                    onClick={() => setActiveFormId(form.id)}
+                    className={cn(
+                      "flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium border-b-2 transition-colors relative",
+                      isActive
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted hover:text-foreground hover:border-border",
+                    )}
+                  >
+                    <form.icon className="size-3.5 shrink-0" />
+                    {form.label}
+                    {hasDirty && (
+                      <span className="size-1.5 rounded-full bg-warning absolute top-2 right-1.5" title="Unsaved changes" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {!activeSchema ? (

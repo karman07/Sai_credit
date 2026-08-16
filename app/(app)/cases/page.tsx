@@ -8,20 +8,55 @@ import {
   Skeleton, useToast, type CaseStatus,
 } from "../../../components/ui";
 import {
-  casesApi, banksApi, dealersApi, usersApi, mastersApi,
-  rtoApi, CASE_STATUSES, PRODUCTS, LOAN_TYPES, API_BASE, PIPELINE_STAGES, RTO_OWNERSHIP_TYPES,
+  casesApi, banksApi, dealersApi, usersApi, mastersApi, formSchemasApi,
+  CASE_STATUSES, RTO_STATUSES, LOAN_TYPES, FIRMS, VEHICLE_PRODUCTS, API_BASE, PIPELINE_STAGES, RTO_OWNERSHIP_TYPES,
+  rtoApi,
   type LoanCase, type Bank, type Dealer, type Activity,
   type PageMeta, type SalesUser, type DocumentType, type PipelineItem, type RTORecord,
+  type MasterItem, type FieldDef,
 } from "../../../lib/api";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
+function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
+
+function ProductDynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
+  const cls = "w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:outline-none";
+  if (field.type === "select") return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cls}>
+      <option value="">—</option>
+      {field.options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  if (field.type === "boolean") return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cls}>
+      <option value="">—</option>
+      <option value="Yes">Yes</option>
+      <option value="No">No</option>
+    </select>
+  );
+  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+}
+
+/** Converts a form's raw string customFields values into properly-typed values for submission. */
+function buildCustomFieldsPayload(fields: FieldDef[], values: Record<string, string>): Record<string, any> | undefined {
+  const out: Record<string, any> = {};
+  for (const f of fields) {
+    const raw = values[f.key];
+    if (raw === undefined || raw === "") continue;
+    out[f.key] = f.type === "number" ? Number(raw) : raw;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 // ── RTO drawer form helpers ───────────────────────────────────────────────────
 const CHECKLIST_OPTS = ["Pending", "Received", "Not Required"] as const;
 const STAGE_OPTS     = ["Pending", "Done"] as const;
 
 type RTODrawerForm = {
+  status: string;
   rtoOwnershipType: string; rtoOwnership: string; rtoReceiving: boolean;
   challanCheck: string; bankNocCheck: string; insuranceCheck: string;
   hypothecation: string; aadhaarMatch: string; aadhaarMismatchNote: string;
@@ -31,6 +66,7 @@ type RTODrawerForm = {
 };
 
 const BLANK_RTO: RTODrawerForm = {
+  status: "Pending",
   rtoOwnershipType: "Banker", rtoOwnership: "Pending", rtoReceiving: false,
   challanCheck: "Pending", bankNocCheck: "Pending", insuranceCheck: "Pending",
   hypothecation: "Pending", aadhaarMatch: "Pending", aadhaarMismatchNote: "",
@@ -41,6 +77,7 @@ const BLANK_RTO: RTODrawerForm = {
 
 function rtoRecordToForm(r: RTORecord): RTODrawerForm {
   return {
+    status:              r.status ?? "Pending",
     rtoOwnershipType:    r.rtoOwnershipType ?? "Banker",
     rtoOwnership:        (r as any).rtoOwnership ?? "Pending",
     rtoReceiving:        r.rtoReceiving ?? false,
@@ -65,6 +102,7 @@ function rtoFormToBody(f: RTODrawerForm, c: { caseCode: string; customer: { firs
   return {
     caseCode:            c.caseCode,
     customerName:        `${c.customer.firstName} ${c.customer.lastName ?? ""}`.trim(),
+    status:              f.status,
     rtoOwnershipType:    f.rtoOwnershipType,
     rtoOwnership:        f.rtoOwnership,
     rtoReceiving:        f.rtoReceiving,
@@ -88,9 +126,10 @@ function rtoFormToBody(f: RTODrawerForm, c: { caseCode: string; customer: { firs
 type EditForm = {
   firstName: string; lastName: string; fatherName: string; contact: string; altContact: string;
   location: string; state: string; pinCode: string; residentialStatus: string;
-  product: string; loanType: string; vehicleModel: string; regNumber: string;
+  product: string; loanType: string; firm: string; vehicleModel: string; regNumber: string;
   loanAmount: string; bankId: string; bankBranch: string; bmName: string; bmContact: string; bankExecutive: string;
   dealerId: string; payoutPct: string; remarks: string;
+  customFields: Record<string, string>;
 };
 
 export default function CasesPage() {
@@ -102,12 +141,29 @@ export default function CasesPage() {
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
+  const [products, setProducts] = useState<MasterItem[]>([]);
+  const [newCaseProductFields, setNewCaseProductFields] = useState<FieldDef[]>([]);
+  const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
+
+  // Fetches a product's extra-fields schema by name, returning [] for vehicle
+  // products with no custom fields configured (or none at all).
+  async function loadProductFields(productName: string): Promise<FieldDef[]> {
+    const p = products.find(x => x.name === productName);
+    if (!p?.code) return [];
+    try {
+      const { data } = await formSchemasApi.get(`product-fields:${p.code.toLowerCase()}`);
+      return data.sections.flatMap(s => s.fields.filter(f => f.isActive));
+    } catch {
+      return [];
+    }
+  }
 
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [bankFilter, setBankFilter] = useState("");
   const [productFilter, setProductFilter] = useState("");
+  const [firmFilter, setFirmFilter] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
@@ -129,9 +185,9 @@ export default function CasesPage() {
   const [newCaseForm, setNewCaseForm] = useState<EditForm & { status: string }>({
     firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
     location: "", state: "", pinCode: "", residentialStatus: "",
-    product: "", loanType: "", vehicleModel: "", regNumber: "",
+    product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
     loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    dealerId: "", payoutPct: "", remarks: "", status: "Sales",
+    dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
   });
   const [newCaseSaving, setNewCaseSaving] = useState(false);
 
@@ -140,11 +196,45 @@ export default function CasesPage() {
   const [editForm, setEditForm] = useState<EditForm>({
     firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
     location: "", state: "", pinCode: "", residentialStatus: "",
-    product: "", loanType: "", vehicleModel: "", regNumber: "",
+    product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
     loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    dealerId: "", payoutPct: "", remarks: "",
+    dealerId: "", payoutPct: "", remarks: "", customFields: {},
   });
   const [editSaving, setEditSaving] = useState(false);
+
+  // Inline "add new dealer" from either New Case or Edit Case modal
+  const [addDealerOpen, setAddDealerOpen] = useState(false);
+  const [newDealer, setNewDealer] = useState({ name: "", contact: "", location: "", address: "" });
+  const [savingDealer, setSavingDealer] = useState(false);
+  const [dealerTarget, setDealerTarget] = useState<"new" | "edit">("new");
+
+  function openAddDealer(target: "new" | "edit") {
+    setDealerTarget(target);
+    setNewDealer({ name: "", contact: "", location: "", address: "" });
+    setAddDealerOpen(true);
+  }
+
+  async function saveNewDealer() {
+    if (!newDealer.name.trim()) { toast("error", "Dealer name is required"); return; }
+    setSavingDealer(true);
+    try {
+      const { data } = await dealersApi.create({
+        name: newDealer.name.trim(),
+        contact: newDealer.contact || undefined,
+        location: newDealer.location || undefined,
+        address: newDealer.address || undefined,
+      });
+      setDealers((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      if (dealerTarget === "new") setNewCaseForm(p => ({ ...p, dealerId: data._id }));
+      else setEditForm(p => ({ ...p, dealerId: data._id }));
+      setAddDealerOpen(false);
+      toast("success", `Dealer "${data.name}" added`);
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to add dealer");
+    } finally {
+      setSavingDealer(false);
+    }
+  }
 
   // Doc modals
 
@@ -174,6 +264,7 @@ export default function CasesPage() {
 
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [customStatuses, setCustomStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
+  const [customRtoStatuses, setCustomRtoStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
 
   const loadStats = useCallback(async () => {
     try { const { data } = await casesApi.stats(); setStatusCounts(data.statusBreakdown ?? {}); } catch {}
@@ -187,6 +278,7 @@ export default function CasesPage() {
         status: statusFilter !== "All" ? statusFilter : undefined,
         bankId: bankFilter || undefined,
         product: productFilter || undefined,
+        firm: firmFilter || undefined,
       });
       setCases(data as unknown as LoanCase[]);
       if (m) setMeta(m);
@@ -194,30 +286,45 @@ export default function CasesPage() {
     } catch (e: any) {
       toast("error", e.message ?? "Failed to load cases");
     } finally { setLoading(false); }
-  }, [page, limit, search, statusFilter, bankFilter, productFilter, toast, loadStats]);
+  }, [page, limit, search, statusFilter, bankFilter, productFilter, firmFilter, toast, loadStats]);
 
   const [cities, setCities] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
 
   const loadRef = useCallback(async () => {
     try {
-      const [bl, dl, ul, dtl, citl, stl, csl] = await Promise.all([
+      const [bl, dl, ul, dtl, citl, stl, csl, rsl, pl] = await Promise.all([
         banksApi.list(), dealersApi.list(),
         usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
         mastersApi.list("cities"), mastersApi.list("states"),
-        mastersApi.list("case-statuses"),
+        mastersApi.list("case-statuses"), mastersApi.list("rto-statuses").catch(() => ({ data: [] })),
+        mastersApi.list("products").catch(() => ({ data: [] })),
       ]);
       setBanks(bl.data); setDealers(dl.data);
       setSalesUsers(ul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setCustomStatuses(csl.data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })));
+      setCustomRtoStatuses(rsl.data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })));
+      setProducts(pl.data.filter((d: any) => d.isActive));
     } catch (e: any) { toast("error", "Failed to load references"); }
   }, [toast]);
 
   useEffect(() => { loadRef(); }, [loadRef]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setRtoForm(drawerRTO ? rtoRecordToForm(drawerRTO) : { ...BLANK_RTO }); }, [drawerRTO]);
+
+  useEffect(() => {
+    if (!newCaseForm.product || products.length === 0) { setNewCaseProductFields([]); return; }
+    loadProductFields(newCaseForm.product).then(setNewCaseProductFields);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newCaseForm.product, products]);
+
+  useEffect(() => {
+    if (!editForm.product || products.length === 0) { setEditProductFields([]); return; }
+    loadProductFields(editForm.product).then(setEditProductFields);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editForm.product, products]);
 
   async function openDrawer(c: LoanCase) {
     setDrawerCase(c); setDrawerTab("overview"); setDrawerRTO(null);
@@ -319,13 +426,14 @@ export default function CasesPage() {
       altContact: c.customer.altContact ?? "", location: c.customer.location ?? "",
       state: c.customer.state ?? "",
       pinCode: c.customer.pinCode ?? "", residentialStatus: c.customer.residentialStatus ?? "",
-      product: c.product ?? "", loanType: (c as any).loanType ?? "",
+      product: c.product ?? "", loanType: (c as any).loanType ?? "", firm: (c as any).firm ?? "",
       vehicleModel: (c as any).vehicleModel ?? "", regNumber: (c as any).regNumber ?? "",
       loanAmount: c.loanAmount ? String(c.loanAmount) : "",
       bankId: c.bankId ?? "", bankBranch: c.bankBranch ?? "",
       bmName: c.bmName ?? "", bmContact: c.bmContact ?? "", bankExecutive: c.bankExecutive ?? "",
       dealerId: c.dealerId ?? "", payoutPct: c.payoutPct !== undefined ? String(c.payoutPct) : "",
       remarks: c.remarks ?? "",
+      customFields: Object.fromEntries(Object.entries(c.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])),
     });
     setEditOpen(true);
   }
@@ -342,7 +450,7 @@ export default function CasesPage() {
           state: editForm.state || undefined,
           pinCode: editForm.pinCode || undefined, residentialStatus: editForm.residentialStatus || undefined,
         },
-        product: editForm.product || undefined, loanType: editForm.loanType || undefined,
+        product: editForm.product || undefined, loanType: editForm.loanType || undefined, firm: editForm.firm || undefined,
         vehicleModel: editForm.vehicleModel || undefined, regNumber: editForm.regNumber || undefined,
         loanAmount: editForm.loanAmount ? Number(editForm.loanAmount) : undefined,
         bankId: editForm.bankId || undefined, bankBranch: editForm.bankBranch || undefined,
@@ -351,6 +459,7 @@ export default function CasesPage() {
         dealerId: editForm.dealerId || undefined,
         payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
         remarks: editForm.remarks || undefined,
+        customFields: buildCustomFieldsPayload(editProductFields, editForm.customFields),
       });
       setDrawerCase(data);
       toast("success", "Case updated successfully");
@@ -376,7 +485,7 @@ export default function CasesPage() {
           state: f.state || undefined, pinCode: f.pinCode || undefined,
           residentialStatus: f.residentialStatus || undefined,
         },
-        product: f.product || undefined, loanType: f.loanType || undefined,
+        product: f.product || undefined, loanType: f.loanType || undefined, firm: f.firm || undefined,
         vehicleModel: f.vehicleModel || undefined, regNumber: f.regNumber || undefined,
         loanAmount: f.loanAmount ? Number(f.loanAmount) : undefined,
         bankId: f.bankId || undefined, bankBranch: f.bankBranch || undefined,
@@ -385,15 +494,16 @@ export default function CasesPage() {
         dealerId: f.dealerId || undefined,
         payoutPct: f.payoutPct ? Number(f.payoutPct) : undefined,
         remarks: f.remarks || undefined,
+        customFields: buildCustomFieldsPayload(newCaseProductFields, f.customFields),
       });
       toast("success", "Case created successfully");
       setNewCaseOpen(false);
       setNewCaseForm({
         firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
         location: "", state: "", pinCode: "", residentialStatus: "",
-        product: "", loanType: "", vehicleModel: "", regNumber: "",
+        product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
         loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-        dealerId: "", payoutPct: "", remarks: "", status: "Sales",
+        dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
       });
       load();
     } catch (e: any) { toast("error", e.message ?? "Failed to create case"); }
@@ -467,13 +577,20 @@ export default function CasesPage() {
     } catch (e: any) { toast("error", e.message ?? "Failed to resolve"); }
   }
 
-  const hasFilters = bankFilter || productFilter;
+  const hasFilters = bankFilter || productFilter || firmFilter;
   const allStatuses: string[] = [
     ...CASE_STATUSES,
     ...customStatuses.filter((c) => !CASE_STATUSES.includes(c.name as any)).map((c) => c.name),
   ];
   const customStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
     customStatuses.map((c) => [c.name, c.colorClass])
+  );
+  const allRtoStatuses: string[] = [
+    ...RTO_STATUSES,
+    ...customRtoStatuses.filter((c) => !(RTO_STATUSES as string[]).includes(c.name)).map((c) => c.name),
+  ];
+  const customRtoStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
+    customRtoStatuses.map((c) => [c.name, c.colorClass])
   );
   const statusTabs = [
     { id: "All", label: "All", count: meta.total },
@@ -514,7 +631,7 @@ export default function CasesPage() {
             <Filter className="size-3.5" /> Filters
             {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
           </Button>
-          {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setBankFilter(""); setProductFilter(""); }}><X className="size-3" /> Clear</Button>}
+          {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setBankFilter(""); setProductFilter(""); setFirmFilter(""); }}><X className="size-3" /> Clear</Button>}
           <button
             onClick={() => setStatusGuideOpen(true)}
             title="How statuses work"
@@ -537,7 +654,14 @@ export default function CasesPage() {
               <Label>Product</Label>
               <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
                 <option value="">All Products</option>
-                {PRODUCTS.map((p) => <option key={p}>{p}</option>)}
+                {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[180px]">
+              <Label>Firm</Label>
+              <Select className="!h-8 text-xs" value={firmFilter} onChange={(e) => { setFirmFilter(e.target.value); setPage(1); }}>
+                <option value="">All Firms</option>
+                {FIRMS.map((f) => <option key={f} value={f}>{f}</option>)}
               </Select>
             </div>
           </div>
@@ -677,6 +801,7 @@ export default function CasesPage() {
                       { label: "Customer", value: `${drawerCase.customer.firstName} ${drawerCase.customer.lastName}`, icon: Users },
                       { label: "Contact", value: drawerCase.customer.contact, icon: Users },
                       { label: "Product", value: drawerCase.product ?? "—", icon: FileText },
+                      { label: "Firm", value: drawerCase.firm ?? "—", icon: Building2 },
                       { label: "Loan Amount", value: fmt(drawerCase.loanAmount), icon: Banknote },
                       { label: "Bank", value: drawerCase.bankName ?? "—", icon: Building2 },
                       { label: "Dealer", value: drawerCase.dealerName ?? "—", icon: Building2 },
@@ -880,6 +1005,17 @@ export default function CasesPage() {
               {/* ── RTO ── */}
               {drawerTab === "rto" && (
                 <div className="animate-fadeIn space-y-5">
+                  {/* ── Status ── */}
+                  <section className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">RTO Status</p>
+                    <div className="flex items-center gap-3">
+                      <Select className="w-64" value={rtoForm.status} onChange={e => setRtoForm(f => ({ ...f, status: e.target.value }))}>
+                        {allRtoStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                      </Select>
+                      <CaseStatusBadge status={rtoForm.status} colorClass={customRtoStatusColorMap[rtoForm.status]} />
+                    </div>
+                  </section>
+
                   {/* ── Ownership ── */}
                   <section className="space-y-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Ownership</p>
@@ -1180,22 +1316,43 @@ export default function CasesPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label>Product</Label>
-                <Select value={editForm.product} onChange={(e) => setEditForm(p => ({ ...p, product: e.target.value }))}>
+                <Label>Firm</Label>
+                <Select value={editForm.firm} onChange={(e) => setEditForm(p => ({ ...p, firm: e.target.value }))}>
                   <option value="">Select…</option>
-                  {PRODUCTS.map(prod => <option key={prod}>{prod}</option>)}
+                  {FIRMS.map(f => <option key={f}>{f}</option>)}
                 </Select>
               </div>
               <div>
-                <Label>Loan Type</Label>
-                <Select value={editForm.loanType} onChange={(e) => setEditForm(p => ({ ...p, loanType: e.target.value }))}>
+                <Label>Product</Label>
+                <Select value={editForm.product} onChange={(e) => setEditForm(p => ({ ...p, product: e.target.value }))}>
                   <option value="">Select…</option>
-                  {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                  {products.map(p => <option key={p._id} value={p.name}>{p.name}</option>)}
                 </Select>
               </div>
               <div><Label>Loan Amount</Label><Input type="number" value={editForm.loanAmount} onChange={(e) => setEditForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
-              <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-              <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+              {isVehicleProduct(editForm.product) && (
+                <>
+                  <div>
+                    <Label>Loan Type</Label>
+                    <Select value={editForm.loanType} onChange={(e) => setEditForm(p => ({ ...p, loanType: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </Select>
+                  </div>
+                  <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
+                  <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+                </>
+              )}
+              {editProductFields.map(field => (
+                <div key={field.key}>
+                  <Label>{field.label}</Label>
+                  <ProductDynField
+                    field={field}
+                    value={editForm.customFields[field.key] ?? ""}
+                    onChange={v => setEditForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1215,7 +1372,12 @@ export default function CasesPage() {
               <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
               <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
               <div>
-                <Label>Dealer</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Dealer</Label>
+                  <button type="button" onClick={() => openAddDealer("edit")} className="text-[11px] font-semibold text-primary hover:underline">
+                    + Add new dealer
+                  </button>
+                </div>
                 <Select value={editForm.dealerId} onChange={(e) => setEditForm(p => ({ ...p, dealerId: e.target.value }))}>
                   <option value="">Select dealer…</option>
                   {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
@@ -1359,22 +1521,43 @@ export default function CasesPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label>Product</Label>
-                <Select value={newCaseForm.product} onChange={(e) => setNewCaseForm(p => ({ ...p, product: e.target.value }))}>
+                <Label>Firm</Label>
+                <Select value={newCaseForm.firm} onChange={(e) => setNewCaseForm(p => ({ ...p, firm: e.target.value }))}>
                   <option value="">Select…</option>
-                  {PRODUCTS.map(prod => <option key={prod}>{prod}</option>)}
+                  {FIRMS.map(f => <option key={f}>{f}</option>)}
                 </Select>
               </div>
               <div>
-                <Label>Loan Type</Label>
-                <Select value={newCaseForm.loanType} onChange={(e) => setNewCaseForm(p => ({ ...p, loanType: e.target.value }))}>
+                <Label>Product</Label>
+                <Select value={newCaseForm.product} onChange={(e) => setNewCaseForm(p => ({ ...p, product: e.target.value }))}>
                   <option value="">Select…</option>
-                  {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                  {products.map(p => <option key={p._id} value={p.name}>{p.name}</option>)}
                 </Select>
               </div>
               <div><Label>Loan Amount</Label><Input type="number" value={newCaseForm.loanAmount} onChange={(e) => setNewCaseForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
-              <div><Label>Vehicle Model</Label><Input value={newCaseForm.vehicleModel} onChange={(e) => setNewCaseForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-              <div><Label>Reg Number</Label><Input value={newCaseForm.regNumber} onChange={(e) => setNewCaseForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+              {isVehicleProduct(newCaseForm.product) && (
+                <>
+                  <div>
+                    <Label>Loan Type</Label>
+                    <Select value={newCaseForm.loanType} onChange={(e) => setNewCaseForm(p => ({ ...p, loanType: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </Select>
+                  </div>
+                  <div><Label>Vehicle Model</Label><Input value={newCaseForm.vehicleModel} onChange={(e) => setNewCaseForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
+                  <div><Label>Reg Number</Label><Input value={newCaseForm.regNumber} onChange={(e) => setNewCaseForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+                </>
+              )}
+              {newCaseProductFields.map(field => (
+                <div key={field.key}>
+                  <Label>{field.label}</Label>
+                  <ProductDynField
+                    field={field}
+                    value={newCaseForm.customFields[field.key] ?? ""}
+                    onChange={v => setNewCaseForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1394,7 +1577,12 @@ export default function CasesPage() {
               <div><Label>BM Contact</Label><Input value={newCaseForm.bmContact} onChange={(e) => setNewCaseForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
               <div><Label>Bank Executive</Label><Input value={newCaseForm.bankExecutive} onChange={(e) => setNewCaseForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
               <div>
-                <Label>Dealer</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Dealer</Label>
+                  <button type="button" onClick={() => openAddDealer("new")} className="text-[11px] font-semibold text-primary hover:underline">
+                    + Add new dealer
+                  </button>
+                </div>
                 <Select value={newCaseForm.dealerId} onChange={(e) => setNewCaseForm(p => ({ ...p, dealerId: e.target.value }))}>
                   <option value="">Select dealer…</option>
                   {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
@@ -1418,6 +1606,32 @@ export default function CasesPage() {
         <div className="flex gap-2 justify-end border-t border-border pt-4 mt-4">
           <Button variant="secondary" size="sm" onClick={() => setNewCaseOpen(false)}>Cancel</Button>
           <Button size="sm" loading={newCaseSaving} onClick={saveNewCase}>Create Case</Button>
+        </div>
+      </Modal>
+
+      {/* ── Add New Dealer Modal (inline from New Case / Edit Case) ──── */}
+      <Modal open={addDealerOpen} onClose={() => setAddDealerOpen(false)} title="Add New Dealer" size="sm">
+        <div className="space-y-3">
+          <div>
+            <Label>Dealer Name *</Label>
+            <Input value={newDealer.name} onChange={(e) => setNewDealer(f => ({ ...f, name: e.target.value }))} placeholder="e.g. City Motors Pvt Ltd" />
+          </div>
+          <div>
+            <Label>Contact</Label>
+            <Input value={newDealer.contact} onChange={(e) => setNewDealer(f => ({ ...f, contact: e.target.value }))} placeholder="+91…" />
+          </div>
+          <div>
+            <Label>Location</Label>
+            <Input value={newDealer.location} onChange={(e) => setNewDealer(f => ({ ...f, location: e.target.value }))} placeholder="City / Area" />
+          </div>
+          <div>
+            <Label>Address</Label>
+            <Input value={newDealer.address} onChange={(e) => setNewDealer(f => ({ ...f, address: e.target.value }))} placeholder="Full address" />
+          </div>
+          <div className="flex gap-2 justify-end pt-2 border-t border-border">
+            <Button variant="secondary" size="sm" onClick={() => setAddDealerOpen(false)}>Cancel</Button>
+            <Button size="sm" loading={savingDealer} onClick={saveNewDealer}>Add Dealer</Button>
+          </div>
         </div>
       </Modal>
     </div>

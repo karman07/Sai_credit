@@ -13,9 +13,10 @@ import {
 import {
   casesApi, banksApi, dealersApi, usersApi, mastersApi,
   rtoApi, formSchemasApi, RTO_OWNERSHIP_TYPES,
-  CASE_STATUSES, PRODUCTS, LOAN_TYPES, API_BASE, PIPELINE_STAGES,
+  CASE_STATUSES, LOAN_TYPES, VEHICLE_PRODUCTS, API_BASE, PIPELINE_STAGES,
   type LoanCase, type Bank, type Dealer, type Activity,
   type SalesUser, type DocumentType, type RTORecord, type SectionDef, type FieldDef,
+  type MasterItem,
 } from "../lib/api";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
@@ -303,6 +304,7 @@ type EditForm = {
   product: string; loanType: string; vehicleModel: string; regNumber: string;
   loanAmount: string; bankId: string; bankBranch: string; bmName: string; bmContact: string; bankExecutive: string;
   dealerId: string; payoutPct: string; remarks: string;
+  customFields: Record<string, string>;
 };
 
 const EMPTY_EDIT: EditForm = {
@@ -310,8 +312,40 @@ const EMPTY_EDIT: EditForm = {
   location: "", state: "", pinCode: "", residentialStatus: "",
   product: "", loanType: "", vehicleModel: "", regNumber: "",
   loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-  dealerId: "", payoutPct: "", remarks: "",
+  dealerId: "", payoutPct: "", remarks: "", customFields: {},
 };
+
+function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
+
+function ProductDynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
+  const cls = "w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:outline-none";
+  if (field.type === "select") return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cls}>
+      <option value="">—</option>
+      {field.options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  if (field.type === "boolean") return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={cls}>
+      <option value="">—</option>
+      <option value="Yes">Yes</option>
+      <option value="No">No</option>
+    </select>
+  );
+  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+}
+
+function buildCustomFieldsPayload(fields: FieldDef[], values: Record<string, string>): Record<string, any> | undefined {
+  const out: Record<string, any> = {};
+  for (const f of fields) {
+    const raw = values[f.key];
+    if (raw === undefined || raw === "") continue;
+    out[f.key] = f.type === "number" ? Number(raw) : raw;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 interface CaseDrawerProps {
   caseId: string | null;
@@ -360,6 +394,8 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
   const [cities, setCities] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
   const [refsLoaded, setRefsLoaded] = useState(false);
+  const [products, setProducts] = useState<MasterItem[]>([]);
+  const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
 
   // Load reference data once
   useEffect(() => {
@@ -368,16 +404,28 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
       banksApi.list(), dealersApi.list(),
       usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
       mastersApi.list("cities"), mastersApi.list("states"),
-    ]).then(([bl, dl, ul, dtl, citl, stl]) => {
+      mastersApi.list("products").catch(() => ({ data: [] })),
+    ]).then(([bl, dl, ul, dtl, citl, stl, pl]) => {
       setBanks(bl.data);
       setDealers(dl.data);
       setSalesUsers(ul.data);
       setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
+      setProducts(pl.data.filter((d: any) => d.isActive));
       setRefsLoaded(true);
     }).catch(() => {});
   }, [refsLoaded]);
+
+  useEffect(() => {
+    if (!editForm.product || products.length === 0) { setEditProductFields([]); return; }
+    const p = products.find(x => x.name === editForm.product);
+    if (!p?.code) { setEditProductFields([]); return; }
+    formSchemasApi.get(`product-fields:${p.code.toLowerCase()}`)
+      .then(({ data }) => setEditProductFields(data.sections.flatMap(s => s.fields.filter(f => f.isActive))))
+      .catch(() => setEditProductFields([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editForm.product, products]);
 
   // Load case whenever caseId changes
   const loadCase = useCallback(async (id: string) => {
@@ -479,6 +527,7 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
       bmName: c.bmName ?? "", bmContact: c.bmContact ?? "", bankExecutive: c.bankExecutive ?? "",
       dealerId: c.dealerId ?? "", payoutPct: c.payoutPct !== undefined ? String(c.payoutPct) : "",
       remarks: c.remarks ?? "",
+      customFields: Object.fromEntries(Object.entries((c as any).customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])),
     });
     setEditOpen(true);
   }
@@ -504,6 +553,7 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
         dealerId: editForm.dealerId || undefined,
         payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
         remarks: editForm.remarks || undefined,
+        customFields: buildCustomFieldsPayload(editProductFields, editForm.customFields),
       });
       setDrawerCase(data);
       toast("success", "Case updated successfully");
@@ -981,19 +1031,33 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
                 <Label>Product</Label>
                 <Select value={editForm.product} onChange={(e) => setEditForm(p => ({ ...p, product: e.target.value }))}>
                   <option value="">Select…</option>
-                  {PRODUCTS.map(prod => <option key={prod}>{prod}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>Loan Type</Label>
-                <Select value={editForm.loanType} onChange={(e) => setEditForm(p => ({ ...p, loanType: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                  {products.map(p => <option key={p._id} value={p.name}>{p.name}</option>)}
                 </Select>
               </div>
               <div><Label>Loan Amount</Label><Input type="number" value={editForm.loanAmount} onChange={(e) => setEditForm(p => ({ ...p, loanAmount: e.target.value }))} /></div>
-              <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-              <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+              {isVehicleProduct(editForm.product) && (
+                <>
+                  <div>
+                    <Label>Loan Type</Label>
+                    <Select value={editForm.loanType} onChange={(e) => setEditForm(p => ({ ...p, loanType: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </Select>
+                  </div>
+                  <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
+                  <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
+                </>
+              )}
+              {editProductFields.map(field => (
+                <div key={field.key}>
+                  <Label>{field.label}</Label>
+                  <ProductDynField
+                    field={field}
+                    value={editForm.customFields[field.key] ?? ""}
+                    onChange={v => setEditForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 

@@ -94,9 +94,12 @@ export const api = {
 
 export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomplete" | "Approved" | "Disbursed" | "Hold" | "Rejected" | "Cancelled";
 export const CASE_STATUSES: CaseStatus[] = ["Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
-export const PRODUCTS = ["Car Loan", "Truck", "Personal Loan", "BT Topup", "Two Wheeler"] as const;
+export const RTO_STATUSES = ["Pending", "Documents Pending", "Under Verification", "Approved", "Insurance Endorsement Pending", "Completed", "On Hold", "Rejected"];
+/** Products where vehicle RTO registration transfer is relevant. */
+export const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
 export const LOAN_TYPES = ["New", "Used", "Refinance"] as const;
 export const RESIDENTIAL_STATUSES = ["Own", "Rented", "Family Owned"] as const;
+export const FIRMS = ["Sai Credit Solutions Partner", "Sai Credit Solutions Proprietor", "Sai Carz"] as const;
 export const CHECKLIST_STATUSES = ["Received", "Pending", "Not Required"] as const;
 
 export const PIPELINE_STAGES = [
@@ -141,7 +144,7 @@ export interface DocRequest {
 export interface LoanCase {
   _id: string; caseCode: string; date: string;
   customer: { firstName: string; lastName: string; fatherName?: string; contact: string; altContact?: string; location?: string; state?: string; district?: string; pinCode?: string; residentialStatus?: string; ebillOwner?: boolean; };
-  product: string; loanType?: string; vehicleModel?: string; regNumber?: string; ownerSerial?: string;
+  product: string; loanType?: string; firm?: string; vehicleModel?: string; regNumber?: string; ownerSerial?: string;
   existingInsurer?: string; hypothecation?: boolean; nocRequired?: boolean; challanCount?: number; loanAmount?: number;
   bankId?: string; bankName?: string; bankBranch?: string; bmName?: string; bmContact?: string; bankExecutive?: string;
   dealerId?: string; dealerName?: string; payoutPct?: number;
@@ -193,6 +196,7 @@ export interface InsuranceMIS {
 
 export interface RTORecord {
   _id: string; caseId?: string; caseCode?: string; customerName?: string;
+  status?: string;
   rtoOwnershipType?: string;
   rtoOwnership: string; rtoReceiving: boolean;
   challanCheck: string; bankNocCheck: string; nocHoldAmt: number;
@@ -225,13 +229,21 @@ export interface DashboardStats {
   productMix: { _id: string; count: number }[];
 }
 
+export interface CaseTrendPoint { date: string; leads: number; disbursed: number; volume: number }
+
+export interface StatsFilters {
+  from?: string; to?: string; bankId?: string; product?: string; firm?: string;
+}
+
 // ── Domain API helpers ────────────────────────────────────────────────
 
 export const casesApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<LoanCase[]>("/cases", q),
   listWithMeta: (q?: Record<string, string | number | boolean | undefined>) => api.get<LoanCase[]>("/cases", q),
   get: (id: string) => api.get<LoanCase>(`/cases/${id}`),
-  stats: () => api.get<DashboardStats>("/cases/stats"),
+  stats: (q?: StatsFilters) => api.get<DashboardStats>("/cases/stats", q as Record<string, string | undefined>),
+  trend: (q?: StatsFilters & { groupBy?: "day" | "month"; status?: string }) =>
+    api.get<CaseTrendPoint[]>("/cases/stats/trend", q as Record<string, string | undefined>),
   create: (body: unknown) => api.post<LoanCase>("/cases", body),
   update: (id: string, body: unknown) => api.put<LoanCase>(`/cases/${id}`, body),
   updateStatus: (id: string, body: { status: string; note?: string; disbursementDate?: string }) => api.put<LoanCase>(`/cases/${id}/status`, body),

@@ -5,13 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldCheck, Car, MapPin, Users, FileText,
   Plus, Edit2, Power, RefreshCw, Search, Map,
-  X, Hash, ListOrdered, Tags,
+  X, Hash, ListOrdered, Tags, Layers,
 } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
   SearchInput, useToast, CaseStatusBadge, type BadgeTone,
 } from "../../../components/ui";
-import { mastersApi, CASE_STATUSES, type MasterItem } from "../../../lib/api";
+import { mastersApi, CASE_STATUSES, RTO_STATUSES, type MasterItem } from "../../../lib/api";
 
 // ── Master catalog config ──────────────────────────────────────────────────────
 
@@ -46,7 +46,9 @@ const CATALOG: MasterConfig[] = [
   // Form Options
   { slug: "enum-sets",           label: "Enum Sets",           description: "Named option lists you can reuse in Form Builder select fields", group: "form-options", icon: ListOrdered, iconBg: "bg-violet-500/10", iconText: "text-violet-600", hasEnumValues: true },
   // Loan Operations
+  { slug: "products",            label: "Loan Products",       description: "Products offered — controls product choices and case-code prefixes app-wide", group: "loan-ops", icon: Layers, iconBg: "bg-purple-500/10", iconText: "text-purple-600", hasCode: true },
   { slug: "case-statuses",       label: "Case Statuses",       description: "Custom case statuses that appear alongside the built-in ones", group: "loan-ops", icon: Tags, iconBg: "bg-sky-500/10", iconText: "text-sky-600", hasColorClass: true },
+  { slug: "rto-statuses",        label: "RTO Statuses",        description: "Custom RTO statuses that appear alongside the built-in ones",  group: "loan-ops", icon: Tags, iconBg: "bg-teal-500/10", iconText: "text-teal-600", hasColorClass: true },
 ];
 
 const GROUPS = [
@@ -86,6 +88,7 @@ function MastersContent() {
   const [items, setItems] = useState<MasterItem[]>([]);
   const [parents, setParents] = useState<MasterItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -95,6 +98,8 @@ function MastersContent() {
   useEffect(() => { setSearch(""); setShowInactive(false); }, [selectedSlug]);
 
   const config = CATALOG.find((c) => c.slug === selectedSlug);
+  const isStatusCatalog = selectedSlug === "case-statuses" || selectedSlug === "rto-statuses";
+  const builtInStatuses = selectedSlug === "case-statuses" ? CASE_STATUSES : selectedSlug === "rto-statuses" ? RTO_STATUSES : [];
 
   // Redirect stale/unknown slugs (e.g. old bookmarks to removed catalog entries)
   useEffect(() => {
@@ -105,6 +110,7 @@ function MastersContent() {
     if (!config) return;
     setLoading(true);
     setItems([]);
+    setLoadError(null);
     try {
       const { data } = await mastersApi.list(selectedSlug, true);
       setItems(data);
@@ -115,6 +121,7 @@ function MastersContent() {
         setParents([]);
       }
     } catch (e: any) {
+      setLoadError(e.message ?? "Failed to load");
       toast("error", e.message ?? "Failed to load");
     } finally {
       setLoading(false);
@@ -257,8 +264,8 @@ function MastersContent() {
           )}
         </div>
 
-        {/* Built-in statuses block (case-statuses only) */}
-        {config.slug === "case-statuses" && (
+        {/* Built-in statuses block (status catalogs only: case-statuses, rto-statuses) */}
+        {isStatusCatalog && (
           <div className="px-6 pt-4 pb-0">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2">Built-in Statuses</p>
             <div className="rounded-xl border border-border overflow-hidden bg-surface mb-4">
@@ -271,7 +278,7 @@ function MastersContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {CASE_STATUSES.map((s) => (
+                  {builtInStatuses.map((s) => (
                     <tr key={s} className="opacity-70">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
@@ -304,12 +311,25 @@ function MastersContent() {
                 </div>
               ))}
             </div>
+          ) : loadError ? (
+            <div className="card mt-4">
+              <EmptyState
+                icon={X}
+                title="Failed to load"
+                description={loadError}
+                action={
+                  <Button size="sm" variant="secondary" onClick={load}>
+                    <RefreshCw className="size-3.5" /> Retry
+                  </Button>
+                }
+              />
+            </div>
           ) : filtered.length === 0 ? (
             <div className="card mt-4">
               <EmptyState
                 icon={config.icon}
-                title={search ? "No matches found" : `No ${config.slug === "case-statuses" ? "custom " : ""}${config.label.toLowerCase()} yet`}
-                description={search ? "Try a different search term." : `Add ${config.slug === "case-statuses" ? "a custom" : "your first"} ${config.label.toLowerCase().replace(/s$/, "")} using the button above.`}
+                title={search ? "No matches found" : `No ${isStatusCatalog ? "custom " : ""}${config.label.toLowerCase()} yet`}
+                description={search ? "Try a different search term." : `Add ${isStatusCatalog ? "a custom" : "your first"} ${config.label.toLowerCase().replace(/s$/, "")} using the button above.`}
                 action={!search ? (
                   <Button size="sm" onClick={() => { setEditItem(null); setFormOpen(true); }}>
                     <Plus className="size-3.5" /> Add Entry

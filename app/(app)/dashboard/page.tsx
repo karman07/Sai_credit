@@ -3,16 +3,20 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FileText, IndianRupee, TrendingUp, CheckCircle2, AlertTriangle,
-  ArrowUpRight, Building2, AlertCircle,
+  ArrowUpRight, Building2, AlertCircle, Filter, X, LineChart as LineChartIcon,
 } from "lucide-react";
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadialBarChart, RadialBar, Legend,
+  LineChart, Line, AreaChart, Area,
 } from "recharts";
-import { KpiCard, CaseStatusBadge, Badge, Card, Skeleton, type CaseStatus } from "../../../components/ui";
+import { KpiCard, CaseStatusBadge, Badge, Card, Skeleton, Select, Label, Button, type CaseStatus } from "../../../components/ui";
+import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
 import { useAuth } from "../../../lib/auth-context";
-import { casesApi, type DashboardStats, type LoanCase } from "../../../lib/api";
+import {
+  casesApi, banksApi, mastersApi,
+  type DashboardStats, type LoanCase, type CaseTrendPoint, type Bank, type MasterItem,
+} from "../../../lib/api";
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
@@ -117,26 +121,70 @@ function RingMetric({ value, label, color, max = 100 }: { value: number; label: 
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+function fmtRangeShort(from: string, to: string) {
+  const f = (s: string) => new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return `${f(from)} – ${f(to)}`;
+}
+
+function isoDaysAgo(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentCases, setRecentCases] = useState<LoanCase[]>([]);
+  const [trend, setTrend] = useState<CaseTrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [trendLoading, setTrendLoading] = useState(true);
+
+  // Filters
+  const [dateRange, setDateRange] = useState<DateRange>({ from: isoDaysAgo(30), to: isoDaysAgo(0) });
+  const [productFilter, setProductFilter] = useState("");
+  const [bankFilter, setBankFilter] = useState("");
+  const [groupBy, setGroupBy] = useState<"day" | "month">("day");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [products, setProducts] = useState<MasterItem[]>([]);
+
+  const hasFilters = !!(productFilter || bankFilter);
+  const statsFilters = useMemo(() => ({
+    from: dateRange.from, to: dateRange.to,
+    product: productFilter || undefined,
+    bankId: bankFilter || undefined,
+  }), [dateRange, productFilter, bankFilter]);
+
+  useEffect(() => {
+    banksApi.list().then(({ data }) => setBanks(data)).catch(() => {});
+    mastersApi.list("products").then(({ data }) => setProducts(data.filter((p: any) => p.isActive))).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const [statsRes, casesRes] = await Promise.all([
-        casesApi.stats(),
+        casesApi.stats(statsFilters),
         casesApi.list({ limit: 8, page: 1 }),
       ]);
       setStats(statsRes.data);
       setRecentCases(casesRes.data as unknown as LoanCase[]);
     } catch { /* show empty state */ }
     finally { setLoading(false); }
-  }, []);
+  }, [statsFilters]);
+
+  const loadTrend = useCallback(async () => {
+    try {
+      setTrendLoading(true);
+      const { data } = await casesApi.trend({ ...statsFilters, groupBy });
+      setTrend(data);
+    } catch { /* show empty state */ }
+    finally { setTrendLoading(false); }
+  }, [statsFilters, groupBy]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadTrend(); }, [loadTrend]);
 
   const greeting = new Date().getHours() < 12 ? "Good morning"
     : new Date().getHours() < 17 ? "Good afternoon"
@@ -157,6 +205,20 @@ export default function DashboardPage() {
     color:  STATUS_META[s].color,
   }));
   const maxFunnel = Math.max(...funnelData.map((s) => s.count), 1);
+
+  const trendChartData = useMemo(() =>
+    trend.map((t) => ({
+      date: t.date,
+      label: groupBy === "month"
+        ? new Date(`${t.date}-01`).toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+        : new Date(t.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
+      leads: t.leads,
+      disbursed: t.disbursed,
+      volume: parseFloat((t.volume / 100_000).toFixed(2)),
+    })),
+    [trend, groupBy],
+  );
+  const trendHasData = trendChartData.some((t) => t.leads > 0 || t.disbursed > 0);
 
   const bankChartData = useMemo(() =>
     (stats?.bankWise ?? []).map((b) => ({
@@ -195,7 +257,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2">
           <Badge tone="success" dot>Live</Badge>
           <button
-            onClick={load}
+            onClick={() => { load(); loadTrend(); }}
             className="text-xs text-muted hover:text-foreground-secondary transition-colors"
             title="Refresh"
           >
@@ -203,6 +265,54 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Filters ──────────────────────────────────────────────── */}
+      <Card className="!p-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <Button variant={filterOpen ? "outline" : "secondary"} size="sm" onClick={() => setFilterOpen((o) => !o)}>
+            <Filter className="size-3.5" /> Filters
+            {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
+          </Button>
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={() => { setProductFilter(""); setBankFilter(""); }}>
+              <X className="size-3" /> Clear
+            </Button>
+          )}
+          <div className="ml-auto flex items-center gap-1 rounded-md border border-border overflow-hidden text-[11px] font-semibold">
+            <button
+              onClick={() => setGroupBy("day")}
+              className={`px-2.5 py-1.5 transition-colors ${groupBy === "day" ? "bg-primary text-primary-foreground" : "text-muted hover:text-foreground"}`}
+            >
+              Daily
+            </button>
+            <button
+              onClick={() => setGroupBy("month")}
+              className={`px-2.5 py-1.5 transition-colors border-l border-border ${groupBy === "month" ? "bg-primary text-primary-foreground" : "text-muted hover:text-foreground"}`}
+            >
+              Monthly
+            </button>
+          </div>
+        </div>
+        {filterOpen && (
+          <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-border animate-fadeIn">
+            <div className="flex flex-col gap-1 min-w-[160px]">
+              <Label>Product</Label>
+              <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => setProductFilter(e.target.value)}>
+                <option value="">All Products</option>
+                {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[160px]">
+              <Label>Bank</Label>
+              <Select className="!h-8 text-xs" value={bankFilter} onChange={(e) => setBankFilter(e.target.value)}>
+                <option value="">All Banks</option>
+                {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+              </Select>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* ── KPI Row ──────────────────────────────────────────────── */}
       {loading ? (
@@ -214,7 +324,7 @@ export default function DashboardPage() {
           <KpiCard
             label="Total Leads"    icon={FileText}      accent="text-primary"
             value={<Counter target={stats?.totalLeads ?? 0} />}
-            sub="All time"
+            sub={fmtRangeShort(dateRange.from, dateRange.to)}
           />
           <KpiCard
             label="Active Cases"   icon={TrendingUp}    accent="text-purple"
@@ -222,14 +332,14 @@ export default function DashboardPage() {
             sub="In pipeline"
           />
           <KpiCard
-            label="Disbursed MTD"  icon={CheckCircle2}  accent="text-success"
+            label="Disbursed"      icon={CheckCircle2}  accent="text-success"
             value={<Counter target={stats?.disbursedMTD ?? 0} />}
-            sub="This month"
+            sub={fmtRangeShort(dateRange.from, dateRange.to)}
           />
           <KpiCard
-            label="Volume MTD"     icon={IndianRupee}   accent="text-teal"
+            label="Volume Disbursed" icon={IndianRupee}  accent="text-teal"
             value={fmtLakhs(stats?.disbursedMTDAmount ?? 0)}
-            sub="Loan disbursed"
+            sub={fmtRangeShort(dateRange.from, dateRange.to)}
           />
           <KpiCard
             label="On Hold"        icon={AlertTriangle} accent="text-warning"
@@ -238,6 +348,80 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      {/* ── Trend Charts: Cases Over Time + Disbursement Volume ──── */}
+      <div className="grid lg:grid-cols-2 gap-4">
+
+        {/* Cases Over Time — leads vs disbursed, single count axis */}
+        <Card>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-semibold">Cases Over Time</p>
+          </div>
+          <div className="flex items-center gap-4 mb-3 text-xs">
+            <span className="flex items-center gap-1.5 text-muted"><span className="size-2 rounded-full" style={{ background: C.primary }} />Leads Created</span>
+            <span className="flex items-center gap-1.5 text-muted"><span className="size-2 rounded-full" style={{ background: C.success }} />Disbursed</span>
+          </div>
+          {trendLoading ? (
+            <div className="h-[220px] flex items-center justify-center"><Skeleton className="h-40 w-full rounded-lg" /></div>
+          ) : !trendHasData ? (
+            <div className="h-52 flex flex-col items-center justify-center gap-2.5 text-muted">
+              <LineChartIcon className="size-10 opacity-20" />
+              <div className="text-center">
+                <p className="text-sm font-medium">No case activity in this period</p>
+                <p className="text-xs mt-0.5">Try widening the date range</p>
+              </div>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={trendChartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} minTickGap={24} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
+                <Line type="monotone" dataKey="leads" name="Leads Created" stroke={C.primary} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey="disbursed" name="Disbursed" stroke={C.success} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* Disbursement Volume — single series, ₹L axis */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-semibold">Disbursement Volume</p>
+            <span className="text-[11px] text-muted bg-surface-2 border border-border px-2 py-0.5 rounded-full font-medium">
+              ₹ Lakhs
+            </span>
+          </div>
+          {trendLoading ? (
+            <div className="h-[220px] flex items-center justify-center"><Skeleton className="h-40 w-full rounded-lg" /></div>
+          ) : !trendHasData ? (
+            <div className="h-52 flex flex-col items-center justify-center gap-2.5 text-muted">
+              <IndianRupee className="size-10 opacity-20" />
+              <div className="text-center">
+                <p className="text-sm font-medium">No disbursements in this period</p>
+                <p className="text-xs mt-0.5">Try widening the date range</p>
+              </div>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={trendChartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                <defs>
+                  <linearGradient id="volumeFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={C.teal} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={C.teal} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} minTickGap={24} />
+                <YAxis unit="L" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
+                <Area type="monotone" dataKey="volume" name="Volume (₹L)" stroke={C.teal} strokeWidth={2} fill="url(#volumeFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+      </div>
 
       {/* ── Charts Row: Bank + Product Mix ───────────────────────── */}
       <div className="grid lg:grid-cols-3 gap-4">

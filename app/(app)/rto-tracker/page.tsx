@@ -7,13 +7,13 @@ import {
   Button, Input, Label, Select, CaseStatusBadge, useToast,
 } from "../../../components/ui";
 import {
-  rtoApi, casesApi, formSchemasApi, API_BASE, RTO_OWNERSHIP_TYPES,
-  type RTORecord, type LoanCase, type SectionDef, type FieldDef,
+  rtoApi, casesApi, formSchemasApi, mastersApi, API_BASE, RTO_OWNERSHIP_TYPES, RTO_STATUSES,
+  type RTORecord, type LoanCase, type SectionDef, type FieldDef, type MasterItem,
 } from "../../../lib/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const VEHICLE_PRODUCTS = ["Car Loan", "Truck", "Two Wheeler"];
+const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
 const CHECKLIST_OPTS   = ["Pending", "Received", "Not Required"] as const;
 const STAGE_OPTS       = ["Pending", "Done"] as const;
 
@@ -35,6 +35,7 @@ function chip(val: string | boolean | undefined) {
 // ── Form state ────────────────────────────────────────────────────────────────
 
 type RTOForm = {
+  status: string;
   rtoOwnershipType: string; rtoOwnership: string; rtoReceiving: boolean;
   challanCheck: string; bankNocCheck: string; insuranceCheck: string;
   hypothecation: string; aadhaarMatch: string; aadhaarMismatchNote: string;
@@ -45,6 +46,7 @@ type RTOForm = {
 };
 
 const BLANK: RTOForm = {
+  status: "Pending",
   rtoOwnershipType: "Banker", rtoOwnership: "Pending", rtoReceiving: false,
   challanCheck: "Pending", bankNocCheck: "Pending", insuranceCheck: "Pending",
   hypothecation: "Pending", aadhaarMatch: "Pending", aadhaarMismatchNote: "",
@@ -56,6 +58,7 @@ const BLANK: RTOForm = {
 
 function rtoToForm(r: RTORecord): RTOForm {
   return {
+    status:              r.status ?? "Pending",
     rtoOwnershipType:    r.rtoOwnershipType ?? "Banker",
     rtoOwnership:        (r as any).rtoOwnership ?? "Pending",
     rtoReceiving:        r.rtoReceiving ?? false,
@@ -83,6 +86,7 @@ function formToBody(f: RTOForm, c: LoanCase) {
   return {
     caseCode:     c.caseCode,
     customerName: `${c.customer.firstName} ${c.customer.lastName}`,
+    status:              f.status,
     rtoOwnershipType:    f.rtoOwnershipType,
     rtoOwnership:        f.rtoOwnership,
     rtoReceiving:        f.rtoReceiving,
@@ -157,6 +161,7 @@ export default function RTOTrackerPage() {
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [rtoStatusFilter, setRtoStatusFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [forms, setForms]       = useState<Record<string, RTOForm>>({});
   const [saving, setSaving]     = useState<string | null>(null);
@@ -164,19 +169,30 @@ export default function RTOTrackerPage() {
   const [page, setPage]         = useState(1);
   const limit = 15;
   const [sections, setSections] = useState<SectionDef[]>([]);
+  const [customRtoStatuses, setCustomRtoStatuses] = useState<MasterItem[]>([]);
+
+  const allRtoStatuses: string[] = [
+    ...RTO_STATUSES,
+    ...customRtoStatuses.filter((c) => !(RTO_STATUSES as string[]).includes(c.name)).map((c) => c.name),
+  ];
+  const customRtoStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
+    customRtoStatuses.map((c) => [c.name, c.colorClass])
+  );
 
   // ── Load ──────────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [caseRes, rtoRes, schemaRes] = await Promise.all([
+      const [caseRes, rtoRes, schemaRes, rtoStatusRes] = await Promise.all([
         casesApi.list({ limit: 1000 }),
         rtoApi.list(),
         formSchemasApi.get("rto"),
+        mastersApi.list("rto-statuses").catch(() => ({ data: [] })),
       ]);
 
       setSections(schemaRes.data.sections);
+      setCustomRtoStatuses(rtoStatusRes.data.filter((s: MasterItem) => s.isActive));
 
       const allCases = (caseRes.data as unknown as LoanCase[]).filter(
         c => VEHICLE_PRODUCTS.includes(c.product),
@@ -286,7 +302,8 @@ export default function RTOTrackerPage() {
       filterStatus === "complete" ? pct === 100 :
       filterStatus === "started"  ? r !== null && pct < 100 :
       filterStatus === "new"      ? r === null : true;
-    return matchSearch && matchStatus;
+    const matchRtoStatus = !rtoStatusFilter || (forms[c._id]?.status ?? "Pending") === rtoStatusFilter;
+    return matchSearch && matchStatus && matchRtoStatus;
   });
 
   const paged         = filtered.slice((page - 1) * limit, page * limit);
@@ -319,6 +336,13 @@ export default function RTOTrackerPage() {
           <option value="started">In progress</option>
           <option value="complete">Complete</option>
         </Select>
+        <Select className="!h-8 w-48 text-xs" value={rtoStatusFilter} onChange={e => { setRtoStatusFilter(e.target.value); setPage(1); }}>
+          <option value="">All RTO statuses</option>
+          {allRtoStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        {rtoStatusFilter && (
+          <Button variant="ghost" size="sm" onClick={() => setRtoStatusFilter("")}>Clear</Button>
+        )}
       </div>
 
       {loading ? (
@@ -352,6 +376,7 @@ export default function RTOTrackerPage() {
                       <Badge tone="neutral">{c.product}</Badge>
                       {c.vehicleModel && <span className="text-xs text-muted hidden sm:inline">· {c.vehicleModel}</span>}
                       <CaseStatusBadge status={c.status} />
+                      <CaseStatusBadge status={f.status} colorClass={customRtoStatusColorMap[f.status]} />
                     </div>
                     <div className="mt-1.5"><ProgressBar value={pct} tone={tone} size="sm" /></div>
                   </div>
@@ -362,6 +387,17 @@ export default function RTOTrackerPage() {
 
                 {isOpen && (
                   <div className="border-t border-border p-4 animate-fadeIn space-y-5 bg-surface-2/40">
+
+                    {/* ── RTO Status ── */}
+                    <section className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted">RTO Status</p>
+                      <div className="flex items-center gap-3">
+                        <Select className="w-64" value={f.status} onChange={e => setField(caseId, "status", e.target.value)}>
+                          {allRtoStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                        </Select>
+                        <CaseStatusBadge status={f.status} colorClass={customRtoStatusColorMap[f.status]} />
+                      </div>
+                    </section>
 
                     {/* ── Ownership ── */}
                     <section className="space-y-3">

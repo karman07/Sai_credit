@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Moon, Sun, Bell, LogOut, ChevronDown, Settings, User, Check } from "lucide-react";
+import { Moon, Sun, Bell, LogOut, ChevronDown, User, Check } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
 import { useTheme } from "../lib/theme";
@@ -176,13 +176,6 @@ export function Topbar() {
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-foreground-secondary hover:bg-surface-2 transition-colors"
                 >
                   <User className="size-3.5" /> Profile
-                </Link>
-                <Link
-                  href="/settings"
-                  onClick={() => setMenuOpen(false)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-foreground-secondary hover:bg-surface-2 transition-colors"
-                >
-                  <Settings className="size-3.5" /> Settings
                 </Link>
                 <div className="border-t border-border mt-1 pt-1">
                   <button

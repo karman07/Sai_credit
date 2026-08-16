@@ -1,18 +1,43 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   BarChart3, Download, IndianRupee, ShieldCheck, Building2,
-  TrendingUp, AlertCircle, RefreshCw,
+  TrendingUp, AlertCircle, RefreshCw, Filter, X,
 } from "lucide-react";
 import {
-  Button, Badge, Input, Label, SectionHeader, Pagination,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer,
+} from "recharts";
+import {
+  Button, Badge, Input, Label, Select, SectionHeader, Pagination,
   EmptyState, Skeleton, useToast, type BadgeTone,
 } from "../../../components/ui";
+import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
 import {
-  casesApi, payoutApi, insuranceApi, ApiError,
-  type LoanCase, type PayoutRecord, type InsuranceMIS,
+  casesApi, payoutApi, insuranceApi, banksApi, mastersApi, ApiError,
+  type LoanCase, type PayoutRecord, type InsuranceMIS, type Bank, type MasterItem,
 } from "../../../lib/api";
+
+const C = { primary: "#6683FF", success: "#22C55E", danger: "#EF4444", warning: "#F59E0B", teal: "#14B8A6" };
+
+function ChartTip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card text-xs p-3 shadow-2xl min-w-[130px]">
+      {label && <p className="font-semibold text-foreground-secondary mb-2 pb-1.5 border-b border-border">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-4 mt-1">
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="size-2 rounded-full shrink-0" style={{ background: p.fill ?? p.color }} />
+            {p.name}
+          </span>
+          <span className="font-bold tabular-nums">{typeof p.value === "number" ? p.value.toLocaleString("en-IN") : p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface ReportType {
   id: string; title: string; description: string;
@@ -67,7 +92,7 @@ function StatCard({ label, value, sub, tone }: { label: string; value: string; s
 
 // ── Report data union ─────────────────────────────────────────────────────────
 
-type BankRow = { bank: string; total: number; approved: number; disbursed: number; rejected: number; pct: number };
+type BankRow = { bank: string; total: number; approved: number; disbursed: number; rejected: number; volume: number; pct: number };
 
 type ReportData =
   | { type: "disbursement"; cases: LoanCase[] }
@@ -82,49 +107,90 @@ const PAGE_SIZE = 20;
 
 export default function ReportsPage() {
   const [selected, setSelected]   = useState<string | null>(null);
-  const [dateFrom, setDateFrom]   = useState(() => {
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    return {
+      from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`,
+      to: new Date().toISOString().slice(0, 10),
+    };
   });
-  const [dateTo, setDateTo]       = useState(() => new Date().toISOString().slice(0, 10));
+  const [productFilter, setProductFilter] = useState("");
+  const [bankFilter, setBankFilter]       = useState("");
+  const [filterOpen, setFilterOpen]       = useState(false);
+  const [banks, setBanks]         = useState<Bank[]>([]);
+  const [products, setProducts]   = useState<MasterItem[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [data, setData]           = useState<ReportData | null>(null);
+  const [trendData, setTrendData] = useState<{ label: string; count: number; volume?: number }[] | null>(null);
   const [page, setPage]           = useState(1);
   const toast                     = useToast();
+  const dateFrom = dateRange.from, dateTo = dateRange.to;
+  const hasFilters = !!(productFilter || bankFilter);
+
+  useEffect(() => {
+    banksApi.list().then(({ data }) => setBanks(data)).catch(() => {});
+    mastersApi.list("products").then(({ data }) => setProducts(data.filter((p: any) => p.isActive))).catch(() => {});
+  }, []);
 
   const generate = useCallback(async () => {
     if (!selected) return;
-    setLoading(true); setError(null); setData(null); setPage(1);
+    setLoading(true); setError(null); setData(null); setTrendData(null); setPage(1);
     try {
       if (selected === "disbursement") {
-        const { data: cases } = await casesApi.list({ status: "Disbursed", limit: 500, showAll: true });
+        const { data: cases } = await casesApi.list({
+          status: "Disbursed", limit: 500, showAll: true,
+          product: productFilter || undefined, bankId: bankFilter || undefined,
+        });
         setData({ type: "disbursement", cases: cases.filter((c) => inRange(c.disbursementDate, dateFrom, dateTo)) });
+        casesApi.trend({ from: dateFrom, to: dateTo, groupBy: "day", status: "Disbursed", product: productFilter || undefined, bankId: bankFilter || undefined })
+          .then(({ data: t }) => setTrendData(t.map((p) => ({ label: fmtDate(p.date), count: p.disbursed, volume: parseFloat((p.volume / 100_000).toFixed(2)) }))))
+          .catch(() => {});
 
       } else if (selected === "rejection") {
-        const { data: cases } = await casesApi.list({ status: "Rejected", limit: 500, showAll: true });
+        const { data: cases } = await casesApi.list({
+          status: "Rejected", limit: 500, showAll: true,
+          product: productFilter || undefined, bankId: bankFilter || undefined,
+        });
         setData({ type: "rejection", cases: cases.filter((c) => inRange(c.createdAt, dateFrom, dateTo)) });
+        casesApi.trend({ from: dateFrom, to: dateTo, groupBy: "day", status: "Rejected", product: productFilter || undefined, bankId: bankFilter || undefined })
+          .then(({ data: t }) => setTrendData(t.map((p) => ({ label: fmtDate(p.date), count: p.leads }))))
+          .catch(() => {});
 
       } else if (selected === "payout") {
         const { data: records } = await payoutApi.list();
         const fromM = dateFrom.slice(0, 7), toM = dateTo.slice(0, 7);
-        setData({ type: "payout", records: records.filter((r) => r.businessMonth >= fromM && r.businessMonth <= toM) });
+        const filtered = records.filter((r) => r.businessMonth >= fromM && r.businessMonth <= toM);
+        setData({ type: "payout", records: filtered });
+        const byMonth = new Map<string, number>();
+        for (const r of filtered) byMonth.set(r.businessMonth, (byMonth.get(r.businessMonth) ?? 0) + (r.totalAmount ?? 0));
+        setTrendData([...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([m, amt]) => ({ label: m, count: Math.round(amt) })));
 
       } else if (selected === "insurance") {
         const { data: records } = await insuranceApi.list();
-        setData({ type: "insurance", records: records.filter((r) => inRange(r.endDate, dateFrom, dateTo)) });
+        const filtered = records.filter((r) => inRange(r.endDate, dateFrom, dateTo));
+        setData({ type: "insurance", records: filtered });
+        const buckets = { Expired: 0, "≤30d": 0, "31-60d": 0, "60d+": 0 };
+        for (const r of filtered) {
+          const d = daysDiff(r.endDate);
+          if (d < 0) buckets.Expired++;
+          else if (d <= 30) buckets["≤30d"]++;
+          else if (d <= 60) buckets["31-60d"]++;
+          else buckets["60d+"]++;
+        }
+        setTrendData(Object.entries(buckets).map(([label, count]) => ({ label, count })));
 
       } else if (selected === "bank") {
-        const { data: cases } = await casesApi.list({ limit: 1000, showAll: true });
+        const { data: cases } = await casesApi.list({ limit: 1000, showAll: true, product: productFilter || undefined, bankId: bankFilter || undefined });
         const filtered = cases.filter((c) => inRange(c.createdAt, dateFrom, dateTo));
         const map = new Map<string, BankRow>();
         for (const c of filtered) {
           const bank = c.bankName?.trim() || "Unknown";
           if (bank === "Unknown") continue;
-          const row = map.get(bank) ?? { bank, total: 0, approved: 0, disbursed: 0, rejected: 0, pct: 0 };
+          const row = map.get(bank) ?? { bank, total: 0, approved: 0, disbursed: 0, rejected: 0, volume: 0, pct: 0 };
           row.total++;
           if (c.status === "Approved") row.approved++;
-          if (c.status === "Disbursed") row.disbursed++;
+          if (c.status === "Disbursed") { row.disbursed++; row.volume += c.loanAmount ?? 0; }
           if (c.status === "Rejected") row.rejected++;
           map.set(bank, row);
         }
@@ -132,6 +198,7 @@ export default function ReportsPage() {
           .map((r) => ({ ...r, pct: r.total > 0 ? Math.round(((r.approved + r.disbursed) / r.total) * 100) : 0 }))
           .sort((a, b) => b.total - a.total);
         setData({ type: "bank", rows });
+        setTrendData(rows.slice(0, 8).map((r) => ({ label: r.bank, count: r.total, volume: parseFloat((r.volume / 100_000).toFixed(2)) })));
       }
     } catch (e: any) {
       const isAuth = e instanceof ApiError && e.status === 401;
@@ -142,7 +209,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selected, dateFrom, dateTo]);
+  }, [selected, dateFrom, dateTo, productFilter, bankFilter]);
 
   const exportCSV = () => {
     if (!data) return;
@@ -175,8 +242,8 @@ export default function ReportsPage() {
       );
     } else if (data.type === "bank") {
       downloadCSV(
-        ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Approval %"],
-        data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, `${r.pct}%`]),
+        ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
+        data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
         fname,
       );
     }
@@ -245,16 +312,48 @@ export default function ReportsPage() {
 
     if (data.type === "bank") {
       const totalCases = data.rows.reduce((s, r) => s + r.total, 0);
+      const totalVolume = data.rows.reduce((s, r) => s + r.volume, 0);
       const best = [...data.rows].sort((a, b) => b.pct - a.pct)[0];
       return (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Total Cases"       value={String(totalCases)} />
+          <StatCard label="Disbursed Volume"  value={fmtAmt(totalVolume)} tone="success" />
           <StatCard label="Banks Tracked"     value={String(data.rows.length)} />
           <StatCard label="Best Approval Rate" value={best ? `${best.pct}%` : "—"} sub={best?.bank} tone="success" />
         </div>
       );
     }
     return null;
+  };
+
+  // ── Chart ────────────────────────────────────────────────────────────────────
+
+  const renderChart = () => {
+    if (!trendData || trendData.length === 0 || !trendData.some((t) => t.count > 0 || (t.volume ?? 0) > 0)) return null;
+    const hasVolume = trendData.some((t) => t.volume !== undefined);
+    const dataKey = hasVolume ? "volume" : "count";
+    const color = selected === "rejection" ? C.danger : selected === "payout" ? C.primary : selected === "insurance" ? C.warning : C.success;
+    const seriesName = hasVolume ? "Volume (₹L)" : selected === "payout" ? "Amount (₹)" : "Count";
+    const title = selected === "disbursement" ? "Disbursement Volume by Day"
+      : selected === "rejection" ? "Rejections by Day"
+      : selected === "payout" ? "Payout Amount by Month"
+      : selected === "insurance" ? "Policies by Expiry Window"
+      : "Top Banks by Volume";
+
+    return (
+      <div className="card p-4 animate-fadeIn">
+        <p className="text-sm font-semibold mb-4">{title}</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} minTickGap={16} />
+            <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip content={<ChartTip />} cursor={{ fill: "var(--primary-subtle)" }} />
+            <Bar dataKey={dataKey} name={seriesName} fill={color} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
   };
 
   // ── Table ───────────────────────────────────────────────────────────────────
@@ -394,7 +493,7 @@ export default function ReportsPage() {
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead><tr>
-                <th>Bank</th><th>Total Cases</th><th>Approved</th><th>Disbursed</th><th>Rejected</th><th>Approval %</th>
+                <th>Bank</th><th>Total Cases</th><th>Approved</th><th>Disbursed</th><th>Rejected</th><th>Volume</th><th>Approval %</th>
               </tr></thead>
               <tbody>
                 {rows.map((r) => {
@@ -406,6 +505,7 @@ export default function ReportsPage() {
                       <td className="tabular-nums">{r.approved}</td>
                       <td className="tabular-nums">{r.disbursed}</td>
                       <td className="tabular-nums">{r.rejected}</td>
+                      <td className="tabular-nums font-semibold">{fmtAmt(r.volume)}</td>
                       <td><Badge tone={tone}>{r.pct}%</Badge></td>
                     </tr>
                   );
@@ -456,44 +556,59 @@ export default function ReportsPage() {
 
       {/* Filters + actions */}
       {selected && (
-        <div className="card px-5 py-4 flex items-center gap-3 flex-wrap animate-fadeIn">
-          {/* Date range group */}
-          <div className="flex items-center gap-0 rounded-md border border-border overflow-hidden shadow-sm">
-            <div className="flex items-center gap-2 px-3 py-2 bg-surface border-r border-border">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted whitespace-nowrap">From</span>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="!border-0 !shadow-none !ring-0 !bg-transparent w-36 text-sm font-medium p-0 h-auto"
-              />
-            </div>
-            <div className="flex items-center gap-2 px-3 py-2 bg-surface">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted whitespace-nowrap">To</span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="!border-0 !shadow-none !ring-0 !bg-transparent w-36 text-sm font-medium p-0 h-auto"
-              />
-            </div>
-          </div>
+        <div className="card px-5 py-4 space-y-3 animate-fadeIn">
+          <div className="flex items-center gap-3 flex-wrap">
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
 
-          <div className="flex items-center gap-2">
-            <Button onClick={generate} loading={loading}>
-              <BarChart3 className="size-3.5" /> Generate
-            </Button>
-            {data && !loading && (
-              <Button variant="secondary" onClick={exportCSV}>
-                <Download className="size-3.5" /> Export CSV
+            {(selected === "disbursement" || selected === "rejection" || selected === "bank") && (
+              <>
+                <Button variant={filterOpen ? "outline" : "secondary"} size="sm" onClick={() => setFilterOpen((o) => !o)}>
+                  <Filter className="size-3.5" /> Filters
+                  {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
+                </Button>
+                {hasFilters && (
+                  <Button variant="ghost" size="sm" onClick={() => { setProductFilter(""); setBankFilter(""); }}>
+                    <X className="size-3" /> Clear
+                  </Button>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button onClick={generate} loading={loading}>
+                <BarChart3 className="size-3.5" /> Generate
               </Button>
+              {data && !loading && (
+                <Button variant="secondary" onClick={exportCSV}>
+                  <Download className="size-3.5" /> Export CSV
+                </Button>
+              )}
+            </div>
+
+            {data && !loading && (
+              <span className="ml-auto text-xs text-muted tabular-nums">
+                {totalRecords} record{totalRecords !== 1 ? "s" : ""}
+              </span>
             )}
           </div>
 
-          {data && !loading && (
-            <span className="ml-auto text-xs text-muted tabular-nums">
-              {totalRecords} record{totalRecords !== 1 ? "s" : ""}
-            </span>
+          {filterOpen && (selected === "disbursement" || selected === "rejection" || selected === "bank") && (
+            <div className="flex flex-wrap gap-3 pt-3 border-t border-border animate-fadeIn">
+              <div className="flex flex-col gap-1 min-w-[160px]">
+                <Label>Product</Label>
+                <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => setProductFilter(e.target.value)}>
+                  <option value="">All Products</option>
+                  {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1 min-w-[160px]">
+                <Label>Bank</Label>
+                <Select className="!h-8 text-xs" value={bankFilter} onChange={(e) => setBankFilter(e.target.value)}>
+                  <option value="">All Banks</option>
+                  {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+                </Select>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -538,6 +653,9 @@ export default function ReportsPage() {
 
       {/* Summary stats */}
       {!loading && data && renderStats()}
+
+      {/* Chart */}
+      {!loading && data && renderChart()}
 
       {/* Results table */}
       {!loading && data && (
