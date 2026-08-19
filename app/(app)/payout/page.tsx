@@ -11,7 +11,7 @@ import {
   EmptyState, Skeleton, useToast, type BadgeTone, CaseStatusBadge,
 } from "../../../components/ui";
 import {
-  payoutApi, banksApi, casesApi, formSchemasApi,
+  payoutApi, banksApi, casesApi, formSchemasApi, FIRMS,
   type PayoutRecord, type Bank, type LoanCase, type LinkedCase,
   type SectionDef, type FieldDef,
 } from "../../../lib/api";
@@ -128,7 +128,7 @@ const thisMonth = () => {
 
 const BLANK: Form = {
   businessMonth: thisMonth(), invoiceDate: today(),
-  bankId: "", company: "SAI Credit Solutions",
+  bankId: "", company: "",
   volumeCases: "0", linkedCases: [],
   invoiceStatus: "Draft", invoiceNumber: "", invoiceAmount: "0",
   commission: "0", cgstAmount: "0", sgstAmount: "0", totalAmount: "0",
@@ -143,7 +143,7 @@ function recordToForm(r: PayoutRecord): Form {
     businessMonth: r.businessMonth,
     invoiceDate: r.invoiceDate ? r.invoiceDate.substring(0, 10) : today(),
     bankId: r.bankId ?? "",
-    company: r.company ?? "SAI Credit Solutions",
+    company: r.company ?? "",
     volumeCases: String(r.volumeCases ?? 0),
     linkedCases: r.linkedCases ?? [],
     invoiceStatus: r.invoiceStatus ?? "Draft",
@@ -681,7 +681,10 @@ export default function PayoutPage() {
             </div>
             <div>
               <Label>Company</Label>
-              <Input value={form.company} onChange={e => setField("company", e.target.value)} />
+              <Select value={form.company} onChange={e => setField("company", e.target.value)}>
+                <option value="">Select company…</option>
+                {FIRMS.map(f => <option key={f} value={f}>{f}</option>)}
+              </Select>
             </div>
           </div>
 
