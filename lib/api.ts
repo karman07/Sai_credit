@@ -155,6 +155,7 @@ export interface LoanCase {
   pipeline: PipelineItem[];
   documents: CaseDocument[];
   docRequests: DocRequest[];
+  customFields?: Record<string, any>;
   createdAt: string; isActive: boolean;
 }
 
