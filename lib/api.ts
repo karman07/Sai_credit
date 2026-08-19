@@ -95,6 +95,7 @@ export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomple
 export const CASE_STATUSES: CaseStatus[] = ["Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 /** Products where vehicle RTO registration transfer is relevant. */
 export const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
+export const FIRMS = ["Sai Credit Solutions Partner", "Sai Credit Solutions Proprietor", "Sai Carz"] as const;
 
 export interface Bank { _id: string; name: string; branch?: string; bmName?: string; bmContact?: string; executive?: string; isActive: boolean; }
 export interface Dealer { _id: string; name: string; contact?: string; location?: string; isActive: boolean; }

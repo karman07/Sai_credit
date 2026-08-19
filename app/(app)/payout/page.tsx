@@ -7,7 +7,7 @@ import {
   EmptyState, Skeleton, useToast, type BadgeTone, ConfirmDialog,
 } from "../../../components/ui";
 import {
-  payoutApi, banksApi, casesApi,
+  payoutApi, banksApi, casesApi, FIRMS,
   type PayoutRecord, type Bank, type LoanCase, type LinkedCase,
 } from "../../../lib/api";
 
@@ -41,7 +41,7 @@ const thisMonth = () => {
 
 const BLANK: Form = {
   businessMonth: thisMonth(), invoiceDate: today(),
-  bankId: "", company: "SAI Credit Solutions",
+  bankId: "", company: "",
   volumeCases: "0", linkedCases: [],
   invoiceStatus: "Draft", invoiceNumber: "", invoiceAmount: "0",
   commission: "0", cgstAmount: "0", sgstAmount: "0", totalAmount: "0",
@@ -55,7 +55,7 @@ function recordToForm(r: PayoutRecord): Form {
     businessMonth: r.businessMonth,
     invoiceDate: r.invoiceDate ? r.invoiceDate.substring(0, 10) : today(),
     bankId: r.bankId ?? "",
-    company: r.company ?? "SAI Credit Solutions",
+    company: r.company ?? "",
     volumeCases: String(r.volumeCases ?? 0),
     linkedCases: r.linkedCases ?? [],
     invoiceStatus: r.invoiceStatus ?? "Draft",
@@ -352,7 +352,12 @@ export default function PayoutPage() {
                   {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
                 </Select>
               </div>
-              <div><Label>Company</Label><Input value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))} /></div>
+              <div><Label>Company</Label>
+                <Select value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))}>
+                  <option value="">Select company…</option>
+                  {FIRMS.map((f) => <option key={f} value={f}>{f}</option>)}
+                </Select>
+              </div>
             </div>
           </div>
 
