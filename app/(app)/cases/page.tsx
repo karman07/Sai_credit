@@ -8,10 +8,10 @@ import {
   Skeleton, useToast, type CaseStatus,
 } from "../../../components/ui";
 import {
-  casesApi, banksApi, dealersApi, usersApi, mastersApi, formSchemasApi,
+  casesApi, banksApi, dealersApi, usersApi, mastersApi, formSchemasApi, customersApi,
   CASE_STATUSES, RTO_STATUSES, LOAN_TYPES, FIRMS, VEHICLE_PRODUCTS, API_BASE, PIPELINE_STAGES, RTO_OWNERSHIP_TYPES,
   rtoApi,
-  type LoanCase, type Bank, type Dealer, type Activity,
+  type LoanCase, type Bank, type Dealer, type Activity, type Customer,
   type PageMeta, type SalesUser, type DocumentType, type PipelineItem, type RTORecord,
   type MasterItem, type FieldDef,
 } from "../../../lib/api";
@@ -190,6 +190,42 @@ export default function CasesPage() {
     dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
   });
   const [newCaseSaving, setNewCaseSaving] = useState(false);
+
+  // Existing-customer search (New Case modal)
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  useEffect(() => {
+    if (customerQuery.trim().length < 2) { setCustomerResults([]); return; }
+    setCustomerSearching(true);
+    const t = setTimeout(() => {
+      customersApi.list({ search: customerQuery.trim(), limit: 8 })
+        .then(({ data }) => setCustomerResults(data))
+        .catch(() => setCustomerResults([]))
+        .finally(() => setCustomerSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [customerQuery]);
+
+  function selectExistingCustomer(c: Customer) {
+    setSelectedCustomer(c);
+    setNewCaseForm(p => ({
+      ...p,
+      firstName: c.firstName, lastName: c.lastName ?? "",
+      contact: c.phone, altContact: c.alternatePhone ?? "",
+    }));
+    setCustomerDropdownOpen(false);
+    setCustomerQuery(`${c.firstName} ${c.lastName ?? ""}`.trim());
+  }
+
+  function clearSelectedCustomer() {
+    setSelectedCustomer(null);
+    setCustomerQuery("");
+    setCustomerResults([]);
+  }
 
   // Edit modal
   const [editOpen, setEditOpen] = useState(false);
@@ -505,6 +541,7 @@ export default function CasesPage() {
         loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
         dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
       });
+      clearSelectedCustomer();
       load();
     } catch (e: any) { toast("error", e.message ?? "Failed to create case"); }
     finally { setNewCaseSaving(false); }
@@ -612,7 +649,7 @@ export default function CasesPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
-          <Button size="sm" onClick={() => setNewCaseOpen(true)}><FileText className="size-3.5" /> New Case</Button>
+          <Button size="sm" onClick={() => { clearSelectedCustomer(); setNewCaseOpen(true); }}><FileText className="size-3.5" /> New Case</Button>
         </div>
       </div>
 
@@ -1481,6 +1518,60 @@ export default function CasesPage() {
           {/* Customer */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Customer Information</p>
+
+            <div className="mb-3 relative">
+              <Label>Find Existing Customer</Label>
+              {selectedCustomer ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
+                    <p className="text-xs text-muted">
+                      <span className="font-mono text-primary">{selectedCustomer.customerCode}</span>
+                      {" · "}{selectedCustomer.phone}
+                      {" · "}{selectedCustomer.totalCases} case{selectedCustomer.totalCases !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <button type="button" onClick={clearSelectedCustomer} className="text-xs text-danger hover:underline shrink-0">Change</button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={customerQuery}
+                    onChange={(e) => { setCustomerQuery(e.target.value); setCustomerDropdownOpen(true); }}
+                    onFocus={() => setCustomerDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 150)}
+                    placeholder="Search by name or phone to reuse an existing customer…"
+                  />
+                  {customerDropdownOpen && customerQuery.trim().length >= 2 && (
+                    <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
+                      {customerSearching ? (
+                        <p className="px-3 py-2 text-xs text-muted">Searching…</p>
+                      ) : customerResults.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-muted">No matching customers — a new one will be created.</p>
+                      ) : (
+                        customerResults.map((c) => (
+                          <button
+                            type="button"
+                            key={c._id}
+                            onMouseDown={() => selectExistingCustomer(c)}
+                            className="w-full text-left px-3 py-2 hover:bg-surface-2 border-b border-border last:border-0"
+                          >
+                            <p className="text-sm font-medium">{c.firstName} {c.lastName}</p>
+                            <p className="text-xs text-muted">
+                              <span className="font-mono text-primary">{c.customerCode}</span>
+                              {" · "}{c.phone}
+                              {" · "}{c.totalCases} case{c.totalCases !== 1 ? "s" : ""}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted mt-1">Leave blank to create a brand-new customer.</p>
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div><Label>First Name *</Label><Input value={newCaseForm.firstName} onChange={(e) => setNewCaseForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
               <div><Label>Last Name</Label><Input value={newCaseForm.lastName} onChange={(e) => setNewCaseForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
