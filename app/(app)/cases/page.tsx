@@ -186,6 +186,9 @@ export default function MyCasesPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [foundCustomer, setFoundCustomer] = useState<SalesCustomer | null>(null);
   const [phoneChecked, setPhoneChecked] = useState(false);
+  const [phoneResults, setPhoneResults] = useState<SalesCustomer[]>([]);
+  const [phoneSearching, setPhoneSearching] = useState(false);
+  const [phoneDropdownOpen, setPhoneDropdownOpen] = useState(false);
   const [leadCustomer, setLeadCustomer] = useState({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
   const [leadCase, setLeadCase] = useState({ product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "", vehicleModel: "", regNumber: "", date: new Date().toISOString().slice(0, 10), customFields: {} as Record<string, string> });
   const [creatingLead, setCreatingLead] = useState(false);
@@ -219,9 +222,33 @@ export default function MyCasesPage() {
 
   function openNewLead() {
     setLeadPhone(""); setFoundCustomer(null); setPhoneChecked(false);
+    setPhoneResults([]); setPhoneDropdownOpen(false);
     setLeadCustomer({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
     setLeadCase({ product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "", vehicleModel: "", regNumber: "", date: new Date().toISOString().slice(0, 10), customFields: {} });
     setLeadStep("phone");
+  }
+
+  // Live search-as-you-type by name or phone, while on the phone step
+  useEffect(() => {
+    if (leadStep !== "phone" || leadPhone.trim().length < 2) { setPhoneResults([]); return; }
+    setPhoneSearching(true);
+    const t = setTimeout(() => {
+      customersApi.list({ search: leadPhone.trim(), limit: 8 })
+        .then(({ data }) => setPhoneResults(data as unknown as SalesCustomer[]))
+        .catch(() => setPhoneResults([]))
+        .finally(() => setPhoneSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadPhone, leadStep]);
+
+  function selectFoundCustomer(c: SalesCustomer) {
+    setFoundCustomer(c);
+    setLeadPhone(c.phone);
+    setLeadCustomer({ firstName: c.firstName, lastName: c.lastName, fatherName: "", altContact: c.alternatePhone ?? "", location: "", residentialStatus: "" });
+    setPhoneDropdownOpen(false);
+    setPhoneChecked(true);
+    setLeadStep("customer");
   }
 
   async function lookupPhone() {
@@ -990,16 +1017,18 @@ export default function MyCasesPage() {
           {/* Step 1 — Phone lookup */}
           {leadStep === "phone" && (
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Customer Phone Number</Label>
+              <div className="space-y-1.5 relative">
+                <Label>Customer Name or Phone Number</Label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted pointer-events-none" />
                     <Input
                       value={leadPhone}
                       onChange={(e) => setLeadPhone(e.target.value)}
+                      onFocus={() => setPhoneDropdownOpen(true)}
+                      onBlur={() => setTimeout(() => setPhoneDropdownOpen(false), 150)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupPhone(); } }}
-                      placeholder="e.g. 9876543210"
+                      placeholder="Search by name or phone…"
                       className="!pl-9"
                       autoFocus
                     />
@@ -1009,6 +1038,32 @@ export default function MyCasesPage() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted">We'll check if this customer already exists in the system.</p>
+
+                {phoneDropdownOpen && leadPhone.trim().length >= 2 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
+                    {phoneSearching ? (
+                      <p className="px-3 py-2 text-xs text-muted">Searching…</p>
+                    ) : phoneResults.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted">No matches yet — keep typing or press Check.</p>
+                    ) : (
+                      phoneResults.map((c) => (
+                        <button
+                          type="button"
+                          key={c._id}
+                          onMouseDown={() => selectFoundCustomer(c)}
+                          className="w-full text-left px-3 py-2 hover:bg-surface-2 border-b border-border last:border-0"
+                        >
+                          <p className="text-sm font-medium">{c.firstName} {c.lastName}</p>
+                          <p className="text-xs text-muted">
+                            <span className="font-mono text-primary">{c.customerCode}</span>
+                            {" · "}{c.phone}
+                            {" · "}{c.totalCases} case{c.totalCases !== 1 ? "s" : ""}
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex gap-2 justify-end pt-1">
                 <Button variant="secondary" size="sm" onClick={() => setLeadStep(null)}>Cancel</Button>
