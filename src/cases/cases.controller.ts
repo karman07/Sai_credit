@@ -65,6 +65,7 @@ export class CasesController {
   ) {
     const isSales = actor ? isSalesRole(actor.role) : false;
     const isCoordinator = actor?.role === UserRole.Coordinator;
+    console.log('[DEBUG cases list()] actor=', JSON.stringify(actor), 'isCoordinator=', isCoordinator);
     return this.svc.list({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 25,

@@ -52,11 +52,19 @@ export class CasesService {
   }) {
     const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId } = params;
     const filter: Record<string, any> = { isActive: true };
+    console.log('[DEBUG list()] params=', JSON.stringify(params));
 
     // Coordinators only see cases assigned to the sales reps assigned to them
     if (coordinatorId) {
-      const reps = await this.userModel.find({ coordinatorId: new Types.ObjectId(coordinatorId) }, '_id').lean();
+      const repsCast = await this.userModel.find({ coordinatorId: new Types.ObjectId(coordinatorId) }, '_id').lean();
+      const repsRaw = await this.userModel.find({ coordinatorId: coordinatorId as any }, '_id').lean();
+      const sample = await this.userModel.findOne({ coordinatorId: { $exists: true } }, 'coordinatorId').lean();
+      console.log('[DEBUG list()] typeof coordinatorId param=', typeof coordinatorId, 'value=', coordinatorId);
+      console.log('[DEBUG list()] repsCast.length=', repsCast.length, 'repsRaw.length=', repsRaw.length);
+      console.log('[DEBUG list()] sample user coordinatorId field=', JSON.stringify(sample), sample ? typeof (sample as any).coordinatorId : 'n/a');
+      const reps = repsCast.length ? repsCast : repsRaw;
       filter.assignedTo = { $in: reps.map((r) => r._id) };
+      console.log('[DEBUG list()] coordinator branch, reps found=', reps.length, reps.map(r => String(r._id)));
     } else if (scopeToUser && userId) {
       // Sales users see cases they created OR were assigned to
       const uid = new Types.ObjectId(userId);
@@ -82,6 +90,7 @@ export class CasesService {
     if (product) filter.product = product;
     if (firm) filter.firm = firm;
 
+    console.log('[DEBUG list()] final filter=', JSON.stringify(filter));
     const total = await this.model.countDocuments(filter);
     const data = await this.model
       .find(filter)
@@ -89,6 +98,7 @@ export class CasesService {
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
+    console.log('[DEBUG list()] total=', total);
 
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
@@ -537,6 +547,18 @@ export class CasesService {
         assignedTo: existing.assignedTo,
         oldStatus, newStatus: CaseStatus.Incomplete, note: dto.remarks, actor,
       });
+    }
+
+    // In-app notification for the sales rep so document requests aren't email-only (non-blocking)
+    if (existing.assignedTo) {
+      this.notifications.notify({
+        userId: String(existing.assignedTo),
+        type: 'doc_request',
+        title: `Documents Requested — ${existing.caseCode}`,
+        message: `${actor.firstName} ${actor.lastName} requested: ${dto.docTypes.join(', ')}`,
+        caseId: id,
+        caseCode: existing.caseCode,
+      }).catch(() => { /* non-blocking — don't fail the request */ });
     }
 
     return updated;

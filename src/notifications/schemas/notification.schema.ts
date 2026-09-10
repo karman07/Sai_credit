@@ -6,7 +6,7 @@ export type NotifType =
   | 'leave_approved' | 'leave_rejected'
   | 'claim_approved' | 'claim_rejected'
   | 'payroll_paid' | 'incentive_added'
-  | 'new_case';
+  | 'new_case' | 'doc_request';
 
 @Schema({ timestamps: true, collection: 'notifications' })
 export class Notification extends Document {
