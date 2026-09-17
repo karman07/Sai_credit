@@ -47,6 +47,7 @@ export class JwtAuthGuard implements CanActivate {
         portal: payload.portal,
         firstName: payload.firstName,
         lastName: payload.lastName,
+        rtoAccess: payload.rtoAccess,
       };
       (req as any).user = user;
       return true;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { UserRole } from '../common/enums';
+import { optionalPhone } from '../common/validators/phone';
 
 const allowanceFields = {
   basicSalary:     z.number().min(0).optional(),
@@ -15,7 +16,7 @@ export const CreateUserSchema = z.object({
   password:     z.string().min(8),
   firstName:    z.string().min(1),
   lastName:     z.string().min(1),
-  phone:        z.string().optional(),
+  phone:        optionalPhone(),
   role:         z.nativeEnum(UserRole),
   employeeCode: z.string().optional(),
   designation:  z.string().optional(),
@@ -23,6 +24,8 @@ export const CreateUserSchema = z.object({
   joiningDate:  z.string().optional(),
   annualLeaveQuota: z.number().min(0).optional(),
   coordinatorId: z.string().optional(),
+  /** Per-coordinator override granting RTO access to this specific user. */
+  rtoAccess: z.boolean().optional(),
   ...allowanceFields,
 });
 export type CreateUserDto = z.infer<typeof CreateUserSchema>;

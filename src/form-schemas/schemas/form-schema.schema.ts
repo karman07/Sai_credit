@@ -1,13 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
-export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean';
+export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean' | 'file';
 
 @Schema({ _id: false })
 export class FieldDef {
   @Prop({ required: true }) key: string;
   @Prop({ required: true }) label: string;
-  @Prop({ required: true, enum: ['text', 'number', 'select', 'tel', 'date', 'boolean'] }) type: FieldType;
+  @Prop({ required: true, enum: ['text', 'number', 'select', 'tel', 'date', 'boolean', 'file'] }) type: FieldType;
   @Prop({ default: false }) required: boolean;
   @Prop() placeholder?: string;
   @Prop() defaultValue?: string;

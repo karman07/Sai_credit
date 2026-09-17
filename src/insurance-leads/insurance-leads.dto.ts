@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { InsuranceLeadStatus, InsuranceLeadSource } from './schemas/insurance-lead.schema';
+import { requiredPhone, optionalPhone } from '../common/validators/phone';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
 
 export const CreateInsuranceLeadSchema = z.object({
   firstName:         z.string().min(1),
   lastName:          z.string().min(1),
-  contact:           z.string().min(6),
-  altContact:        z.string().optional(),
+  contact:           requiredPhone(),
+  altContact:        optionalPhone(),
   vehicleType:       z.string().optional(),
   vehicleModel:      z.string().optional(),
   regNumber:         z.string().optional(),

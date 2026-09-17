@@ -8,6 +8,8 @@ export interface AuthUser {
   portal: Portal;
   firstName: string;
   lastName: string;
+  /** Per-user override granting RTO access to an individual coordinator (see rbac/permissions.ts). */
+  rtoAccess?: boolean;
 }
 
 export interface RequestContext {

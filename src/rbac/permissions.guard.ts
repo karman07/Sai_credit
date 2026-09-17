@@ -24,7 +24,7 @@ export class PermissionsGuard implements CanActivate {
     const user = ctx.switchToHttp().getRequest().user as AuthUser | undefined;
     if (!user) throw new ForbiddenException('No authenticated user');
 
-    const ok = required.every((p) => hasPermission(user.role, p));
+    const ok = required.every((p) => hasPermission(user, p));
     if (!ok) {
       throw new ForbiddenException('You do not have permission to perform this action');
     }

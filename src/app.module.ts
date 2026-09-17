@@ -32,6 +32,7 @@ import { FormSchemasModule } from './form-schemas/form-schemas.module';
 import { LeavePolicyModule } from './leave-policy/leave-policy.module';
 import { InsuranceLeadsModule } from './insurance-leads/insurance-leads.module';
 import { MailTemplatesModule } from './mail-templates/mail-templates.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { MailTemplatesModule } from './mail-templates/mail-templates.module';
     LeavePolicyModule,
     InsuranceLeadsModule,
     MailTemplatesModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -37,6 +37,28 @@ export class AuthService {
     private readonly attendance: AttendanceService,
   ) {}
 
+  /**
+   * Enriches an AuthUser with the coordinator overseeing them (if any), so
+   * sales reps can see who their coordinator is on their own profile without
+   * needing the `users.manage` permission that /users/:id requires.
+   */
+  private async withCoordinatorInfo(authUser: AuthUser, coordinatorId?: Types.ObjectId | string) {
+    if (!coordinatorId) return authUser;
+    const coordinator = await this.users.findById(coordinatorId, 'firstName lastName').lean();
+    if (!coordinator) return authUser;
+    return {
+      ...authUser,
+      coordinatorId: String(coordinatorId),
+      coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim(),
+    };
+  }
+
+  async me(actor: AuthUser) {
+    const user = await this.users.findById(actor.id, 'coordinatorId rtoAccess').lean();
+    const enriched = { ...actor, rtoAccess: !!user?.rtoAccess };
+    return this.withCoordinatorInfo(enriched, user?.coordinatorId);
+  }
+
   // ── Login ──────────────────────────────────────────────────────────
   async login(dto: LoginDto, ip?: string, userAgent?: string) {
     const user = await this.users
@@ -70,7 +92,8 @@ export class AuthService {
       this.attendance.autoClockIn(String(user._id), ip).catch(() => {/* non-fatal */});
     }
 
-    return { user: authUser, ...tokens };
+    const responseUser = await this.withCoordinatorInfo(authUser, user.coordinatorId);
+    return { user: responseUser, ...tokens };
   }
 
   // ── Refresh (with rotation) ─────────────────────────────────────────
@@ -97,7 +120,8 @@ export class AuthService {
     const portal = session.portal;
     const authUser = this.toAuthUser(user, portal);
     const tokens = await this.issueTokens(authUser, portal, ip, userAgent);
-    return { user: authUser, ...tokens };
+    const responseUser = await this.withCoordinatorInfo(authUser, user.coordinatorId);
+    return { user: responseUser, ...tokens };
   }
 
   // ── Logout ──────────────────────────────────────────────────────────
@@ -182,6 +206,7 @@ export class AuthService {
       portal,
       firstName: user.firstName,
       lastName: user.lastName,
+      rtoAccess: !!user.rtoAccess,
     };
   }
 
@@ -194,6 +219,7 @@ export class AuthService {
         portal,
         firstName: user.firstName,
         lastName: user.lastName,
+        rtoAccess: user.rtoAccess,
       },
       {
         secret: this.config.get<string>('jwt.accessSecret'),

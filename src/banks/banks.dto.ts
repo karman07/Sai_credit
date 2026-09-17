@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { optionalPhone } from '../common/validators/phone';
 
 export const CreateBankSchema = z.object({
   name: z.string().min(1),
   branch: z.string().optional(),
   bmName: z.string().optional(),
-  bmContact: z.string().optional(),
+  bmContact: optionalPhone(),
   executive: z.string().optional(),
   logoUrl: z.string().url().optional(),
 });

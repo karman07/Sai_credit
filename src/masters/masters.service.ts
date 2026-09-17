@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { SLUG_TO_TYPE, CreateMasterDto, UpdateMasterDto } from './masters.dto';
 import { AuditService } from '../common/audit/audit.service';
 import { AuditAction } from '../common/enums';
 import { AuthUser } from '../common/types';
+import { hasPermission } from '../rbac/permissions';
 
 @Injectable()
 export class MastersService {
@@ -25,6 +27,19 @@ export class MastersService {
     return type;
   }
 
+  /**
+   * Write access to the Data Catalog is resource-scoped: `master.manage` grants
+   * every resource, while `document_types.manage` (held by sales roles) only
+   * covers the Document Types catalog. Kept here rather than a route-level
+   * @RequirePermissions since the permission needed depends on the `:resource`
+   * param.
+   */
+  private assertCanManage(slug: string, actor: AuthUser) {
+    if (hasPermission(actor, 'master.manage')) return;
+    if (slug === 'document-types' && hasPermission(actor, 'document_types.manage')) return;
+    throw new ForbiddenException('You do not have permission to manage this catalog');
+  }
+
   async list(slug: string, includeInactive = false, parentId?: string) {
     const type = this.resolveType(slug);
     const filter: Record<string, any> = { type };
@@ -34,6 +49,7 @@ export class MastersService {
   }
 
   async create(slug: string, dto: CreateMasterDto, actor: AuthUser) {
+    this.assertCanManage(slug, actor);
     const type = this.resolveType(slug);
     if (type === MasterType.Product && !dto.code?.trim()) {
       throw new BadRequestException('Product code is required');
@@ -47,6 +63,7 @@ export class MastersService {
   }
 
   async update(slug: string, id: string, dto: UpdateMasterDto, actor: AuthUser) {
+    this.assertCanManage(slug, actor);
     const type = this.resolveType(slug);
     const before = await this.masters.findOne({ _id: id, type }).lean();
     if (!before) throw new NotFoundException('Record not found');
@@ -62,6 +79,7 @@ export class MastersService {
   }
 
   async toggleStatus(slug: string, id: string, actor: AuthUser) {
+    this.assertCanManage(slug, actor);
     const type = this.resolveType(slug);
     const doc = await this.masters.findOne({ _id: id, type });
     if (!doc) throw new NotFoundException('Record not found');

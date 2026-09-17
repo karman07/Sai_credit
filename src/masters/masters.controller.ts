@@ -8,7 +8,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { MastersService } from './masters.service';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
@@ -31,8 +30,10 @@ export class MastersController {
     return this.masters.list(resource, includeInactive === 'true', parentId);
   }
 
+  // Write access is resource-scoped (e.g. sales roles may only manage Document
+  // Types), so it's enforced inside MastersService rather than via a single
+  // blanket @RequirePermissions — see MastersService.assertCanManage.
   @Post(':resource')
-  @RequirePermissions('master.manage')
   create(
     @Param('resource') resource: string,
     @Body(new ZodValidationPipe(CreateMasterSchema)) dto: CreateMasterDto,
@@ -42,7 +43,6 @@ export class MastersController {
   }
 
   @Put(':resource/:id')
-  @RequirePermissions('master.manage')
   update(
     @Param('resource') resource: string,
     @Param('id') id: string,
@@ -53,7 +53,6 @@ export class MastersController {
   }
 
   @Put(':resource/:id/toggle-status')
-  @RequirePermissions('master.manage')
   toggle(
     @Param('resource') resource: string,
     @Param('id') id: string,

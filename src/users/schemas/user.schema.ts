@@ -49,6 +49,10 @@ export class User {
   @Prop({ type: Types.ObjectId, ref: 'User' })
   coordinatorId?: Types.ObjectId;
 
+  /** Per-user override: grants this specific coordinator RTO access (see rbac/permissions.ts). */
+  @Prop({ default: false })
+  rtoAccess?: boolean;
+
   @Prop({ default: 0 })
   basicSalary?: number;
 

@@ -3,7 +3,7 @@ import { z } from 'zod';
 const FieldDefSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
-  type: z.enum(['text', 'number', 'select', 'tel', 'date', 'boolean']),
+  type: z.enum(['text', 'number', 'select', 'tel', 'date', 'boolean', 'file']),
   required: z.boolean().optional().default(false),
   placeholder: z.string().optional(),
   defaultValue: z.string().optional(),

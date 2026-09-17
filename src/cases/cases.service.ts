@@ -5,7 +5,7 @@ import { Model, Types } from 'mongoose';
 import { LoanCase, pipelineStagesFor } from './schemas/case.schema';
 import {
   CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto,
-  AssignCaseDto, RequestDocsDto, UploadDocDto, EditDocDto,
+  AssignCaseDto, AssignCoordinatorDto, RequestDocsDto, UploadDocDto, EditDocDto,
   UpdatePipelineStageDto,
 } from './cases.dto';
 import { ActivityType, CaseStatus, isSalesRole, MasterType, ADMIN_PORTAL_ROLES, UserRole } from '../common/enums';
@@ -19,6 +19,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/schemas/user.schema';
 import { Master } from '../masters/schemas/master.schema';
 import { MailService } from '../mail/mail.service';
+import { FormSchemasService } from '../form-schemas/form-schemas.service';
 
 @Injectable()
 export class CasesService {
@@ -34,6 +35,7 @@ export class CasesService {
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly formSchemas: FormSchemasService,
   ) {}
 
   /** Looks up the case-code prefix for a product from the `products` master; falls back to 'CASE'. */
@@ -43,6 +45,37 @@ export class CasesService {
       .findOne({ type: MasterType.Product, name: product, isActive: true }, 'code')
       .lean();
     return m?.code?.toUpperCase() ?? 'CASE';
+  }
+
+  /** Looks up the product's `code` from the `products` master (lowercased, for `product-fields:<code>` form ids). */
+  private async resolveProductCode(product?: string): Promise<string | undefined> {
+    if (!product) return undefined;
+    const m = await this.masterModel
+      .findOne({ type: MasterType.Product, name: product, isActive: true }, 'code')
+      .lean();
+    return m?.code?.toLowerCase();
+  }
+
+  /**
+   * Enforces the `required` custom fields configured in Form Builder for a
+   * product's extra-fields form (`product-fields:<code>`) — e.g. Car Loan
+   * requiring Aadhaar/RC/PAN before a case can be created. Configured entirely
+   * via the Form Builder API; nothing product-specific is hardcoded here.
+   */
+  private async assertRequiredProductFields(product: string | undefined, customFields: Record<string, any> | undefined) {
+    const code = await this.resolveProductCode(product);
+    if (!code) return;
+
+    const schema = await this.formSchemas.getOrCreate(`product-fields:${code}`);
+    const requiredFields = schema.sections.flatMap((s) => s.fields.filter((f) => f.required && f.isActive !== false));
+
+    for (const field of requiredFields) {
+      const value = customFields?.[field.key];
+      const isEmpty = value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+      if (isEmpty) {
+        throw new BadRequestException(`${field.label} is required for ${product} cases`);
+      }
+    }
   }
 
   async list(params: {
@@ -248,6 +281,7 @@ export class CasesService {
       if (!dto.dealerId) {
         throw new BadRequestException('Dealer is required');
       }
+      await this.assertRequiredProductFields(dto.product, dto.customFields);
     }
 
     const prefix = await this.resolveProductPrefix(dto.product);
@@ -508,6 +542,69 @@ export class CasesService {
     return updated;
   }
 
+  /**
+   * Directly overrides the coordinator denormalized onto a case, independent of the
+   * assigned sales rep's own `coordinatorId`. Used by admin/ops to correct or
+   * reassign coordination without touching who the case is assigned to.
+   */
+  async assignCoordinator(id: string, dto: AssignCoordinatorDto, actor: AuthUser) {
+    const existing = await this.model.findOne({ _id: id, isActive: true });
+    if (!existing) throw new NotFoundException('Case not found');
+    await this.assertCanAccessCase(actor, existing);
+
+    let coordinatorId: Types.ObjectId | undefined;
+    let coordinatorName: string | undefined;
+
+    if (dto.userId) {
+      const coordinator = await this.userModel.findById(dto.userId, 'firstName lastName role').lean();
+      if (!coordinator) throw new NotFoundException('Coordinator not found');
+      if (coordinator.role !== UserRole.Coordinator) {
+        throw new BadRequestException('Selected user is not a coordinator');
+      }
+      coordinatorId = new Types.ObjectId(dto.userId);
+      coordinatorName = `${coordinator.firstName} ${coordinator.lastName}`.trim();
+    }
+
+    const update: Record<string, any> = coordinatorId
+      ? { coordinatorId, coordinatorName }
+      : { $unset: { coordinatorId: '', coordinatorName: '' } };
+
+    const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).lean();
+
+    const changeDescription = coordinatorName ? `Coordinator changed to ${coordinatorName}` : 'Coordinator unassigned';
+
+    await this.activities.log({
+      caseId: id, type: ActivityType.Assigned,
+      description: changeDescription, actor,
+    });
+
+    this.notifyCaseUpdated({
+      caseCode: existing.caseCode,
+      customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId,
+      assignedTo: existing.assignedTo,
+      changeDescription,
+      actor,
+    });
+
+    // In-app notification for the assigned sales rep so they know the coordinator
+    // changed even without checking email (non-blocking).
+    if (existing.assignedTo) {
+      this.notifications.notify({
+        userId: String(existing.assignedTo),
+        type: 'coordinator_changed',
+        title: `Coordinator Changed — ${existing.caseCode}`,
+        message: coordinatorName
+          ? `${actor.firstName} ${actor.lastName} changed the coordinator to ${coordinatorName}`
+          : `${actor.firstName} ${actor.lastName} removed the coordinator`,
+        caseId: id,
+        caseCode: existing.caseCode,
+      }).catch(() => { /* non-blocking — don't fail the update */ });
+    }
+
+    return updated;
+  }
+
   async requestDocs(id: string, dto: RequestDocsDto, actor: AuthUser) {
     const existing = await this.model.findOne({ _id: id, isActive: true });
     if (!existing) throw new NotFoundException('Case not found');
@@ -590,6 +687,35 @@ export class CasesService {
       caseId: id, type: ActivityType.DocumentUploaded,
       description: `Document uploaded: ${dto.docType} — ${dto.fileName}`, actor,
     });
+
+    // Let admins + the case's coordinator know a document came in — email...
+    this.notifyCaseUpdated({
+      caseCode: existing.caseCode,
+      customerName: [existing.customer?.firstName, existing.customer?.lastName].filter(Boolean).join(' '),
+      coordinatorId: existing.coordinatorId,
+      assignedTo: existing.assignedTo,
+      changeDescription: `Document uploaded: ${dto.docType} — ${dto.fileName}`,
+      actor,
+    });
+
+    // ...and an in-app notification too, so it isn't email-only (non-blocking).
+    this.userModel
+      .find({ role: { $in: ADMIN_PORTAL_ROLES }, isActive: true }, '_id')
+      .lean()
+      .then((admins) => {
+        const recipientIds = new Set(admins.map((u) => String(u._id)));
+        if (existing.coordinatorId) recipientIds.add(String(existing.coordinatorId));
+        if (!recipientIds.size) return;
+        return this.notifications.notifyMany([...recipientIds], {
+          type: 'doc_uploaded',
+          title: `Document Uploaded — ${existing.caseCode}`,
+          message: `${actor.firstName} ${actor.lastName} uploaded ${dto.docType} (${dto.fileName})`,
+          caseId: id,
+          caseCode: existing.caseCode,
+        });
+      })
+      .catch(() => { /* non-blocking — don't fail the upload */ });
+
     return updated;
   }
 

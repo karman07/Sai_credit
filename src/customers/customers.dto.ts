@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CustomerType } from '../common/enums';
+import { requiredPhone, optionalPhone } from '../common/validators/phone';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 
@@ -17,7 +18,7 @@ const AddressSchema = z.object({
 const ContactSchema = z.object({
   name: z.string().min(1),
   relationship: z.string().optional(),
-  phone: z.string().optional(),
+  phone: optionalPhone(),
   email: z.string().email().optional(),
 });
 
@@ -29,10 +30,10 @@ export const CreateCustomerSchema = z.object({
   gender: z.string().optional(),
   companyName: z.string().optional(),
   gstNumber: z.string().optional(),
-  phone: z.string().min(7),
-  alternatePhone: z.string().optional(),
+  phone: requiredPhone(),
+  alternatePhone: optionalPhone(),
   email: z.string().email().optional(),
-  whatsappNumber: z.string().optional(),
+  whatsappNumber: optionalPhone(),
   panNumber: z.string().optional(),
   aadhaarLast4: z.string().length(4).optional(),
   addresses: z.array(AddressSchema).optional(),

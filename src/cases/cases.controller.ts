@@ -12,6 +12,7 @@ import {
   UpdateCaseSchema, UpdateCaseDto,
   UpdateCaseStatusSchema, UpdateCaseStatusDto,
   AssignCaseSchema, AssignCaseDto,
+  AssignCoordinatorSchema, AssignCoordinatorDto,
   RequestDocsSchema, RequestDocsDto,
   UploadDocSchema, UploadDocDto,
   EditDocSchema, EditDocDto,
@@ -120,6 +121,16 @@ export class CasesController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.svc.assign(id, dto, actor);
+  }
+
+  @Put(':id/assign-coordinator')
+  @RequirePermissions('cases.assign')
+  assignCoordinator(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AssignCoordinatorSchema)) dto: AssignCoordinatorDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.assignCoordinator(id, dto, actor);
   }
 
   @Post(':id/request-docs')

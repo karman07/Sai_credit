@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LoanType, Firm } from '../common/enums';
+import { optionalPhone } from '../common/validators/phone';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
 
@@ -7,8 +8,8 @@ const CustomerSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   fatherName: z.string().optional(),
-  contact: z.string().optional(),
-  altContact: z.string().optional(),
+  contact: optionalPhone(),
+  altContact: optionalPhone(),
   location: z.string().optional(),
   state: z.string().optional(),
   district: z.string().optional(),
@@ -33,7 +34,7 @@ export const CreateCaseSchema = z.object({
   bankId: objectId.optional(),
   bankBranch: z.string().optional(),
   bmName: z.string().optional(),
-  bmContact: z.string().optional(),
+  bmContact: optionalPhone(),
   bankExecutive: z.string().optional(),
   dealerId: objectId.optional(),
   payoutPct: z.number().min(0).max(100).optional(),
@@ -59,6 +60,12 @@ export const AssignCaseSchema = z.object({
   userName: z.string().min(1),
 });
 export type AssignCaseDto = z.infer<typeof AssignCaseSchema>;
+
+export const AssignCoordinatorSchema = z.object({
+  // Omit/null to unassign the coordinator entirely.
+  userId: objectId.nullable().optional(),
+});
+export type AssignCoordinatorDto = z.infer<typeof AssignCoordinatorSchema>;
 
 export const RequestDocsSchema = z.object({
   docTypes: z.array(z.string().min(1)).min(1, 'At least one document type required'),

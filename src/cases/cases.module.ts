@@ -12,6 +12,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 import { MastersModule } from '../masters/masters.module';
+import { FormSchemasModule } from '../form-schemas/form-schemas.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { MastersModule } from '../masters/masters.module';
     UsersModule,
     MailModule,
     MastersModule,
+    FormSchemasModule,
   ],
   controllers: [CasesController],
   providers: [CasesService],

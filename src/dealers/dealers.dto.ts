@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { optionalPhone } from '../common/validators/phone';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
 
 export const CreateDealerSchema = z.object({
   name: z.string().min(1),
-  contact: z.string().optional(),
+  contact: optionalPhone(),
   location: z.string().optional(),
   address: z.string().optional(),
   coordinatorId: objectId.optional(),
