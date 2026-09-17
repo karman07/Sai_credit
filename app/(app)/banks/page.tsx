@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Edit2, Power } from "lucide-react";
 import {
-  Button, Badge, Modal, Input, Label, SearchInput,
+  Button, Badge, Modal, Input, PhoneInput, Label, SearchInput,
   SectionHeader, ConfirmDialog, Pagination, EmptyState, Skeleton,
   useToast,
 } from "../../../components/ui";
@@ -159,7 +159,7 @@ export default function BanksPage() {
           <div className="col-span-2"><Label>Bank / NBFC Name *</Label><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. HDFC Bank" /></div>
           <div><Label>Branch</Label><Input value={form.branch} onChange={(e) => setForm((p) => ({ ...p, branch: e.target.value }))} placeholder="Branch, City" /></div>
           <div><Label>BM Name</Label><Input value={form.bmName} onChange={(e) => setForm((p) => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-          <div><Label>BM Contact</Label><Input value={form.bmContact} onChange={(e) => setForm((p) => ({ ...p, bmContact: e.target.value }))} placeholder="+91 XXXXX XXXXX" /></div>
+          <div><Label>BM Contact</Label><PhoneInput value={form.bmContact} onChange={(v) => setForm((p) => ({ ...p, bmContact: v }))} /></div>
           <div><Label>Executive</Label><Input value={form.executive} onChange={(e) => setForm((p) => ({ ...p, executive: e.target.value }))} placeholder="Executive name" /></div>
           <div className="col-span-2 flex gap-2 justify-end border-t border-border pt-3">
             <Button variant="secondary" size="sm" onClick={closeModal}>Cancel</Button>

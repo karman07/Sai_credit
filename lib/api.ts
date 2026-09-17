@@ -251,6 +251,7 @@ export const casesApi = {
   delete: (id: string) => api.del(`/cases/${id}`),
   activities: (id: string) => api.get<Activity[]>(`/activities/case/${id}`),
   assign: (id: string, body: { userId: string; userName: string }) => api.put<LoanCase>(`/cases/${id}/assign`, body),
+  assignCoordinator: (id: string, body: { userId: string | null }) => api.put<LoanCase>(`/cases/${id}/assign-coordinator`, body),
   requestDocs: (id: string, body: { docTypes: string[]; remarks: string }) => api.post<LoanCase>(`/cases/${id}/request-docs`, body),
   uploadDoc: (id: string, formData: FormData) => api.post<LoanCase>(`/cases/${id}/upload-doc`, formData),
   deleteDoc: (id: string, docId: string) => api.del<LoanCase>(`/cases/${id}/docs/${docId}`),
@@ -335,6 +336,7 @@ export interface AdminUser {
   joiningDate?: string;
   annualLeaveQuota?: number;
   coordinatorId?: string;
+  rtoAccess?: boolean;
 }
 
 export interface CreateUserBody {
@@ -347,6 +349,7 @@ export interface CreateUserBody {
   designation?: string; department?: string; joiningDate?: string;
   annualLeaveQuota?: number;
   coordinatorId?: string;
+  rtoAccess?: boolean;
 }
 
 export interface UpdateUserBody {
@@ -359,6 +362,7 @@ export interface UpdateUserBody {
   designation?: string; department?: string; joiningDate?: string;
   annualLeaveQuota?: number;
   coordinatorId?: string;
+  rtoAccess?: boolean;
 }
 
 export const usersApi = {
@@ -392,7 +396,7 @@ export const mailTemplatesApi = {
 
 // ── Form Schema Types & API ───────────────────────────────────────────
 
-export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean';
+export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean' | 'file';
 
 export interface FieldDef {
   key: string;
@@ -422,6 +426,15 @@ export const formSchemasApi = {
   list: () => api.get<FormSchema[]>(`/form-schemas`),
   get: (formId: string) => api.get<FormSchema>(`/form-schemas/${formId}`),
   update: (formId: string, body: { sections: SectionDef[] }) => api.put<FormSchema>(`/form-schemas/${formId}`, body),
+};
+
+/** Backs "File"-type custom fields — uploads and returns a URL to store as the field's value. */
+export const uploadsApi = {
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<{ url: string; fileName: string }>("/uploads", fd);
+  },
 };
 
 // ── HR Types ──────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
   type SalesUser, type DocumentType, type RTORecord, type SectionDef, type FieldDef,
   type MasterItem,
 } from "../lib/api";
+import { FileFieldInput } from "./FileFieldInput";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
 
@@ -85,6 +86,7 @@ function RTODynField({ field, value, onChange }: { field: FieldDef; value: strin
   );
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
 }
 
@@ -334,6 +336,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
   );
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
 }
 

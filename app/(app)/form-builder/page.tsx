@@ -32,6 +32,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   tel:     "Phone",
   date:    "Date",
   boolean: "Yes / No",
+  file:    "File",
 };
 
 // ── Field Editor Modal ─────────────────────────────────────────────────────────

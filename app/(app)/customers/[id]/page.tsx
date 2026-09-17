@@ -11,7 +11,7 @@ import {
   type Customer, type LoanCase, type CaseStatus,
 } from "../../../../lib/api";
 import {
-  Button, Input, Badge, Modal, Label, CaseStatusBadge,
+  Button, Input, PhoneInput, Badge, Modal, Label, CaseStatusBadge,
   EmptyState, Skeleton, useToast, Textarea, Select,
 } from "../../../../components/ui";
 import { CaseDrawer } from "../../../../components/CaseDrawer";
@@ -339,18 +339,18 @@ export default function CustomerProfilePage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Phone</Label>
-              <Input
+              <PhoneInput
                 value={editForm.phone}
-                onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(v) => setEditForm((f) => ({ ...f, phone: v }))}
                 required
               />
             </div>
             <div className="space-y-1.5">
               <Label>Alternate Phone <span className="normal-case font-normal text-muted/70">(optional)</span></Label>
-              <Input
+              <PhoneInput
                 value={editForm.alternatePhone}
-                onChange={(e) => setEditForm((f) => ({ ...f, alternatePhone: e.target.value }))}
-                placeholder="Alt number…"
+                onChange={(v) => setEditForm((f) => ({ ...f, alternatePhone: v }))}
+                placeholder="Optional"
               />
             </div>
           </div>

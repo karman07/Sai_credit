@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Download, Filter, X, Eye, FileText, Calendar, Building2, Users, MapPin, Banknote, UserCheck, CheckCircle2, AlertCircle, UploadCloud, Pencil, Trash2, Edit2, Info, Save, Upload, ExternalLink } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Drawer, Tabs,
-  Select, Input, Label, Modal, Pagination, EmptyState, Timeline,
+  Select, Input, PhoneInput, Label, Modal, Pagination, EmptyState, Timeline,
   Skeleton, useToast, type CaseStatus,
 } from "../../../components/ui";
 import {
@@ -13,8 +13,9 @@ import {
   rtoApi,
   type LoanCase, type Bank, type Dealer, type Activity, type Customer,
   type PageMeta, type SalesUser, type DocumentType, type PipelineItem, type RTORecord,
-  type MasterItem, type FieldDef,
+  type MasterItem, type FieldDef, type FormSchema,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
@@ -37,6 +38,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
   );
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
 }
 
@@ -140,10 +142,18 @@ export default function CasesPage() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
+  const [coordinatorUsers, setCoordinatorUsers] = useState<SalesUser[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
   const [products, setProducts] = useState<MasterItem[]>([]);
   const [newCaseProductFields, setNewCaseProductFields] = useState<FieldDef[]>([]);
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
+  const [caseSchema, setCaseSchema] = useState<FormSchema | null>(null);
+
+  // Custom fields added via Form Builder on the "New Case" form itself (not tied
+  // to a specific product) — e.g. extra fields under Customer / Loan / Bank sections.
+  const genericCustomFields: FieldDef[] = (caseSchema?.sections ?? []).flatMap(s =>
+    s.fields.filter(f => !f.isCore && f.isActive),
+  );
 
   // Fetches a product's extra-fields schema by name, returning [] for vehicle
   // products with no custom fields configured (or none at all).
@@ -329,20 +339,23 @@ export default function CasesPage() {
 
   const loadRef = useCallback(async () => {
     try {
-      const [bl, dl, ul, dtl, citl, stl, csl, rsl, pl] = await Promise.all([
+      const [bl, dl, ul, cul, dtl, citl, stl, csl, rsl, pl, fsl] = await Promise.all([
         banksApi.list(), dealersApi.list(),
-        usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
+        usersApi.list({ role: "sales_executive" }), usersApi.list({ role: "coordinator" }),
+        mastersApi.list("document-types"),
         mastersApi.list("cities"), mastersApi.list("states"),
         mastersApi.list("case-statuses"), mastersApi.list("rto-statuses").catch(() => ({ data: [] })),
         mastersApi.list("products").catch(() => ({ data: [] })),
+        formSchemasApi.get("new-case").catch(() => ({ data: null as unknown as FormSchema })),
       ]);
       setBanks(bl.data); setDealers(dl.data);
-      setSalesUsers(ul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
+      setSalesUsers(ul.data); setCoordinatorUsers(cul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setCustomStatuses(csl.data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })));
       setCustomRtoStatuses(rsl.data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })));
       setProducts(pl.data.filter((d: any) => d.isActive));
+      setCaseSchema(fsl.data);
     } catch (e: any) { toast("error", "Failed to load references"); }
   }, [toast]);
 
@@ -454,6 +467,18 @@ export default function CasesPage() {
     } catch (e: any) { toast("error", e.message ?? "Failed to assign"); }
   }
 
+  // ── Assign coordinator ────────────────────────────────────────────
+  async function assignCoordinator(userId: string) {
+    if (!drawerCase) return;
+    try {
+      const { data } = await casesApi.assignCoordinator(drawerCase._id, { userId: userId || null });
+      setDrawerCase(data);
+      const user = coordinatorUsers.find(u => u._id === userId);
+      toast("success", user ? `Coordinator changed to ${user.firstName} ${user.lastName}` : "Coordinator unassigned");
+      load();
+    } catch (e: any) { toast("error", e.message ?? "Failed to change coordinator"); }
+  }
+
   // ── Edit case ──────────────────────────────────────────────────────
   function openEditModal(c: LoanCase) {
     setEditForm({
@@ -495,7 +520,7 @@ export default function CasesPage() {
         dealerId: editForm.dealerId || undefined,
         payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
         remarks: editForm.remarks || undefined,
-        customFields: buildCustomFieldsPayload(editProductFields, editForm.customFields),
+        customFields: buildCustomFieldsPayload([...genericCustomFields, ...editProductFields], editForm.customFields),
       });
       setDrawerCase(data);
       toast("success", "Case updated successfully");
@@ -530,7 +555,7 @@ export default function CasesPage() {
         dealerId: f.dealerId || undefined,
         payoutPct: f.payoutPct ? Number(f.payoutPct) : undefined,
         remarks: f.remarks || undefined,
-        customFields: buildCustomFieldsPayload(newCaseProductFields, f.customFields),
+        customFields: buildCustomFieldsPayload([...genericCustomFields, ...newCaseProductFields], f.customFields),
       });
       toast("success", "Case created successfully");
       setNewCaseOpen(false);
@@ -734,7 +759,10 @@ export default function CasesPage() {
                   </td>
                   <td className="font-mono text-xs text-primary font-semibold">{c.caseCode}</td>
                   <td className="text-xs text-muted">{fmtDate(c.date)}</td>
-                  <td className="font-medium text-sm">{c.customer.firstName} {c.customer.lastName}</td>
+                  <td className="text-sm">
+                    <div className="font-medium">{c.customer.firstName} {c.customer.lastName}</div>
+                    {c.customer.contact && <div className="text-[11px] text-muted font-mono">{c.customer.contact}</div>}
+                  </td>
                   <td className="text-xs text-foreground-secondary">{c.product}</td>
                   <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
                   <td className="font-mono text-xs font-semibold">{fmt(c.loanAmount)}</td>
@@ -822,9 +850,16 @@ export default function CasesPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Coordinator</p>
-                        <p className="h-8 flex items-center text-sm font-medium">
-                          {drawerCase.coordinatorName ?? <span className="text-muted/60">—</span>}
-                        </p>
+                        <Select
+                          className="h-8 text-sm font-medium w-48"
+                          value={drawerCase.coordinatorId ?? ""}
+                          onChange={(e) => assignCoordinator(e.target.value)}
+                        >
+                          <option value="">Unassigned</option>
+                          {coordinatorUsers.map((u) => (
+                            <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>
+                          ))}
+                        </Select>
                       </div>
                       <Button size="sm" variant="secondary" onClick={() => openEditModal(drawerCase)}>
                         <Pencil className="size-3.5" /> Edit
@@ -855,6 +890,23 @@ export default function CasesPage() {
                       </div>
                     ))}
                   </div>
+                  {genericCustomFields.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Additional Fields</p>
+                      <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                        {genericCustomFields.map((field) => {
+                          const raw = drawerCase.customFields?.[field.key];
+                          const value = raw == null || raw === "" ? "—" : typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw);
+                          return (
+                            <div key={field.key} className="space-y-1">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{field.label}</p>
+                              <span className="text-sm font-medium text-foreground">{value}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {drawerCase.remarks && (
                     <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{drawerCase.remarks}</div>
                   )}
@@ -1317,8 +1369,8 @@ export default function CasesPage() {
               <div><Label>First Name *</Label><Input value={editForm.firstName} onChange={(e) => setEditForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
               <div><Label>Last Name *</Label><Input value={editForm.lastName} onChange={(e) => setEditForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
               <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
-              <div><Label>Contact *</Label><Input value={editForm.contact} onChange={(e) => setEditForm(p => ({ ...p, contact: e.target.value }))} placeholder="+91…" /></div>
-              <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm(p => ({ ...p, altContact: e.target.value }))} placeholder="Alt number" /></div>
+              <div><Label>Contact *</Label><PhoneInput value={editForm.contact} onChange={(v) => setEditForm(p => ({ ...p, contact: v }))} /></div>
+              <div><Label>Alt Contact</Label><PhoneInput value={editForm.altContact} onChange={(v) => setEditForm(p => ({ ...p, altContact: v }))} placeholder="Optional" /></div>
               <div>
                 <Label>State</Label>
                 <Select value={editForm.state} onChange={(e) => setEditForm(p => ({ ...p, state: e.target.value }))}>
@@ -1393,6 +1445,24 @@ export default function CasesPage() {
             </div>
           </div>
 
+          {genericCustomFields.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Additional Fields</p>
+              <div className="grid grid-cols-3 gap-3">
+                {genericCustomFields.map(field => (
+                  <div key={field.key}>
+                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
+                    <ProductDynField
+                      field={field}
+                      value={editForm.customFields[field.key] ?? ""}
+                      onChange={v => setEditForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Bank & Dealer */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
@@ -1406,7 +1476,7 @@ export default function CasesPage() {
               </div>
               <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
               <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-              <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
+              <div><Label>BM Contact</Label><PhoneInput value={editForm.bmContact} onChange={(v) => setEditForm(p => ({ ...p, bmContact: v }))} /></div>
               <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
               <div>
                 <div className="flex items-center justify-between">
@@ -1576,8 +1646,8 @@ export default function CasesPage() {
               <div><Label>First Name *</Label><Input value={newCaseForm.firstName} onChange={(e) => setNewCaseForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
               <div><Label>Last Name</Label><Input value={newCaseForm.lastName} onChange={(e) => setNewCaseForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
               <div><Label>Father's Name</Label><Input value={newCaseForm.fatherName} onChange={(e) => setNewCaseForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
-              <div><Label>Contact *</Label><Input value={newCaseForm.contact} onChange={(e) => setNewCaseForm(p => ({ ...p, contact: e.target.value }))} placeholder="+91…" /></div>
-              <div><Label>Alt Contact</Label><Input value={newCaseForm.altContact} onChange={(e) => setNewCaseForm(p => ({ ...p, altContact: e.target.value }))} placeholder="Alt number" /></div>
+              <div><Label>Contact *</Label><PhoneInput value={newCaseForm.contact} onChange={(v) => setNewCaseForm(p => ({ ...p, contact: v }))} /></div>
+              <div><Label>Alt Contact</Label><PhoneInput value={newCaseForm.altContact} onChange={(v) => setNewCaseForm(p => ({ ...p, altContact: v }))} placeholder="Optional" /></div>
               <div>
                 <Label>State</Label>
                 <Select value={newCaseForm.state} onChange={(e) => setNewCaseForm(p => ({ ...p, state: e.target.value }))}>
@@ -1652,6 +1722,24 @@ export default function CasesPage() {
             </div>
           </div>
 
+          {genericCustomFields.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Additional Fields</p>
+              <div className="grid grid-cols-3 gap-3">
+                {genericCustomFields.map(field => (
+                  <div key={field.key}>
+                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
+                    <ProductDynField
+                      field={field}
+                      value={newCaseForm.customFields[field.key] ?? ""}
+                      onChange={v => setNewCaseForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Bank & Dealer */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
@@ -1665,7 +1753,7 @@ export default function CasesPage() {
               </div>
               <div><Label>Branch</Label><Input value={newCaseForm.bankBranch} onChange={(e) => setNewCaseForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
               <div><Label>BM Name</Label><Input value={newCaseForm.bmName} onChange={(e) => setNewCaseForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-              <div><Label>BM Contact</Label><Input value={newCaseForm.bmContact} onChange={(e) => setNewCaseForm(p => ({ ...p, bmContact: e.target.value }))} placeholder="+91…" /></div>
+              <div><Label>BM Contact</Label><PhoneInput value={newCaseForm.bmContact} onChange={(v) => setNewCaseForm(p => ({ ...p, bmContact: v }))} /></div>
               <div><Label>Bank Executive</Label><Input value={newCaseForm.bankExecutive} onChange={(e) => setNewCaseForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
               <div>
                 <div className="flex items-center justify-between">
@@ -1709,7 +1797,7 @@ export default function CasesPage() {
           </div>
           <div>
             <Label>Contact</Label>
-            <Input value={newDealer.contact} onChange={(e) => setNewDealer(f => ({ ...f, contact: e.target.value }))} placeholder="+91…" />
+            <PhoneInput value={newDealer.contact} onChange={(v) => setNewDealer(f => ({ ...f, contact: v }))} />
           </div>
           <div>
             <Label>Location</Label>

@@ -36,6 +36,7 @@ import {
   EmptyState, Skeleton, useToast, Tabs, type BadgeTone,
 } from "../../../components/ui";
 import { InsuranceEntryFields } from "../../../components/InsuranceEntryFields";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 import {
   insuranceApi, insurancePoliciesApi, casesApi, mastersApi, formSchemasApi,
   INSURANCE_OWNER_TYPES,
@@ -927,6 +928,7 @@ function InsDynField({ field, value, onChange }: { field: FieldDef; value: strin
   );
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
 }
 

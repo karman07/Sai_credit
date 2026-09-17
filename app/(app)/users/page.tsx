@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Edit2, Power, KeyRound } from "lucide-react";
 import {
-  Button, Badge, Modal, Input, Label, Select, SearchInput,
+  Button, Badge, Modal, Input, PhoneInput, Label, Select, SearchInput,
   SectionHeader, ConfirmDialog, Pagination, EmptyState, useToast,
   type BadgeTone,
 } from "../../../components/ui";
@@ -155,7 +155,12 @@ export default function UsersPage() {
                       </div>
                     </td>
                     <td className="text-sm text-foreground-secondary">{u.email}</td>
-                    <td><Badge tone={ROLE_TONE[u.role] ?? "neutral"}>{ROLE_LABEL[u.role] ?? u.role}</Badge></td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <Badge tone={ROLE_TONE[u.role] ?? "neutral"}>{ROLE_LABEL[u.role] ?? u.role}</Badge>
+                        {u.role === "coordinator" && u.rtoAccess && <Badge tone="info">RTO</Badge>}
+                      </div>
+                    </td>
                     <td className="text-sm text-foreground-secondary">
                       {SALES_ROLE_VALUES.includes(u.role) ? (coordinatorName(u.coordinatorId) ?? <span className="text-muted">Unassigned</span>) : <span className="text-muted">—</span>}
                     </td>
@@ -276,6 +281,7 @@ function UserFormModal({
     department:      user?.department   ?? "",
     joiningDate:     user?.joiningDate ? user.joiningDate.slice(0, 10) : "",
     coordinatorId:   user?.coordinatorId ?? "",
+    rtoAccess:       user?.rtoAccess ?? false,
   });
   const isSalesRoleForm = SALES_ROLE_VALUES.includes(form.role);
   const roleOptions = PRIMARY_ROLES.some((r) => r.value === form.role)
@@ -326,6 +332,7 @@ function UserFormModal({
           department:   form.department   || undefined,
           joiningDate:  form.joiningDate  || undefined,
           coordinatorId: isSalesRoleForm ? (form.coordinatorId || undefined) : undefined,
+          rtoAccess:    form.role === "coordinator" ? form.rtoAccess : undefined,
           ...allowanceBody,
         };
         await usersApi.update(user!._id, body);
@@ -343,6 +350,7 @@ function UserFormModal({
           department:   form.department   || undefined,
           joiningDate:  form.joiningDate  || undefined,
           coordinatorId: isSalesRoleForm ? (form.coordinatorId || undefined) : undefined,
+          rtoAccess:    form.role === "coordinator" ? form.rtoAccess : undefined,
           ...allowanceBody,
         };
         await usersApi.create(body);
@@ -384,7 +392,7 @@ function UserFormModal({
               <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} required />
             </div>
             <div><Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="Optional" />
+              <PhoneInput value={form.phone} onChange={(v) => set("phone", v)} placeholder="Optional" />
             </div>
             <div><Label>Role <span className="text-danger">*</span></Label>
               <Select value={form.role} onChange={(e) => set("role", e.target.value as AppRole)} required>
@@ -397,6 +405,23 @@ function UserFormModal({
                   <option value="">Unassigned</option>
                   {coordinators.map((c) => <option key={c._id} value={c._id}>{c.firstName} {c.lastName}</option>)}
                 </Select>
+              </div>
+            )}
+            {form.role === "coordinator" && (
+              <div className="col-span-2 flex items-start gap-3 rounded-xl border border-border p-3 bg-surface-2/50">
+                <input
+                  type="checkbox"
+                  id="rtoAccess"
+                  checked={form.rtoAccess}
+                  onChange={(e) => setForm((f) => ({ ...f, rtoAccess: e.target.checked }))}
+                  className="mt-0.5 rounded size-4"
+                />
+                <div>
+                  <label htmlFor="rtoAccess" className="text-sm font-medium cursor-pointer">RTO Access</label>
+                  <p className="text-xs text-muted mt-0.5">
+                    Grants this specific coordinator access to the RTO / Documents section. Off by default — most coordinators don't need it.
+                  </p>
+                </div>
               </div>
             )}
           </div>

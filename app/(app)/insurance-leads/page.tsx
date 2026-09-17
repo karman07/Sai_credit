@@ -10,7 +10,7 @@ import {
   insuranceLeadsApi, usersApi, INSURANCE_OWNER_TYPES,
   type InsuranceLead, type InsuranceLeadStats, type ConvertLeadBody,
 } from "../../../lib/api";
-import { Button, Input, Label, Select, Badge, Modal, type BadgeTone } from "../../../components/ui";
+import { Button, Input, PhoneInput, Label, Select, Badge, Modal, type BadgeTone } from "../../../components/ui";
 import { InsuranceEntryFields, type InsuranceCoreForm } from "../../../components/InsuranceEntryFields";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,11 +109,11 @@ function LeadForm({ initial, users, onSave, onClose }: {
               </div>
               <div className="space-y-1.5">
                 <Label>Primary Contact *</Label>
-                <Input value={form.contact} onChange={(e) => set("contact", e.target.value)} required />
+                <PhoneInput value={form.contact} onChange={(v) => set("contact", v)} required />
               </div>
               <div className="space-y-1.5">
                 <Label>Alternate Contact</Label>
-                <Input value={form.altContact} onChange={(e) => set("altContact", e.target.value)} />
+                <PhoneInput value={form.altContact} onChange={(v) => set("altContact", v)} placeholder="Optional" />
               </div>
               <div className="space-y-1.5">
                 <Label>Location</Label>

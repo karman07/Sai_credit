@@ -15,6 +15,7 @@ import {
   type PayoutRecord, type Bank, type LoanCase, type LinkedCase,
   type SectionDef, type FieldDef,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
@@ -98,6 +99,7 @@ function PayoutDynField({ field, value, onChange }: { field: FieldDef; value: st
       </label>
     );
   }
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return (
     <Input
       type={field.type === "number" ? "number" : field.type === "date" ? "date" : field.type === "tel" ? "tel" : "text"}

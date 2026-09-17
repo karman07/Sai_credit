@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Edit2, Power, MapPin, Phone } from "lucide-react";
 import {
-  Button, Badge, Modal, Input, Label, SearchInput,
+  Button, Badge, Modal, Input, PhoneInput, Label, SearchInput,
   SectionHeader, ConfirmDialog, Pagination, EmptyState, Skeleton, useToast,
 } from "../../../components/ui";
 import { dealersApi, type Dealer } from "../../../lib/api";
@@ -142,7 +142,7 @@ export default function DealersPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2"><Label>Dealer Name *</Label><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="Dealer business name" /></div>
-            <div><Label>Contact</Label><Input value={form.contact} onChange={(e) => setForm((p) => ({ ...p, contact: e.target.value }))} placeholder="+91 XXXXX XXXXX" /></div>
+            <div><Label>Contact</Label><PhoneInput value={form.contact} onChange={(v) => setForm((p) => ({ ...p, contact: v }))} /></div>
             <div><Label>Location</Label><Input value={form.location} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} placeholder="City" /></div>
           </div>
           <div className="flex gap-2 justify-end border-t border-border pt-3">

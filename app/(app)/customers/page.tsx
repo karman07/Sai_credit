@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, ChevronLeft, ChevronRight, X, Users, Edit2 } from "lucide-react";
 import { api, ApiError, PageMeta } from "../../../lib/api";
-import { Button, Input, Badge, Modal, Label, CaseStatusBadge, EmptyState, TableSkeleton, SearchInput, useToast, type CaseStatus } from "../../../components/ui";
+import { Button, Input, PhoneInput, Badge, Modal, Label, CaseStatusBadge, EmptyState, TableSkeleton, SearchInput, useToast, type CaseStatus } from "../../../components/ui";
 
 const STATUS_TABS = ["All", "Repeat", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"] as const;
 
@@ -282,7 +282,7 @@ function CreateCustomerDrawer({ onClose, onCreated }: { onClose: () => void; onC
             <Input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} required />
           </Field>
           <Field label="Phone" required>
-            <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} required />
+            <PhoneInput value={form.phone} onChange={(v) => set("phone", v)} required />
           </Field>
           <Field label="Email">
             <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
@@ -366,7 +366,7 @@ function EditCustomerModal({ customer, onClose, onSaved }: {
           </div>
           <div>
             <Label>Phone *</Label>
-            <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            <PhoneInput value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
           </div>
           <div>
             <Label>Email</Label>

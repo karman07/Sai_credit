@@ -11,6 +11,7 @@ const TYPE_META: Record<string, { label: string; icon: React.ElementType; tone: 
   rto_complete:       { label: "RTO",        icon: CheckCircle2,  tone: "success"  },
   pipeline_complete:  { label: "Disbursed",  icon: CheckCircle2,  tone: "teal"     },
   document:           { label: "Document",   icon: FileText,      tone: "orange"   },
+  doc_uploaded:       { label: "Document",   icon: FileText,      tone: "orange"   },
   new_case:           { label: "New Case",   icon: Plus,          tone: "info"     },
   default:            { label: "Alert",      icon: Bell,          tone: "neutral"  },
 };
