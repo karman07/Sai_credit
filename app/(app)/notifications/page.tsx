@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import {
   Bell, FileText, TrendingUp, Clock, CheckCircle2, XCircle,
-  IndianRupee, Award, CalendarCheck, CalendarX, Receipt, ReceiptText,
+  IndianRupee, Award, CalendarCheck, CalendarX, Receipt, ReceiptText, UserCog,
 } from "lucide-react";
 import { notificationsApi, type Notification } from "../../../lib/api";
 import { cn } from "../../../components/ui";
@@ -38,6 +38,7 @@ const TYPE_CONFIG: Record<string, { icon: typeof Bell; bg: string; text: string 
   incentive_added:  { icon: Award,         bg: "bg-yellow-100", text: "text-yellow-700" },
   insurance_reminder: { icon: Bell,        bg: "bg-orange-100", text: "text-orange-700" },
   doc_request:        { icon: FileText,    bg: "bg-orange-100", text: "text-orange-700" },
+  coordinator_changed: { icon: UserCog,    bg: "bg-blue-100",   text: "text-blue-700" },
   pipeline_complete:  { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
   rto_complete:       { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
   stagnant_case:      { icon: Clock,        bg: "bg-yellow-100", text: "text-yellow-700" },

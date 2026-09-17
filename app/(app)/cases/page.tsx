@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { FileText, Plus, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, Phone, User, Search, Building2 } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
-  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, Select, cn
+  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, PhoneInput, Select, cn
 } from "../../../components/ui";
 import {
-  casesApi, customersApi, mastersApi, banksApi, dealersApi, formSchemasApi,
+  casesApi, customersApi, mastersApi, banksApi, dealersApi, formSchemasApi, onlyDigits,
   LOAN_TYPES, RESIDENTIAL_STATUSES, FIRMS, VEHICLE_PRODUCTS, API_BASE,
   type LoanCase, type FormSchema, type PageMeta, type Bank, type Dealer, type SalesCustomer, type FieldDef,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 
@@ -36,6 +37,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
   }
   if (field.type === "date") return <Input type="date" value={value} onChange={e => onChange(e.target.value)} />;
   if (field.type === "number") return <Input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <Input value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
 }
 
@@ -157,6 +159,12 @@ export default function MyCasesPage() {
   const [leadProductFields, setLeadProductFields] = useState<FieldDef[]>([]);
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
 
+  // Custom fields added via Form Builder on the "New Case" form itself (not tied
+  // to a specific product) — e.g. extra fields under Customer / Loan / Bank sections.
+  const genericCustomFields: FieldDef[] = (caseSchema?.sections ?? []).flatMap((s) =>
+    s.fields.filter((f) => !f.isCore && f.isActive),
+  );
+
   async function loadProductFields(productName: string): Promise<FieldDef[]> {
     const p = products.find((x) => x.name === productName);
     if (!p?.code) return [];
@@ -263,14 +271,22 @@ export default function MyCasesPage() {
       setFoundCustomer(match ?? null);
       if (match) {
         setLeadCustomer({ firstName: match.firstName, lastName: match.lastName, fatherName: "", altContact: match.alternatePhone ?? "", location: "", residentialStatus: "" });
+      } else if (!/^\d{7,15}$/.test(onlyDigits(phone))) {
+        // The search box doubles as "name or phone" — no existing customer matched,
+        // so this must become the new customer's phone number. Reject if it isn't one
+        // instead of silently letting a typed name flow through as the contact number.
+        toast("error", "No matching customer found. Enter a valid phone number (digits only) to create a new lead.");
+        setLookingUp(false);
+        return;
+      } else {
+        setLeadPhone(onlyDigits(phone));
       }
     } catch {
       setFoundCustomer(null);
-    } finally {
-      setLookingUp(false);
-      setPhoneChecked(true);
-      setLeadStep("customer");
     }
+    setLookingUp(false);
+    setPhoneChecked(true);
+    setLeadStep("customer");
   }
 
   async function createLead() {
@@ -291,7 +307,7 @@ export default function MyCasesPage() {
         dealerName: dealer?.name,
         vehicleModel: leadCase.vehicleModel || undefined,
         regNumber: leadCase.regNumber || undefined,
-        customFields: buildCustomFieldsPayload(leadProductFields, leadCase.customFields),
+        customFields: buildCustomFieldsPayload([...genericCustomFields, ...leadProductFields], leadCase.customFields),
         customer: {
           firstName: leadCustomer.firstName,
           lastName: leadCustomer.lastName,
@@ -429,7 +445,7 @@ export default function MyCasesPage() {
         dealerId: editForm.dealerId || undefined,
         dealerName: dealer?.name,
         payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
-        customFields: buildCustomFieldsPayload(editProductFields, editForm.customFields),
+        customFields: buildCustomFieldsPayload([...genericCustomFields, ...editProductFields], editForm.customFields),
         customer: {
           ...detailCase.customer,
           firstName: editForm.firstName || detailCase.customer.firstName,
@@ -572,16 +588,16 @@ export default function MyCasesPage() {
             <thead>
               <tr>
                 <th>Case ID</th><th>Date</th><th>Customer</th><th>Product</th>
-                <th>Bank</th><th>Loan Amount</th><th>Status</th><th className="w-20">Actions</th>
+                <th>Bank</th><th>Loan Amount</th><th>Coordinator</th><th>Status</th><th className="w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 8 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
+                  <tr key={i}>{Array.from({ length: 9 }).map((_, j) => <td key={j}><Skeleton className="h-4 w-full" /></td>)}</tr>
                 ))
               ) : cases.length === 0 ? (
-                <tr><td colSpan={8}><EmptyState icon={FileText} title="No cases found" description="Create your first lead using the New Lead button." /></td></tr>
+                <tr><td colSpan={9}><EmptyState icon={FileText} title="No cases found" description="Create your first lead using the New Lead button." /></td></tr>
               ) : cases.map((c) => (
                 <tr key={c._id} className="cursor-pointer" onClick={() => openDetail(c)}
                   style={{ borderLeft: c.status === "Incomplete" ? "3.5px solid var(--orange)" : undefined }}>
@@ -591,6 +607,7 @@ export default function MyCasesPage() {
                   <td className="text-xs text-foreground-secondary">{c.product}</td>
                   <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
                   <td className="font-mono text-xs font-semibold">{c.loanAmount ? `₹${c.loanAmount.toLocaleString("en-IN")}` : "—"}</td>
+                  <td className="text-xs text-foreground-secondary">{c.coordinatorName ?? "—"}</td>
                   <td><CaseStatusBadge status={c.status} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
@@ -662,8 +679,8 @@ export default function MyCasesPage() {
                         <div><Label>First Name</Label><Input value={editForm.firstName} onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))} /></div>
                         <div><Label>Last Name</Label><Input value={editForm.lastName} onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))} /></div>
                         <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm((f) => ({ ...f, fatherName: e.target.value }))} /></div>
-                        <div><Label>Contact</Label><Input value={editForm.contact} onChange={(e) => setEditForm((f) => ({ ...f, contact: e.target.value }))} /></div>
-                        <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm((f) => ({ ...f, altContact: e.target.value }))} /></div>
+                        <div><Label>Contact</Label><PhoneInput value={editForm.contact} onChange={(v) => setEditForm((f) => ({ ...f, contact: v }))} /></div>
+                        <div><Label>Alt Contact</Label><PhoneInput value={editForm.altContact} onChange={(v) => setEditForm((f) => ({ ...f, altContact: v }))} placeholder="Optional" /></div>
                         <div><Label>State</Label>
                           <Select value={editForm.state} onChange={(e) => setEditForm((f) => ({ ...f, state: e.target.value }))}>
                             <option value="">Select state…</option>
@@ -726,6 +743,23 @@ export default function MyCasesPage() {
                         ))}
                       </div>
                     </div>
+                    {genericCustomFields.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Additional Fields</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {genericCustomFields.map((field) => (
+                            <div key={field.key}>
+                              <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
+                              <ProductDynField
+                                field={field}
+                                value={editForm.customFields[field.key] ?? ""}
+                                onChange={(v) => setEditForm((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {/* Bank */}
                     <div className="space-y-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Bank / NBFC</p>
@@ -738,7 +772,7 @@ export default function MyCasesPage() {
                         </div>
                         <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm((f) => ({ ...f, bankBranch: e.target.value }))} /></div>
                         <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm((f) => ({ ...f, bmName: e.target.value }))} /></div>
-                        <div><Label>BM Contact</Label><Input value={editForm.bmContact} onChange={(e) => setEditForm((f) => ({ ...f, bmContact: e.target.value }))} /></div>
+                        <div><Label>BM Contact</Label><PhoneInput value={editForm.bmContact} onChange={(v) => setEditForm((f) => ({ ...f, bmContact: v }))} /></div>
                         <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm((f) => ({ ...f, bankExecutive: e.target.value }))} /></div>
                       </div>
                     </div>
@@ -789,6 +823,7 @@ export default function MyCasesPage() {
                             <div><Label>Date</Label><p className="text-sm font-medium mt-0.5">{new Date(detailCase.date).toLocaleDateString("en-IN")}</p></div>
                             {detailCase.firm && <div><Label>Firm</Label><p className="text-sm font-medium mt-0.5">{detailCase.firm}</p></div>}
                             {detailCase.assignedToName && <div><Label>Assigned To</Label><p className="text-sm font-medium mt-0.5">{detailCase.assignedToName}</p></div>}
+                            <div><Label>Coordinator</Label><p className="text-sm font-medium mt-0.5">{detailCase.coordinatorName ?? "Unassigned"}</p></div>
                             {detailCase.disbursementDate && <div><Label>Disbursed On</Label><p className="text-sm font-medium mt-0.5">{new Date(detailCase.disbursementDate).toLocaleDateString("en-IN")}</p></div>}
                           </div>
                         </div>
@@ -804,6 +839,7 @@ export default function MyCasesPage() {
                           ["Dealer", detailCase.dealerName ?? "—"],
                           ["Location", detailCase.customer.location ?? "—"],
                           ...(detailCase.vehicleModel ? [["Vehicle", detailCase.vehicleModel + (detailCase.regNumber ? ` · ${detailCase.regNumber}` : "")]] : []),
+                          ["Coordinator", detailCase.coordinatorName ?? "Unassigned"],
                           ["Disbursed", detailCase.disbursementDate ? new Date(detailCase.disbursementDate).toLocaleDateString("en-IN") : "—"],
                         ].map(([label, value]) => (
                           <div key={label as string}>
@@ -1135,10 +1171,10 @@ export default function MyCasesPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Alt. Phone <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <Input
+                    <PhoneInput
                       value={leadCustomer.altContact}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, altContact: e.target.value }))}
-                      placeholder="Alternate number"
+                      onChange={(v) => setLeadCustomer((f) => ({ ...f, altContact: v }))}
+                      placeholder="Optional"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -1312,6 +1348,16 @@ export default function MyCasesPage() {
                     />
                   </div>
                 ))}
+                {genericCustomFields.map((field) => (
+                  <div key={field.key} className="space-y-1.5">
+                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
+                    <ProductDynField
+                      field={field}
+                      value={leadCase.customFields[field.key] ?? ""}
+                      onChange={(v) => setLeadCase((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
+                    />
+                  </div>
+                ))}
               </div>
 
               <div className="flex gap-2 justify-between pt-1 border-t border-border">
@@ -1337,7 +1383,7 @@ export default function MyCasesPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Contact</Label>
-            <Input value={newDealer.contact} onChange={(e) => setNewDealer((f) => ({ ...f, contact: e.target.value }))} placeholder="+91…" />
+            <PhoneInput value={newDealer.contact} onChange={(v) => setNewDealer((f) => ({ ...f, contact: v }))} />
           </div>
           <div className="space-y-1.5">
             <Label>Location</Label>

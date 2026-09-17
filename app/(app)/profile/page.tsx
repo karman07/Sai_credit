@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Key, User, Phone, Mail } from "lucide-react";
+import { Key, User, Phone, Mail, UserCog } from "lucide-react";
 import { useAuth } from "../../../lib/auth-context";
 import { Button, Input, Label, Badge, useToast } from "../../../components/ui";
 import { authApi } from "../../../lib/api";
@@ -69,6 +69,7 @@ export default function ProfilePage() {
             { icon: User, label: "Last Name",  value: user?.lastName  ?? "—" },
             { icon: Mail, label: "Email",      value: user?.email     ?? "—" },
             { icon: Phone, label: "Phone",     value: "—"              },
+            { icon: UserCog, label: "Coordinator", value: user?.coordinatorName ?? "Unassigned" },
           ].map((f) => (
             <div key={f.label}>
               <Label>{f.label}</Label>

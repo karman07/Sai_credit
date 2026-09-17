@@ -7,6 +7,7 @@ import {
   casesApi, rtoApi, formSchemasApi,
   type LoanCase, type RTORecord, type FieldDef, type SectionDef,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
 const CHECKLIST_OPTS   = ["Pending", "Received", "Not Required"] as const;
@@ -88,6 +89,7 @@ function DynField({ field, value, onChange }: { field: FieldDef; value: string; 
   }
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={base} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
 }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Users, Edit2, Lock } from "lucide-react";
 import Link from "next/link";
 import {
-  Button, Badge, CaseStatusBadge, SearchInput, Modal, Label, Input,
+  Button, Badge, CaseStatusBadge, SearchInput, Modal, Label, Input, PhoneInput,
   EmptyState, Skeleton, useToast, type CaseStatus,
 } from "../../../components/ui";
 import { customersApi, getCurrentUserId, type SalesCustomer, type PageMeta } from "../../../lib/api";
@@ -221,11 +221,11 @@ function EditCustomerModal({ customer, onClose, onSaved }: {
           </div>
           <div>
             <Label>Phone *</Label>
-            <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            <PhoneInput value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
           </div>
           <div>
             <Label>Alternate Phone</Label>
-            <Input value={form.alternatePhone} onChange={(e) => setForm((f) => ({ ...f, alternatePhone: e.target.value }))} placeholder="Optional" />
+            <PhoneInput value={form.alternatePhone} onChange={(v) => setForm((f) => ({ ...f, alternatePhone: v }))} placeholder="Optional" />
           </div>
           <div className="col-span-2">
             <Label>Email</Label>

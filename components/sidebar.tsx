@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, FileText, Building2, ShieldCheck,
   Bell, User, ChevronLeft, ChevronRight, Leaf, Users,
-  CalendarDays, Receipt, Palmtree, Clipboard,
+  CalendarDays, Receipt, Palmtree, Clipboard, Files,
 } from "lucide-react";
 import { cn } from "./ui";
 import { notificationsApi } from "../lib/api";
@@ -27,6 +27,7 @@ const NAV = [
       { label: "Insurance Leads", href: "/insurance-leads", icon: Users     },
       { label: "Banks & Dealers", href: "/banks-dealers",   icon: Building2 },
       { label: "Insurance Entry", href: "/insurance",       icon: ShieldCheck },
+      { label: "Document Types",  href: "/document-types",  icon: Files },
     ],
   },
   {

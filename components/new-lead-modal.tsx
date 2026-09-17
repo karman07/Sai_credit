@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { CheckCircle2, ChevronRight, ChevronLeft, User, Car, Building2, Eye } from "lucide-react";
-import { Button, Input, Label, Select, Modal } from "./ui";
+import { Button, Input, PhoneInput, Label, Select, Modal } from "./ui";
 import {
   banksApi, dealersApi, casesApi, mastersApi, formSchemasApi,
   type Bank, type Dealer, type FormSchema, type FieldDef,
 } from "../lib/api";
+import { FileFieldInput } from "./FileFieldInput";
 
 // ── Core field key → case payload path mapping ────────────────────────────────
 // These keys are "special" — they map to named fields in the case payload rather
@@ -111,9 +112,11 @@ function DynField({ field, value, onChange, error, banks, dealers, cities, state
       case "number":
         return <Input id={id} value={value} onChange={e => onChange(e.target.value)} type="number" placeholder={field.placeholder} />;
       case "tel":
-        return <Input id={id} value={value} onChange={e => onChange(e.target.value)} type="tel" placeholder={field.placeholder} />;
+        return <PhoneInput id={id} value={value} onChange={onChange} placeholder={field.placeholder} />;
       case "date":
         return <Input id={id} value={value} onChange={e => onChange(e.target.value)} type="date" />;
+      case "file":
+        return <FileFieldInput value={value} onChange={onChange} />;
       default:
         return <Input id={id} value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
     }

@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Edit2, Calendar,
 } from "lucide-react";
 import { insuranceLeadsApi, mastersApi, type InsuranceLead, type InsuranceLeadStats } from "../../../lib/api";
-import { Button, Input, Label, Select, Badge, SearchInput, type BadgeTone } from "../../../components/ui";
+import { Button, Input, PhoneInput, Label, Select, Badge, SearchInput, type BadgeTone } from "../../../components/ui";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,11 +105,11 @@ function LeadForm({ initial, onSave, onClose }: {
               </div>
               <div className="space-y-1.5">
                 <Label>Phone *</Label>
-                <Input value={form.contact} onChange={(e) => set("contact", e.target.value)} required />
+                <PhoneInput value={form.contact} onChange={(v) => set("contact", v)} required />
               </div>
               <div className="space-y-1.5">
                 <Label>Alt. Phone</Label>
-                <Input value={form.altContact} onChange={(e) => set("altContact", e.target.value)} />
+                <PhoneInput value={form.altContact} onChange={(v) => set("altContact", v)} placeholder="Optional" />
               </div>
               <div className="space-y-1.5">
                 <Label>Area / Location</Label>

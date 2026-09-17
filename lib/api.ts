@@ -1,5 +1,10 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api/v1";
 
+/** Strips everything but digits from phone-number input, capped at 15 (matches backend validation). */
+export function onlyDigits(v: string): string {
+  return v.replace(/\D/g, "").slice(0, 15);
+}
+
 const ACCESS_KEY  = "sales-access-token";
 const REFRESH_KEY = "sales-refresh-token";
 
@@ -123,6 +128,7 @@ export interface LoanCase {
   status: CaseStatus; disbursementDate?: string;
   remarks?: string;
   assignedTo?: string; assignedToName?: string;
+  coordinatorId?: string; coordinatorName?: string;
   pipeline?: { stage: string; status: string; doneAt?: string; doneByName?: string; remarks?: string }[];
   documents: CaseDocument[];
   docRequests: DocRequest[];
@@ -251,13 +257,24 @@ export const payoutApi = {
   months: () => api.get<string[]>("/payout/months"),
 };
 
+export interface MasterItem {
+  _id: string; type: string; name: string; code?: string; shortName?: string;
+  parentId?: string; colorClass?: string; isTerminal?: boolean;
+  category?: string; metadata?: Record<string, unknown>;
+  sortOrder?: number; isActive: boolean; createdAt: string;
+}
+
 export const mastersApi = {
-  list: (resource: string) => api.get<any[]>(`/master/${resource}`),
+  list: (resource: string, includeInactive = false) =>
+    api.get<MasterItem[]>(`/master/${resource}`, includeInactive ? { includeInactive: true } : undefined),
+  create: (resource: string, body: unknown) => api.post<MasterItem>(`/master/${resource}`, body),
+  update: (resource: string, id: string, body: unknown) => api.put<MasterItem>(`/master/${resource}/${id}`, body),
+  toggle: (resource: string, id: string) => api.put<{ id: string; isActive: boolean }>(`/master/${resource}/${id}/toggle-status`),
 };
 
 // ── Form Schema Types & API ───────────────────────────────────────────
 
-export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean';
+export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean' | 'file';
 
 export interface FieldDef {
   key: string;
@@ -285,6 +302,15 @@ export interface FormSchema {
 
 export const formSchemasApi = {
   get: (formId: string) => api.get<FormSchema>(`/form-schemas/${formId}`),
+};
+
+/** Backs "File"-type custom fields — uploads and returns a URL to store as the field's value. */
+export const uploadsApi = {
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<{ url: string; fileName: string }>("/uploads", fd);
+  },
 };
 
 // ── HR Types ──────────────────────────────────────────────────────────

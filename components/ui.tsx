@@ -2,7 +2,7 @@
 
 import { forwardRef, createContext, useContext, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { X, CheckCircle2, XCircle, AlertTriangle, Info, Loader2, Search, Inbox } from "lucide-react";
+import { X, CheckCircle2, XCircle, AlertTriangle, Info, Loader2, Search, Inbox, Phone } from "lucide-react";
 
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -45,6 +45,38 @@ export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttrib
   ({ className, ...props }, ref) => <textarea ref={ref} className={cn("input-base !h-auto py-2 resize-none", className)} {...props} />
 );
 Textarea.displayName = "Textarea";
+
+/** Phone number field with a fixed +91 prefix — only digits can be typed, capped at `maxLength`. */
+export const PhoneInput = forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
+    value: string;
+    onChange: (value: string) => void;
+    maxLength?: number;
+  }
+>(({ value, onChange, className, maxLength = 10, placeholder, ...props }, ref) => (
+  <div className={cn(
+    "flex items-stretch h-9 rounded-md border border-border bg-surface overflow-hidden transition-colors focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--ring)]",
+    className,
+  )}>
+    <span className="flex items-center gap-1 pl-2.5 pr-2 text-sm font-medium text-muted bg-surface-2 border-r border-border shrink-0 select-none">
+      <Phone className="size-3.5" /> +91
+    </span>
+    <input
+      ref={ref}
+      type="tel"
+      inputMode="numeric"
+      autoComplete="tel"
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, maxLength))}
+      maxLength={maxLength}
+      placeholder={placeholder ?? "98765 43210"}
+      className="flex-1 min-w-0 px-3 bg-transparent text-sm outline-none placeholder:text-muted"
+      {...props}
+    />
+  </div>
+));
+PhoneInput.displayName = "PhoneInput";
 
 export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
   ({ className, children, ...props }, ref) => (
