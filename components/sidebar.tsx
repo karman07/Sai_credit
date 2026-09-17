@@ -7,47 +7,61 @@ import {
   LayoutDashboard, FileText, Wallet, Building2, ShieldCheck,
   Bell, User, ChevronLeft, ChevronRight, Compass,
   CalendarDays, Receipt, Palmtree, Wallet as PayslipIcon,
+  Layers, Settings2, Clipboard,
 } from "lucide-react";
 import { cn } from "./ui";
 import { notificationsApi } from "../lib/api";
-
-const NAV = [
-  { items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }] },
-  {
-    title: "Team",
-    items: [
-      { label: "Cases", href: "/cases", icon: FileText },
-      { label: "Payout Management", href: "/payout", icon: Wallet },
-    ],
-  },
-  {
-    title: "Reference",
-    items: [
-      { label: "Banks & Dealers", href: "/banks-dealers", icon: Building2 },
-      { label: "Insurance",       href: "/insurance",     icon: ShieldCheck },
-    ],
-  },
-  {
-    title: "My HR",
-    items: [
-      { label: "Attendance", href: "/attendance", icon: CalendarDays },
-      { label: "My Leaves",  href: "/leaves",     icon: Palmtree },
-      { label: "My Claims",  href: "/claims",     icon: Receipt },
-      { label: "Payslips",   href: "/payslips",   icon: PayslipIcon },
-    ],
-  },
-  {
-    items: [
-      { label: "Notifications", href: "/notifications", icon: Bell },
-      { label: "My Profile",    href: "/profile",       icon: User },
-    ],
-  },
-];
+import { useAuth } from "../lib/auth-context";
 
 type NavItem = { label: string; icon: React.ElementType; href: string };
 
+function buildNav(hasRtoAccess: boolean) {
+  return [
+    { items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }] },
+    {
+      title: "Team",
+      items: [
+        { label: "Cases", href: "/cases", icon: FileText },
+        { label: "Payout Management", href: "/payout", icon: Wallet },
+        ...(hasRtoAccess ? [{ label: "RTO / Documents", href: "/rto", icon: Clipboard }] : []),
+      ],
+    },
+    {
+      title: "Reference",
+      items: [
+        { label: "Banks & Dealers", href: "/banks-dealers", icon: Building2 },
+        { label: "Insurance",       href: "/insurance",     icon: ShieldCheck },
+      ],
+    },
+    {
+      title: "Configuration",
+      items: [
+        { label: "Form Builder", href: "/form-builder", icon: Settings2 },
+        { label: "Data Catalog", href: "/masters",      icon: Layers },
+      ],
+    },
+    {
+      title: "My HR",
+      items: [
+        { label: "Attendance", href: "/attendance", icon: CalendarDays },
+        { label: "My Leaves",  href: "/leaves",     icon: Palmtree },
+        { label: "My Claims",  href: "/claims",     icon: Receipt },
+        { label: "Payslips",   href: "/payslips",   icon: PayslipIcon },
+      ],
+    },
+    {
+      items: [
+        { label: "Notifications", href: "/notifications", icon: Bell },
+        { label: "My Profile",    href: "/profile",       icon: User },
+      ],
+    },
+  ];
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const NAV = buildNav(!!user?.rtoAccess);
   const [collapsed, setCollapsed] = useState(false);
   const [notifUnread, setNotifUnread] = useState(0);
 

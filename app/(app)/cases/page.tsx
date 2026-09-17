@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { FileText, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, FileWarning } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
-  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, Select, cn
+  Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, PhoneInput, Select, cn
 } from "../../../components/ui";
 import {
   casesApi, mastersApi, banksApi, dealersApi, formSchemasApi,
   VEHICLE_PRODUCTS, API_BASE,
   type LoanCase, type FormSchema, type PageMeta, type Bank, type Dealer, type FieldDef,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 
@@ -36,6 +37,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
   }
   if (field.type === "date") return <Input type="date" value={value} onChange={e => onChange(e.target.value)} />;
   if (field.type === "number") return <Input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <Input value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
 }
 
@@ -160,6 +162,12 @@ export default function TeamCasesPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
 
+  // Custom fields added via Form Builder on the "New Case" form itself (not tied
+  // to a specific product) — e.g. extra fields under Customer / Loan / Bank sections.
+  const genericCustomFields: FieldDef[] = (caseSchema?.sections ?? []).flatMap((s) =>
+    s.fields.filter((f) => !f.isCore && f.isActive),
+  );
+
   // Inline "add new dealer" from the edit form
   const [addDealerOpen, setAddDealerOpen] = useState(false);
   const [newDealer, setNewDealer] = useState({ name: "", contact: "", location: "", address: "" });
@@ -278,7 +286,7 @@ export default function TeamCasesPage() {
         dealerId: editForm.dealerId || undefined,
         dealerName: dealer?.name,
         payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
-        customFields: buildCustomFieldsPayload(editProductFields, editForm.customFields),
+        customFields: buildCustomFieldsPayload([...genericCustomFields, ...editProductFields], editForm.customFields),
         customer: {
           ...detailCase.customer,
           firstName: editForm.firstName || detailCase.customer.firstName,
@@ -450,7 +458,10 @@ export default function TeamCasesPage() {
                   style={{ borderLeft: c.status === "Incomplete" ? "3.5px solid var(--orange)" : undefined }}>
                   <td className="font-mono text-xs text-primary font-semibold">{c.caseCode}</td>
                   <td className="text-xs text-muted">{new Date(c.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</td>
-                  <td className="font-medium text-sm">{c.customer.firstName} {c.customer.lastName}</td>
+                  <td className="text-sm">
+                    <div className="font-medium">{c.customer.firstName} {c.customer.lastName}</div>
+                    {c.customer.contact && <div className="text-[11px] text-muted font-mono">{c.customer.contact}</div>}
+                  </td>
                   <td className="text-xs text-foreground-secondary">{c.assignedToName ?? "—"}</td>
                   <td className="text-xs text-foreground-secondary">{c.product}</td>
                   <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
@@ -525,8 +536,8 @@ export default function TeamCasesPage() {
                         <div><Label>First Name</Label><Input value={editForm.firstName} onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))} /></div>
                         <div><Label>Last Name</Label><Input value={editForm.lastName} onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))} /></div>
                         <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm((f) => ({ ...f, fatherName: e.target.value }))} /></div>
-                        <div><Label>Contact</Label><Input value={editForm.contact} onChange={(e) => setEditForm((f) => ({ ...f, contact: e.target.value }))} /></div>
-                        <div><Label>Alt Contact</Label><Input value={editForm.altContact} onChange={(e) => setEditForm((f) => ({ ...f, altContact: e.target.value }))} /></div>
+                        <div><Label>Contact</Label><PhoneInput value={editForm.contact} onChange={(v) => setEditForm((f) => ({ ...f, contact: v }))} /></div>
+                        <div><Label>Alt Contact</Label><PhoneInput value={editForm.altContact} onChange={(v) => setEditForm((f) => ({ ...f, altContact: v }))} placeholder="Optional" /></div>
                         <div><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} /></div>
                       </div>
                     </div>
@@ -558,6 +569,23 @@ export default function TeamCasesPage() {
                         ))}
                       </div>
                     </div>
+                    {genericCustomFields.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Additional Fields</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {genericCustomFields.map((field) => (
+                            <div key={field.key}>
+                              <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
+                              <ProductDynField
+                                field={field}
+                                value={editForm.customFields[field.key] ?? ""}
+                                onChange={(v) => setEditForm((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Bank / Dealer</p>
                       <div className="grid grid-cols-2 gap-3">
@@ -859,7 +887,7 @@ export default function TeamCasesPage() {
           </div>
           <div>
             <Label>Contact</Label>
-            <Input value={newDealer.contact} onChange={(e) => setNewDealer((f) => ({ ...f, contact: e.target.value }))} placeholder="+91…" />
+            <PhoneInput value={newDealer.contact} onChange={(v) => setNewDealer((f) => ({ ...f, contact: v }))} />
           </div>
           <div>
             <Label>Location</Label>

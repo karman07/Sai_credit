@@ -12,6 +12,7 @@ import {
   INSURANCE_OWNER_TYPES,
   type InsuranceMIS, type InsurancePolicy, type LoanCase, type SectionDef, type FieldDef,
 } from "../../../lib/api";
+import { FileFieldInput } from "../../../components/FileFieldInput";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -442,6 +443,7 @@ function InsDynField({ field, value, onChange }: { field: FieldDef; value: strin
   );
   if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
+  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
 }
 

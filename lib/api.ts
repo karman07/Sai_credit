@@ -144,6 +144,27 @@ export interface LinkedCase {
   caseId: string; caseCode: string; customerName?: string; loanAmount?: number;
 }
 
+export interface RTORecord {
+  _id: string; caseId?: string; caseCode?: string; customerName?: string;
+  status?: string;
+  rtoOwnershipType?: string;
+  rtoOwnership: string; rtoReceiving: boolean;
+  challanCheck: string; bankNocCheck: string; nocHoldAmt: number;
+  insuranceCheck: string; hypothecation: string;
+  aadhaarMatch: string; aadhaarMismatchNote?: string;
+  pendingDocuments: string[];
+  rtoSlipUrl?: string; rtoSlipFileName?: string;
+  verification: string; approval: string; approvalDate?: string;
+  insuranceEndorsement: string; balancePayment: number;
+  remarks?: string; createdAt?: string;
+  customFields?: Record<string, any>;
+}
+
+export const rtoApi = {
+  list: (caseId?: string) => api.get<RTORecord[]>("/rto-tracker", caseId ? { caseId } : undefined),
+  upsertByCase: (caseId: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/by-case/${caseId}`, body),
+};
+
 export interface PayoutRecord {
   _id: string; businessMonth: string; invoiceDate?: string;
   bankId?: string; bankName?: string; company?: string;
@@ -228,14 +249,22 @@ export const payoutApi = {
 
 export interface MasterItem {
   _id: string; type: string; name: string; code?: string; shortName?: string;
-  colorClass?: string; isActive: boolean;
+  parentId?: string; colorClass?: string; isTerminal?: boolean;
+  category?: string; metadata?: Record<string, unknown>;
+  sortOrder?: number; isActive: boolean; createdAt: string;
 }
 
+export const RTO_STATUSES = ["Pending", "Documents Pending", "Under Verification", "Approved", "Insurance Endorsement Pending", "Completed", "On Hold", "Rejected"];
+
 export const mastersApi = {
-  list: (resource: string) => api.get<MasterItem[]>(`/master/${resource}`),
+  list: (resource: string, includeInactive = false) =>
+    api.get<MasterItem[]>(`/master/${resource}`, includeInactive ? { includeInactive: true } : undefined),
+  create: (resource: string, body: unknown) => api.post<MasterItem>(`/master/${resource}`, body),
+  update: (resource: string, id: string, body: unknown) => api.put<MasterItem>(`/master/${resource}/${id}`, body),
+  toggle: (resource: string, id: string) => api.put<{ id: string; isActive: boolean }>(`/master/${resource}/${id}/toggle-status`),
 };
 
-export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean';
+export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean' | 'file';
 
 export interface FieldDef {
   key: string; label: string; type: FieldType; required: boolean;
@@ -247,7 +276,18 @@ export interface SectionDef { id: string; title: string; fields: FieldDef[]; }
 export interface FormSchema { formId: string; sections: SectionDef[]; }
 
 export const formSchemasApi = {
+  list: () => api.get<FormSchema[]>(`/form-schemas`),
   get: (formId: string) => api.get<FormSchema>(`/form-schemas/${formId}`),
+  update: (formId: string, body: { sections: SectionDef[] }) => api.put<FormSchema>(`/form-schemas/${formId}`, body),
+};
+
+/** Backs "File"-type custom fields — uploads and returns a URL to store as the field's value. */
+export const uploadsApi = {
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<{ url: string; fileName: string }>("/uploads", fd);
+  },
 };
 
 export interface TeamMember { _id: string; firstName: string; lastName: string; email: string; role: string; isActive: boolean; }

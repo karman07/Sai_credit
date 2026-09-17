@@ -7,6 +7,7 @@ import { api, tokenStore, attendanceApi } from "./api";
 export interface AuthUser {
   id: string; email: string; role: string; portal: string;
   firstName: string; lastName: string;
+  rtoAccess?: boolean;
 }
 
 interface AuthContextValue {
