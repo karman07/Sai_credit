@@ -85,23 +85,23 @@ export class CasesService {
   }) {
     const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId } = params;
     const filter: Record<string, any> = { isActive: true };
-    console.log('[DEBUG list()] params=', JSON.stringify(params));
 
-    // Coordinators only see cases assigned to the sales reps assigned to them
+    // Coordinators see cases assigned to the sales reps assigned to them, plus
+    // any case they created themselves directly (e.g. not yet assigned to a rep).
+    // `coordinatorId`/`createdBy` were historically saved as plain strings in
+    // some records instead of ObjectId (pre-existing data inconsistency), so
+    // matches are done against both forms rather than assuming one.
     if (coordinatorId) {
-      const repsCast = await this.userModel.find({ coordinatorId: new Types.ObjectId(coordinatorId) }, '_id').lean();
-      const repsRaw = await this.userModel.find({ coordinatorId: coordinatorId as any }, '_id').lean();
-      const sample = await this.userModel.findOne({ coordinatorId: { $exists: true } }, 'coordinatorId').lean();
-      console.log('[DEBUG list()] typeof coordinatorId param=', typeof coordinatorId, 'value=', coordinatorId);
-      console.log('[DEBUG list()] repsCast.length=', repsCast.length, 'repsRaw.length=', repsRaw.length);
-      console.log('[DEBUG list()] sample user coordinatorId field=', JSON.stringify(sample), sample ? typeof (sample as any).coordinatorId : 'n/a');
-      const reps = repsCast.length ? repsCast : repsRaw;
-      filter.assignedTo = { $in: reps.map((r) => r._id) };
-      console.log('[DEBUG list()] coordinator branch, reps found=', reps.length, reps.map(r => String(r._id)));
+      const cid = new Types.ObjectId(coordinatorId);
+      const reps = await this.userModel.find({ coordinatorId: { $in: [cid, coordinatorId] } }, '_id').lean();
+      filter.$or = [
+        { assignedTo: { $in: reps.map((r) => r._id) } },
+        { createdBy: { $in: [cid, coordinatorId] } },
+      ];
     } else if (scopeToUser && userId) {
       // Sales users see cases they created OR were assigned to
       const uid = new Types.ObjectId(userId);
-      filter.$or = [{ createdBy: uid }, { assignedTo: uid }];
+      filter.$or = [{ createdBy: { $in: [uid, userId] } }, { assignedTo: uid }];
     }
 
     if (search) {
@@ -123,7 +123,6 @@ export class CasesService {
     if (product) filter.product = product;
     if (firm) filter.firm = firm;
 
-    console.log('[DEBUG list()] final filter=', JSON.stringify(filter));
     const total = await this.model.countDocuments(filter);
     const data = await this.model
       .find(filter)
@@ -131,7 +130,6 @@ export class CasesService {
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
-    console.log('[DEBUG list()] total=', total);
 
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
@@ -149,6 +147,8 @@ export class CasesService {
    */
   private async assertCanAccessCase(actor: AuthUser, existing: { assignedTo?: Types.ObjectId; createdBy?: Types.ObjectId }) {
     if (actor.role === UserRole.Coordinator) {
+      // Cases the coordinator created directly (e.g. not yet assigned to a rep) are always theirs.
+      if (existing.createdBy && String(existing.createdBy) === actor.id) return;
       if (!existing.assignedTo) throw new ForbiddenException('You do not have access to this case');
       const rep = await this.userModel.findById(existing.assignedTo).select('coordinatorId').lean();
       if (!rep?.coordinatorId || String(rep.coordinatorId) !== actor.id) {
@@ -313,7 +313,7 @@ export class CasesService {
     const created = await this.model.create({
       ...dto, status, caseCode, bankName, dealerName,
       assignedTo, assignedToName, coordinatorId, coordinatorName,
-      createdBy: actor.id, isActive: true,
+      createdBy: new Types.ObjectId(actor.id), isActive: true,
       documents: [], docRequests: [],
       pipeline: pipelineStagesFor(dto.product).map((stage) => ({ stage, status: 'Pending' })),
     });

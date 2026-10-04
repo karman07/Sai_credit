@@ -123,12 +123,14 @@ const TELECALLER: Permission[] = [
 ];
 
 // Coordinator: manages (reads/edits/status/docs) only the cases created by their
-// assigned sales reps (enforced at the service layer, not here), gets full
-// admin-parity access to Payout Management, Form Builder, and the Data Catalog
-// (masters), and self-services their own leave/reimbursement/attendance/payslip
-// records just like a sales user.
+// assigned sales reps (enforced at the service layer, not here), can create new
+// cases directly — including looking up existing customers by phone/name to
+// catch repeat customers — gets full admin-parity access to Payout Management,
+// Form Builder, and the Data Catalog (masters), and self-services their own
+// leave/reimbursement/attendance/payslip records just like a sales user.
 const COORDINATOR: Permission[] = [
-  'cases.read','cases.update',
+  'cases.create','cases.read','cases.update',
+  'customers.read',
   'banks.read','dealers.read','dealers.create',
   'insurance.read','insurance.create','insurance.update','policies.read',
   'payout.read','payout.create','payout.update',

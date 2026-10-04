@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import { User } from './schemas/user.schema';
 import { CreateUserDto, UpdateUserDto, ListUsersQuery } from './users.dto';
@@ -58,7 +58,8 @@ export class UsersService {
       ...rest,
       email: dto.email.toLowerCase(),
       passwordHash: await bcrypt.hash(password, 12),
-      createdBy: actor.id,
+      createdBy: new Types.ObjectId(actor.id),
+      coordinatorId: dto.coordinatorId ? new Types.ObjectId(dto.coordinatorId) : undefined,
     });
     await this.audit.log({
       user: actor,
@@ -79,7 +80,11 @@ export class UsersService {
     const before = await this.users.findById(id).lean();
     if (!before) throw new NotFoundException('User not found');
     if (dto.email) dto = { ...dto, email: dto.email.toLowerCase() } as UpdateUserDto;
-    const after = await this.users.findByIdAndUpdate(id, dto, { new: true }).lean();
+    const update: Record<string, any> = { ...dto };
+    if (dto.coordinatorId !== undefined) {
+      update.coordinatorId = dto.coordinatorId ? new Types.ObjectId(dto.coordinatorId) : undefined;
+    }
+    const after = await this.users.findByIdAndUpdate(id, update, { new: true }).lean();
     await this.audit.log({
       user: actor,
       action: AuditAction.Update,
