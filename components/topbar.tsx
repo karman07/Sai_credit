@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Moon, Sun, Bell, LogOut, ChevronDown, User, Check } from "lucide-react";
+import { Moon, Sun, Bell, LogOut, ChevronDown, User, Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
 import { useTheme } from "../lib/theme";
 import { cn } from "./ui";
@@ -28,6 +29,7 @@ function timeAgo(dateStr: string) {
 }
 
 export function Topbar() {
+  const router = useRouter();
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -64,6 +66,18 @@ export function Topbar() {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch {}
+  }
+
+  async function openNotif(n: AppNotification) {
+    if (!n.isRead) {
+      try {
+        await notificationsApi.markRead(n._id);
+        setNotifications(prev => prev.map(x => x._id === n._id ? { ...x, isRead: true } : x));
+        setUnreadCount(c => Math.max(0, c - 1));
+      } catch {}
+    }
+    setNotifOpen(false);
+    if (n.caseId) router.push(`/cases?caseId=${n.caseId}`);
   }
 
   return (
@@ -115,10 +129,14 @@ export function Topbar() {
                   {notifications.length === 0 ? (
                     <div className="px-4 py-6 text-center text-xs text-muted">No notifications</div>
                   ) : notifications.map((n) => (
-                    <div key={n._id} className={cn(
-                      "flex gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer",
-                      !n.isRead && "bg-primary/5",
-                    )}>
+                    <button
+                      key={n._id}
+                      onClick={() => openNotif(n)}
+                      className={cn(
+                        "w-full flex gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors cursor-pointer",
+                        !n.isRead && "bg-primary/5",
+                      )}
+                    >
                       <div className="size-8 rounded-full grid place-items-center shrink-0 mt-0.5 bg-surface-2">
                         <Bell className="size-3.5 text-muted" />
                       </div>
@@ -126,8 +144,11 @@ export function Topbar() {
                         <p className={cn("text-sm font-medium truncate", !n.isRead && "text-foreground")}>{n.title}</p>
                         <p className="text-xs text-muted truncate">{n.message}</p>
                       </div>
-                      <span className="text-[10px] text-muted whitespace-nowrap shrink-0">{timeAgo(n.createdAt)}</span>
-                    </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="text-[10px] text-muted whitespace-nowrap">{timeAgo(n.createdAt)}</span>
+                        {n.caseId && <ChevronRight className="size-3 text-muted" />}
+                      </div>
+                    </button>
                   ))}
                 </div>
                 <div className="px-4 py-2 border-t border-border">

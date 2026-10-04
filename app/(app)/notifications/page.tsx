@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Bell, ShieldCheck, FileText, Clock, Check, CheckCircle2, RefreshCw, Plus, EyeOff } from "lucide-react";
 import { Button, Badge, Tabs, SectionHeader, Skeleton, EmptyState, useToast, type BadgeTone } from "../../../components/ui";
 import { notificationsApi, type AppNotification } from "../../../lib/api";
@@ -201,9 +202,13 @@ export default function NotificationsPage() {
                   <p className="text-xs text-muted mt-1 leading-relaxed">{n.message}</p>
                   {n.caseCode && (
                     <div className="mt-2">
-                      <a href="/cases" className="text-xs text-primary hover:underline font-medium">
+                      <Link
+                        href={n.caseId ? `/cases?caseId=${n.caseId}` : "/cases"}
+                        onClick={() => { if (!n.isRead) toggleRead(n); }}
+                        className="text-xs text-primary hover:underline font-medium"
+                      >
                         View {n.caseCode} →
-                      </a>
+                      </Link>
                     </div>
                   )}
                 </div>

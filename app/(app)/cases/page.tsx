@@ -361,6 +361,16 @@ export default function CasesPage() {
 
   useEffect(() => { loadRef(); }, [loadRef]);
   useEffect(() => { load(); }, [load]);
+
+  // Deep-link support: /cases?caseId=... (used by notifications) opens that case directly.
+  useEffect(() => {
+    const caseId = new URLSearchParams(window.location.search).get("caseId");
+    if (!caseId) return;
+    casesApi.get(caseId).then(({ data }) => openDrawer(data)).catch(() => {
+      toast("error", "That case could not be opened — it may have been removed or deactivated.");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { setRtoForm(drawerRTO ? rtoRecordToForm(drawerRTO) : { ...BLANK_RTO }); }, [drawerRTO]);
 
   useEffect(() => {
