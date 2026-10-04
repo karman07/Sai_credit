@@ -95,11 +95,11 @@ export function Sidebar() {
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5">
         {NAV.map((section, i) => (
-          <div key={i} className="mb-1">
+          <div key={i} className="mb-1.5">
             {section.title && !collapsed && (
-              <p className="px-2 pt-3 pb-1.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-muted/70">{section.title}</p>
+              <p className="px-2.5 pt-4 pb-1.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted/70">{section.title}</p>
             )}
             {section.title && collapsed && <div className="mt-3 mb-1.5 mx-2 h-px bg-border" />}
             {(section.items as NavItem[]).map((navItem) => {
@@ -110,12 +110,14 @@ export function Sidebar() {
                   key={navItem.href} href={navItem.href}
                   title={collapsed ? navItem.label : undefined}
                   className={cn(
-                    "flex items-center h-8 rounded-md transition-all group relative",
+                    "flex items-center h-9 rounded-lg transition-all group relative",
                     collapsed ? "justify-center" : "gap-2.5 px-2.5",
-                    active ? "bg-sidebar-active text-sidebar-active-text" : "text-foreground-secondary hover:bg-surface-2/70 hover:text-foreground",
+                    active
+                      ? "bg-sidebar-active text-sidebar-active-text font-semibold shadow-[inset_0_0_0_1px_var(--sidebar-border)]"
+                      : "text-foreground-secondary hover:bg-surface-2/70 hover:text-foreground",
                   )}
                 >
-                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full bg-primary" />}
+                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-r-full bg-primary" />}
                   <span className="relative shrink-0">
                     <navItem.icon className="size-[15px]" />
                     {badge > 0 && collapsed && (
@@ -140,7 +142,25 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="border-t border-sidebar-border p-2 space-y-1">
+        <Link
+          href="/profile"
+          title={collapsed ? `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() : undefined}
+          className={cn(
+            "flex items-center rounded-md hover:bg-surface-2/70 transition-colors",
+            collapsed ? "justify-center h-9" : "gap-2.5 px-2 py-1.5",
+          )}
+        >
+          <span className="size-7 rounded-full bg-primary text-primary-foreground grid place-items-center text-[11px] font-bold uppercase shrink-0">
+            {(user?.firstName?.[0] ?? "") + (user?.lastName?.[0] ?? "")}
+          </span>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-semibold truncate leading-tight">{user?.firstName} {user?.lastName}</p>
+              <p className="text-[10.5px] text-muted truncate leading-tight">Coordinator</p>
+            </div>
+          )}
+        </Link>
         <button
           onClick={() => setCollapsed((c) => !c)}
           className={cn("w-full flex items-center h-8 rounded-md text-muted hover:bg-surface-2 transition-colors", collapsed ? "justify-center" : "gap-2 px-2.5")}

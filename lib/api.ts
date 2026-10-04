@@ -95,6 +95,8 @@ export type CaseStatus = "Draft" | "Sales" | "Pending" | "In Credit" | "Incomple
 export const CASE_STATUSES: CaseStatus[] = ["Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 /** Products where vehicle RTO registration transfer is relevant. */
 export const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
+export const LOAN_TYPES = ["New", "Used", "Refinance"] as const;
+export const RESIDENTIAL_STATUSES = ["Own", "Rented", "Family Owned"] as const;
 export const FIRMS = ["Sai Credit Solutions Partner", "Sai Credit Solutions Proprietor", "Sai Carz"] as const;
 
 export interface Bank { _id: string; name: string; branch?: string; bmName?: string; bmContact?: string; executive?: string; isActive: boolean; }
@@ -109,6 +111,15 @@ export interface DocRequest {
   requestedBy: string; requestedByName: string; requestedAt: string;
   resolvedAt?: string; isResolved: boolean;
 }
+
+export interface Customer {
+  _id: string; customerCode: string; firstName: string; lastName: string;
+  phone: string; alternatePhone?: string; totalCases: number;
+}
+
+export const customersApi = {
+  list: (q?: Record<string, string | number | boolean | undefined>) => api.get<Customer[]>("/customers", q),
+};
 
 export interface LoanCase {
   _id: string; caseCode: string; date: string;
@@ -187,6 +198,7 @@ export const casesApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<LoanCase[]>("/cases", q),
   get: (id: string) => api.get<LoanCase>(`/cases/${id}`),
   stats: () => api.get<DashboardStats>("/cases/stats"),
+  create: (body: unknown) => api.post<LoanCase>("/cases", body),
   update: (id: string, body: unknown) => api.put<LoanCase>(`/cases/${id}`, body),
   updateStatus: (id: string, body: { status: string; note?: string; disbursementDate?: string }) => api.put<LoanCase>(`/cases/${id}/status`, body),
   requestDocs: (id: string, body: { docTypes: string[]; remarks: string }) => api.post<LoanCase>(`/cases/${id}/request-docs`, body),

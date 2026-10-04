@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bell, FileText, TrendingUp, Clock, CheckCircle2, XCircle,
-  IndianRupee, Award, CalendarCheck, CalendarX, Receipt, ReceiptText, UserCog,
+  IndianRupee, Award, CalendarCheck, CalendarX, Receipt, ReceiptText, UserCog, ChevronRight,
 } from "lucide-react";
 import { notificationsApi, type Notification } from "../../../lib/api";
 import { cn } from "../../../components/ui";
@@ -51,6 +52,7 @@ function getConfig(type: string) {
 }
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<NotifCategory>("all");
@@ -155,9 +157,13 @@ export default function NotificationsPage() {
           return (
             <button
               key={n._id}
-              onClick={() => !n.isRead && markRead(n._id)}
+              onClick={() => {
+                if (!n.isRead) markRead(n._id);
+                if (n.caseId) router.push(`/cases?caseId=${n.caseId}`);
+              }}
               className={cn(
                 "w-full text-left card p-4 flex gap-3 transition-colors hover:bg-surface-2/40",
+                n.caseId && "cursor-pointer",
                 !n.isRead && "border-l-4 border-l-primary bg-primary-subtle/10"
               )}
             >
@@ -171,7 +177,10 @@ export default function NotificationsPage() {
                 </div>
                 <p className="text-xs text-muted mt-0.5 leading-relaxed">{n.message}</p>
                 {n.caseCode && (
-                  <span className="text-xs text-primary font-medium mt-1 block">{n.caseCode}</span>
+                  <span className="text-xs text-primary font-medium mt-1 flex items-center gap-0.5">
+                    {n.caseCode}
+                    {n.caseId && <ChevronRight className="size-3" />}
+                  </span>
                 )}
               </div>
               <span className="text-[11px] text-muted shrink-0 mt-0.5">
