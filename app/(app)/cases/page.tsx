@@ -198,7 +198,12 @@ export default function MyCasesPage() {
   const [phoneSearching, setPhoneSearching] = useState(false);
   const [phoneDropdownOpen, setPhoneDropdownOpen] = useState(false);
   const [leadCustomer, setLeadCustomer] = useState({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
-  const [leadCase, setLeadCase] = useState({ product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "", vehicleModel: "", regNumber: "", date: new Date().toISOString().slice(0, 10), customFields: {} as Record<string, string> });
+  const [leadCase, setLeadCase] = useState({
+    product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "",
+    vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
+    bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+    date: new Date().toISOString().slice(0, 10), customFields: {} as Record<string, string>,
+  });
   const [creatingLead, setCreatingLead] = useState(false);
 
   // Inline "add new dealer" from the lead wizard
@@ -232,8 +237,23 @@ export default function MyCasesPage() {
     setLeadPhone(""); setFoundCustomer(null); setPhoneChecked(false);
     setPhoneResults([]); setPhoneDropdownOpen(false);
     setLeadCustomer({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
-    setLeadCase({ product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "", vehicleModel: "", regNumber: "", date: new Date().toISOString().slice(0, 10), customFields: {} });
+    setLeadCase({
+      product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "",
+      vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
+      bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
+      date: new Date().toISOString().slice(0, 10), customFields: {},
+    });
     setLeadStep("phone");
+  }
+
+  function closeNewLead() {
+    setLeadStep(null);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("new-lead")) {
+      params.delete("new-lead");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    }
   }
 
   // Live search-as-you-type by name or phone, while on the phone step
@@ -303,10 +323,16 @@ export default function MyCasesPage() {
         loanAmount: leadCase.loanAmount ? Number(leadCase.loanAmount) : undefined,
         bankId: leadCase.bankId || undefined,
         bankName: bank?.name,
+        bankBranch: leadCase.bankBranch || undefined,
+        bmName: leadCase.bmName || undefined,
+        bmContact: leadCase.bmContact || undefined,
+        bankExecutive: leadCase.bankExecutive || undefined,
         dealerId: leadCase.dealerId || undefined,
         dealerName: dealer?.name,
         vehicleModel: leadCase.vehicleModel || undefined,
         regNumber: leadCase.regNumber || undefined,
+        ownerSerial: leadCase.ownerSerial || undefined,
+        existingInsurer: leadCase.existingInsurer || undefined,
         customFields: buildCustomFieldsPayload([...genericCustomFields, ...leadProductFields], leadCase.customFields),
         customer: {
           firstName: leadCustomer.firstName,
@@ -319,7 +345,7 @@ export default function MyCasesPage() {
         },
       });
       toast("success", "Lead created successfully");
-      setLeadStep(null);
+      closeNewLead();
       load();
     } catch (e: any) {
       toast("error", e.message ?? "Failed to create lead");
@@ -365,6 +391,24 @@ export default function MyCasesPage() {
   }, [page, limit, search, statusTab, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Deep-link support: /cases?caseId=... (used by notifications) opens that case directly.
+  useEffect(() => {
+    const caseId = new URLSearchParams(window.location.search).get("caseId");
+    if (!caseId) return;
+    casesApi.get(caseId).then(({ data }) => openDetail(data)).catch(() => {
+      toast("error", "That case could not be opened — it may have been removed or you may not have access to it.");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Deep-link support: /cases?new-lead=true (used by the Dashboard's "New Lead"
+  // button) opens the same New Lead flow used here, so there is only one.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("new-lead") !== "true") return;
+    openNewLead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     mastersApi.list("document-types").then(({ data }) => setDocTypes(data.filter((d: any) => d.isActive))).catch(() => {});
@@ -1044,10 +1088,10 @@ export default function MyCasesPage() {
       {/* ── New Lead Modal ───────────────────────────────────────────── */}
       <Modal
         open={leadStep !== null}
-        onClose={() => setLeadStep(null)}
+        onClose={closeNewLead}
         title="New Lead"
         description="Check for an existing customer before creating a case."
-        size="md"
+        size="lg"
       >
         <div className="space-y-5">
           {/* Step 1 — Phone lookup */}
@@ -1102,7 +1146,7 @@ export default function MyCasesPage() {
                 )}
               </div>
               <div className="flex gap-2 justify-end pt-1">
-                <Button variant="secondary" size="sm" onClick={() => setLeadStep(null)}>Cancel</Button>
+                <Button variant="secondary" size="sm" onClick={closeNewLead}>Cancel</Button>
               </div>
             </div>
           )}
@@ -1144,7 +1188,7 @@ export default function MyCasesPage() {
 
               {/* Customer detail form */}
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>First Name</Label>
                     <Input
@@ -1203,7 +1247,7 @@ export default function MyCasesPage() {
               <div className="flex gap-2 justify-between pt-1">
                 <Button variant="ghost" size="sm" onClick={() => { setLeadStep("phone"); setPhoneChecked(false); }}>← Back</Button>
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => setLeadStep(null)}>Cancel</Button>
+                  <Button variant="secondary" size="sm" onClick={closeNewLead}>Cancel</Button>
                   <Button
                     size="sm"
                     onClick={() => setLeadStep("details")}
@@ -1258,7 +1302,7 @@ export default function MyCasesPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Product</Label>
                   <Select value={leadCase.product} onChange={(e) => setLeadCase((f) => ({ ...f, product: e.target.value }))}>
@@ -1301,10 +1345,37 @@ export default function MyCasesPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Bank / NBFC <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <Select value={leadCase.bankId} onChange={(e) => setLeadCase((f) => ({ ...f, bankId: e.target.value }))}>
+                  <Select
+                    value={leadCase.bankId}
+                    onChange={(e) => {
+                      const bankId = e.target.value;
+                      const b = banks.find((x) => x._id === bankId);
+                      setLeadCase((f) => ({
+                        ...f, bankId,
+                        bankBranch: b?.branch ?? "", bmName: b?.bmName ?? "",
+                        bmContact: b?.bmContact ?? "", bankExecutive: b?.executive ?? "",
+                      }));
+                    }}
+                  >
                     <option value="">Select bank…</option>
                     {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
                   </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Branch <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                  <Input value={leadCase.bankBranch} onChange={(e) => setLeadCase((f) => ({ ...f, bankBranch: e.target.value }))} placeholder="Branch name" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>BM Name <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                  <Input value={leadCase.bmName} onChange={(e) => setLeadCase((f) => ({ ...f, bmName: e.target.value }))} placeholder="Business Manager" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>BM Contact <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                  <PhoneInput value={leadCase.bmContact} onChange={(v) => setLeadCase((f) => ({ ...f, bmContact: v }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Bank Executive <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                  <Input value={leadCase.bankExecutive} onChange={(e) => setLeadCase((f) => ({ ...f, bankExecutive: e.target.value }))} placeholder="Executive name" />
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -1336,6 +1407,21 @@ export default function MyCasesPage() {
                         placeholder="e.g. HR05AB1234"
                       />
                     </div>
+                    <div className="space-y-1.5">
+                      <Label>Owner Serial <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                      <Input
+                        value={leadCase.ownerSerial}
+                        onChange={(e) => setLeadCase((f) => ({ ...f, ownerSerial: e.target.value }))}
+                        placeholder="1st, 2nd…"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Existing Insurer <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
+                      <Select value={leadCase.existingInsurer} onChange={(e) => setLeadCase((f) => ({ ...f, existingInsurer: e.target.value }))}>
+                        <option value="">Select insurer…</option>
+                        {insurerOptions.map((ins) => <option key={ins} value={ins}>{ins}</option>)}
+                      </Select>
+                    </div>
                   </>
                 )}
                 {leadProductFields.map((field) => (
@@ -1363,7 +1449,7 @@ export default function MyCasesPage() {
               <div className="flex gap-2 justify-between pt-1 border-t border-border">
                 <Button variant="ghost" size="sm" onClick={() => setLeadStep("customer")}>← Back</Button>
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => setLeadStep(null)}>Cancel</Button>
+                  <Button variant="secondary" size="sm" onClick={closeNewLead}>Cancel</Button>
                   <Button size="sm" loading={creatingLead} onClick={createLead}>
                     Create Lead
                   </Button>

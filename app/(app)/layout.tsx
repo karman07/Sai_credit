@@ -6,9 +6,6 @@ import { useAuth } from "../../lib/auth-context";
 import { Sidebar } from "../../components/sidebar";
 import { Topbar } from "../../components/topbar";
 
-import { Suspense } from "react";
-import { NewLeadModal } from "../../components/new-lead-modal";
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -35,9 +32,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Topbar />
         <main className="flex-1 p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
-      <Suspense fallback={null}>
-        <NewLeadModal />
-      </Suspense>
     </div>
   );
 }

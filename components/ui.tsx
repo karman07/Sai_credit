@@ -147,16 +147,16 @@ export function EmptyState({ icon: Icon = Inbox, title, description, action }: {
 
 // ── Modal ────────────────────────────────────────────────────────────
 import { useEffect } from "react";
-export function Modal({ open, onClose, title, description, size = "md", children }: { open: boolean; onClose: () => void; title?: string; description?: string; size?: "sm" | "md" | "lg" | "xl"; children: React.ReactNode }) {
+export function Modal({ open, onClose, title, description, size = "md", children, footer }: { open: boolean; onClose: () => void; title?: string; description?: string; size?: "sm" | "md" | "lg" | "xl"; children: React.ReactNode; footer?: React.ReactNode }) {
   const sizeClass = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-2xl" }[size];
   useEffect(() => { if (open) document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, [open]);
   if (!open) return null;
   const content = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
-      <div className={cn("relative w-full card animate-slideUp p-0 overflow-hidden", sizeClass)}>
+      <div className={cn("relative w-full card animate-slideUp p-0 flex flex-col max-h-[90vh]", sizeClass)}>
         {(title || description) && (
-          <div className="flex items-start justify-between p-5 border-b border-border">
+          <div className="flex items-start justify-between p-5 border-b border-border shrink-0">
             <div>
               {title && <h2 className="font-semibold text-base">{title}</h2>}
               {description && <p className="text-sm text-muted mt-1">{description}</p>}
@@ -164,7 +164,10 @@ export function Modal({ open, onClose, title, description, size = "md", children
             <button onClick={onClose} className="size-7 grid place-items-center rounded-lg text-muted hover:bg-surface-2 transition-colors ml-4 shrink-0"><X className="size-3.5" /></button>
           </div>
         )}
-        <div className="p-5">{children}</div>
+        <div className="p-5 overflow-y-auto flex-1 min-h-0">{children}</div>
+        {footer && (
+          <div className="shrink-0 px-5 py-4 border-t border-border">{footer}</div>
+        )}
       </div>
     </div>
   );

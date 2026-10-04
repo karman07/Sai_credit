@@ -158,7 +158,7 @@ export default function SalesDashboard() {
           </p>
         </div>
         <Link
-          href="?new-lead=true"
+          href="/cases?new-lead=true"
           className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary-hover transition-colors"
         >
           <Plus className="size-3.5" /> New Lead
