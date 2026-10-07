@@ -114,18 +114,27 @@ export class ScheduleService {
       assignedTo: { $exists: true },
     }).lean();
 
+    let sent = 0;
     for (const c of stagnant) {
       if (!c.assignedTo) continue;
-      await this.notifications.notify({
-        userId: String(c.assignedTo),
-        type: 'stagnant_case',
-        title: `Case Stagnant — ${c.customer?.firstName ?? ''} ${c.customer?.lastName ?? ''}`.trim(),
-        message: `${c.caseCode} has had no update in 7+ days. Current status: ${c.status}.`,
-        caseId: String(c._id),
-        caseCode: c.caseCode,
-      });
+      const caseId = String(c._id);
+      const title = `Case Stagnant — ${c.customer?.firstName ?? ''} ${c.customer?.lastName ?? ''}`.trim();
+      const message = `${c.caseCode} has had no update in 7+ days. Current status: ${c.status}.`;
+
+      // The assigned rep, plus the coordinator who manages them — nobody outside this case's own team.
+      const recipients = [String(c.assignedTo)];
+      if (c.coordinatorId) recipients.push(String(c.coordinatorId));
+
+      for (const userId of recipients) {
+        // One alert per recipient per stagnant episode — skip if we already notified them
+        // since this case was last touched, instead of re-firing every day it stays untouched.
+        const alreadyNotified = await this.notifications.existsSince(userId, caseId, 'stagnant_case', (c as any).updatedAt);
+        if (alreadyNotified) continue;
+        await this.notifications.notify({ userId, type: 'stagnant_case', title, message, caseId, caseCode: c.caseCode });
+        sent++;
+      }
     }
-    this.logger.log(`Stagnant alerts sent: ${stagnant.length}`);
+    this.logger.log(`Stagnant alerts sent: ${sent} (across ${stagnant.length} stagnant cases)`);
   }
 
   /** Daily at 11:30 PM — auto-mark absent for today's unrecorded working days. */

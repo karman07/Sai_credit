@@ -62,6 +62,17 @@ export class NotificationsService {
     return { count };
   }
 
+  /** True if this user already has a notification of this type for this case created since `since`. */
+  async existsSince(userId: string, caseId: string, type: NotifType, since: Date): Promise<boolean> {
+    const count = await this.model.countDocuments({
+      userId: new Types.ObjectId(userId),
+      caseId,
+      type,
+      createdAt: { $gte: since },
+    });
+    return count > 0;
+  }
+
   async notifyMany(userIds: string[], params: Omit<CreateNotifParams, 'userId'>) {
     if (!userIds.length) return;
     await this.model.insertMany(
