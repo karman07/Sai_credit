@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { FileText, Plus, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, Phone, User, Search, Building2 } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
@@ -133,6 +134,14 @@ function FilePicker({ file, onChange }: { file: File | null; onChange: (f: File 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function MyCasesPage() {
+  return (
+    <Suspense>
+      <MyCasesPageInner />
+    </Suspense>
+  );
+}
+
+function MyCasesPageInner() {
   const toast = useToast();
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
@@ -393,22 +402,26 @@ export default function MyCasesPage() {
   useEffect(() => { load(); }, [load]);
 
   // Deep-link support: /cases?caseId=... (used by notifications) opens that case directly.
+  // Reacts to the search param itself (not just mount) so clicking a notification while
+  // already on this page — a client-side navigation, not a fresh page load — still opens it.
+  const searchParams = useSearchParams();
+  const deepLinkCaseId = searchParams.get("caseId");
   useEffect(() => {
-    const caseId = new URLSearchParams(window.location.search).get("caseId");
-    if (!caseId) return;
-    casesApi.get(caseId).then(({ data }) => openDetail(data)).catch(() => {
+    if (!deepLinkCaseId) return;
+    casesApi.get(deepLinkCaseId).then(({ data }) => openDetail(data)).catch(() => {
       toast("error", "That case could not be opened — it may have been removed or you may not have access to it.");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [deepLinkCaseId]);
 
   // Deep-link support: /cases?new-lead=true (used by the Dashboard's "New Lead"
   // button) opens the same New Lead flow used here, so there is only one.
+  const deepLinkNewLead = searchParams.get("new-lead");
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("new-lead") !== "true") return;
+    if (deepLinkNewLead !== "true") return;
     openNewLead();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [deepLinkNewLead]);
 
   useEffect(() => {
     mastersApi.list("document-types").then(({ data }) => setDocTypes(data.filter((d: any) => d.isActive))).catch(() => {});
