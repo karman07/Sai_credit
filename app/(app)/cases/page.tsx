@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Download, Filter, X, Eye, FileText, Calendar, Building2, Users, MapPin, Banknote, UserCheck, CheckCircle2, AlertCircle, UploadCloud, Pencil, Trash2, Edit2, Info, Save, Upload, ExternalLink } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Drawer, Tabs,
@@ -135,6 +136,14 @@ type EditForm = {
 };
 
 export default function CasesPage() {
+  return (
+    <Suspense>
+      <CasesPageInner />
+    </Suspense>
+  );
+}
+
+function CasesPageInner() {
   const toast = useToast();
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
@@ -363,14 +372,17 @@ export default function CasesPage() {
   useEffect(() => { load(); }, [load]);
 
   // Deep-link support: /cases?caseId=... (used by notifications) opens that case directly.
+  // Reacts to the search param itself (not just mount) so clicking a notification while
+  // already on this page — a client-side navigation, not a fresh page load — still opens it.
+  const searchParams = useSearchParams();
+  const deepLinkCaseId = searchParams.get("caseId");
   useEffect(() => {
-    const caseId = new URLSearchParams(window.location.search).get("caseId");
-    if (!caseId) return;
-    casesApi.get(caseId).then(({ data }) => openDrawer(data)).catch(() => {
+    if (!deepLinkCaseId) return;
+    casesApi.get(deepLinkCaseId).then(({ data }) => openDrawer(data)).catch(() => {
       toast("error", "That case could not be opened — it may have been removed or deactivated.");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [deepLinkCaseId]);
   useEffect(() => { setRtoForm(drawerRTO ? rtoRecordToForm(drawerRTO) : { ...BLANK_RTO }); }, [drawerRTO]);
 
   useEffect(() => {
