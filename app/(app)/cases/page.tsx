@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { FileText, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, FileWarning } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
@@ -114,6 +115,14 @@ function FilePicker({ file, onChange }: { file: File | null; onChange: (f: File 
 }
 
 export default function TeamCasesPage() {
+  return (
+    <Suspense>
+      <TeamCasesPageInner />
+    </Suspense>
+  );
+}
+
+function TeamCasesPageInner() {
   const toast = useToast();
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
@@ -274,14 +283,17 @@ export default function TeamCasesPage() {
   useEffect(() => { load(); }, [load]);
 
   // Deep-link support: /cases?caseId=... (used by notifications) opens that case directly.
+  // Reacts to the search param itself (not just mount) so clicking a notification while
+  // already on this page — a client-side navigation, not a fresh page load — still opens it.
+  const searchParams = useSearchParams();
+  const deepLinkCaseId = searchParams.get("caseId");
   useEffect(() => {
-    const caseId = new URLSearchParams(window.location.search).get("caseId");
-    if (!caseId) return;
-    casesApi.get(caseId).then(({ data }) => openDetail(data)).catch(() => {
+    if (!deepLinkCaseId) return;
+    casesApi.get(deepLinkCaseId).then(({ data }) => openDetail(data)).catch(() => {
       toast("error", "That case could not be opened — it may have been removed or you may not have access to it.");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [deepLinkCaseId]);
 
   useEffect(() => {
     mastersApi.list("document-types").then(({ data }) => setDocTypes(data.filter((d: any) => d.isActive))).catch(() => {});
@@ -636,19 +648,11 @@ export default function TeamCasesPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <div className="flex items-center gap-2">
-                {detailCase.status === "Draft" || detailCase.status === "Sales" ? (
-                  <Select value={detailCase.status} onChange={(e) => handleStatusChange(e.target.value as CaseStatus)}
-                    className="h-7 text-xs py-0 w-40 bg-surface border-border">
-                    {detailCase.status === "Draft" && <option value="Draft">Draft</option>}
-                    {detailCase.status === "Draft" && <option value="Sales">Sales</option>}
-                    {detailCase.status === "Sales" && <option value="Sales">Sales</option>}
-                    <option value="Pending">Pending</option>
-                    <option value="Hold">Hold</option>
-                    <option value="Cancelled">Cancelled</option>
-                  </Select>
-                ) : (
-                  <CaseStatusBadge status={detailCase.status} />
-                )}
+                <CaseStatusBadge status={detailCase.status} />
+                <Select value={detailCase.status} onChange={(e) => handleStatusChange(e.target.value as CaseStatus)}
+                  className="h-7 text-xs py-0 w-36 bg-surface border-border">
+                  {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </Select>
               </div>
               <div className="flex gap-2 flex-wrap">
                 <Button size="xs" variant="secondary" onClick={() => setReqDocsOpen(true)}>
