@@ -261,7 +261,7 @@ export interface MasterItem {
   _id: string; type: string; name: string; code?: string; shortName?: string;
   parentId?: string; colorClass?: string; isTerminal?: boolean;
   category?: string; metadata?: Record<string, unknown>;
-  sortOrder?: number; isActive: boolean; createdAt: string;
+  sortOrder?: number; isActive: boolean; isBuiltIn?: boolean; createdAt: string;
 }
 
 export const mastersApi = {
@@ -311,6 +311,24 @@ export const uploadsApi = {
     fd.append("file", file);
     return api.post<{ url: string; fileName: string }>("/uploads", fd);
   },
+};
+
+/** Resolves an uploaded file's relative URL (e.g. "/uploads/x.jpg") to a fully-qualified one. */
+export function fileUrl(u: string) {
+  return u.startsWith("http") ? u : API_BASE.replace("/api/v1", "") + u;
+}
+
+export interface MessageAttachment {
+  url: string; fileName: string; fileType?: string;
+}
+export interface CaseMessage {
+  _id: string; caseId: string; text: string; attachments: MessageAttachment[];
+  authorId: string; authorName: string; authorRole: string; createdAt: string;
+}
+export const caseMessagesApi = {
+  list: (caseId: string) => api.get<CaseMessage[]>(`/case-messages/case/${caseId}`),
+  send: (caseId: string, body: { text: string; attachments: MessageAttachment[] }) =>
+    api.post<CaseMessage>(`/case-messages/case/${caseId}`, body),
 };
 
 // ── HR Types ──────────────────────────────────────────────────────────

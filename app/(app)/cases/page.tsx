@@ -13,6 +13,7 @@ import {
   type LoanCase, type FormSchema, type PageMeta, type Bank, type Dealer, type SalesCustomer, type FieldDef,
 } from "../../../lib/api";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { CaseChatThread } from "../../../components/CaseChatThread";
 
 const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 
@@ -720,6 +721,10 @@ function MyCasesPageInner() {
                   className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "documents" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
                   Documents {detailCase.docRequests?.filter(r => !r.isResolved).length > 0 && <span className="ml-1 px-1 bg-orange text-white rounded-full text-[9px]">!</span>}
                 </button>
+                <button onClick={() => { setDetailTab("chat"); setEditMode(false); }}
+                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "chat" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
+                  Chat
+                </button>
               </div>
             </div>
 
@@ -1068,6 +1073,10 @@ function MyCasesPageInner() {
                   )}
                 </div>
               </div>
+            )}
+
+            {detailTab === "chat" && (
+              <CaseChatThread caseId={detailCase._id} height="460px" />
             )}
           </div>
         )}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../../lib/auth-context";
 import { Sidebar } from "../../components/sidebar";
 import { Topbar } from "../../components/topbar";
+import { ChatWidget } from "../../components/ChatWidget";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -32,6 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Topbar />
         <main className="flex-1 p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
+      <ChatWidget />
     </div>
   );
 }
