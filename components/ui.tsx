@@ -645,6 +645,7 @@ export function KpiCard({
   icon: Icon,
   accent = "text-primary",
   sub,
+  subLines,
   trend,
 }: {
   label: string;
@@ -652,6 +653,8 @@ export function KpiCard({
   icon?: React.ElementType;
   accent?: string;
   sub?: string;
+  /** Extra context lines stacked below the value — e.g. a count's total ₹ amount. */
+  subLines?: string[];
   trend?: { value: string; up: boolean };
 }) {
   return (
@@ -671,6 +674,9 @@ export function KpiCard({
           )}
         </div>
       )}
+      {subLines?.map((line, i) => (
+        <span key={i} className="text-xs text-muted -mt-1">{line}</span>
+      ))}
     </div>
   );
 }

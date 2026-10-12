@@ -224,7 +224,8 @@ export interface Activity {
 }
 
 export interface DashboardStats {
-  totalLeads: number; disbursedMTD: number; disbursedMTDAmount: number; activeCases: number;
+  totalLeads: number; disbursedMTD: number; disbursedMTDAmount: number;
+  activeCases: number; activeCasesAmount: number;
   statusBreakdown: Record<string, number>;
   bankWise: { _id: string; count: number; volume: number }[];
   productMix: { _id: string; count: number }[];

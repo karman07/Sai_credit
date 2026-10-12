@@ -330,6 +330,7 @@ export default function DashboardPage() {
             label="Active Cases"   icon={TrendingUp}    accent="text-purple"
             value={<Counter target={stats?.activeCases ?? 0} />}
             sub="In pipeline"
+            subLines={[`${fmtLakhs(stats?.activeCasesAmount ?? 0)} total loan amount`]}
           />
           <KpiCard
             label="Disbursed"      icon={CheckCircle2}  accent="text-success"
