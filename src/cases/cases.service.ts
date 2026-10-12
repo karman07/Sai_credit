@@ -935,6 +935,11 @@ export class CasesService {
       { $group: { _id: null, total: { $sum: '$loanAmount' } } },
     ]);
 
+    const activeCasesAmount = await this.model.aggregate([
+      { $match: activeMatch },
+      { $group: { _id: null, total: { $sum: '$loanAmount' } } },
+    ]);
+
     const bankWise = await this.model.aggregate([
       { $match: { ...leadsMatch, bankName: { $exists: true, $ne: '' } } },
       { $group: { _id: '$bankName', count: { $sum: 1 }, volume: { $sum: '$loanAmount' } } },
@@ -952,6 +957,7 @@ export class CasesService {
       disbursedMTD,
       disbursedMTDAmount: disbursedMTDAmount[0]?.total ?? 0,
       activeCases,
+      activeCasesAmount: activeCasesAmount[0]?.total ?? 0,
       statusBreakdown: Object.fromEntries(statusBreakdown.map((s) => [s._id, s.count])),
       bankWise,
       productMix,
