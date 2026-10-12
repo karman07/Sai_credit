@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldCheck, Car, MapPin, Users, FileText,
   Plus, Edit2, Power, RefreshCw, Search, Map,
-  X, Hash, ListOrdered, Tags, Layers,
+  X, Hash, ListOrdered, Tags, Layers, GripVertical,
 } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
@@ -47,7 +47,7 @@ const CATALOG: MasterConfig[] = [
   { slug: "enum-sets",           label: "Enum Sets",           description: "Named option lists you can reuse in Form Builder select fields", group: "form-options", icon: ListOrdered, iconBg: "bg-violet-500/10", iconText: "text-violet-600", hasEnumValues: true },
   // Loan Operations
   { slug: "products",            label: "Loan Products",       description: "Products offered — controls product choices and case-code prefixes app-wide", group: "loan-ops", icon: Layers, iconBg: "bg-purple-500/10", iconText: "text-purple-600", hasCode: true },
-  { slug: "case-statuses",       label: "Case Statuses",       description: "Custom case statuses that appear alongside the built-in ones", group: "loan-ops", icon: Tags, iconBg: "bg-sky-500/10", iconText: "text-sky-600", hasColorClass: true },
+  { slug: "case-statuses",       label: "Case Statuses",       description: "All case statuses — built-in and custom — drag to reorder; built-ins can't be renamed or deactivated", group: "loan-ops", icon: Tags, iconBg: "bg-sky-500/10", iconText: "text-sky-600", hasColorClass: true },
   { slug: "rto-statuses",        label: "RTO Statuses",        description: "Custom RTO statuses that appear alongside the built-in ones",  group: "loan-ops", icon: Tags, iconBg: "bg-teal-500/10", iconText: "text-teal-600", hasColorClass: true },
 ];
 
@@ -98,8 +98,12 @@ function MastersContent() {
   useEffect(() => { setSearch(""); setShowInactive(false); }, [selectedSlug]);
 
   const config = CATALOG.find((c) => c.slug === selectedSlug);
+  // Case statuses are seeded as real (isBuiltIn) master rows, so they live in
+  // the main orderable table below. RTO statuses aren't seeded yet, so they
+  // still get the separate read-only block.
   const isStatusCatalog = selectedSlug === "case-statuses" || selectedSlug === "rto-statuses";
-  const builtInStatuses = selectedSlug === "case-statuses" ? CASE_STATUSES : selectedSlug === "rto-statuses" ? RTO_STATUSES : [];
+  const hasStaticBuiltIns = selectedSlug === "rto-statuses";
+  const builtInStatuses = hasStaticBuiltIns ? RTO_STATUSES : [];
 
   // Redirect stale/unknown slugs (e.g. old bookmarks to removed catalog entries)
   useEffect(() => {
@@ -153,6 +157,27 @@ function MastersContent() {
 
   const activeCount = items.filter((i) => i.isActive).length;
   const totalCount = items.length;
+
+  // Drag-and-drop reorder — only safe when every item is visible (no search/
+  // inactive filtering hiding part of the list), since sortOrder is a flat
+  // index across the whole catalog.
+  const canReorder = filtered.length === items.length;
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  async function handleDrop(dropIndex: number) {
+    if (dragIndex === null || dragIndex === dropIndex) { setDragIndex(null); return; }
+    const reordered = [...items];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropIndex, 0, moved);
+    setItems(reordered);
+    setDragIndex(null);
+    try {
+      await mastersApi.reorder(selectedSlug, reordered.map((i) => i._id));
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to save new order");
+      load();
+    }
+  }
 
   async function handleToggle(item: MasterItem) {
     try {
@@ -264,8 +289,8 @@ function MastersContent() {
           )}
         </div>
 
-        {/* Built-in statuses block (status catalogs only: case-statuses, rto-statuses) */}
-        {isStatusCatalog && (
+        {/* Built-in statuses block (rto-statuses only — case-statuses are seeded into the table below) */}
+        {hasStaticBuiltIns && (
           <div className="px-6 pt-4 pb-0">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2">Built-in Statuses</p>
             <div className="rounded-xl border border-border overflow-hidden bg-surface mb-4">
@@ -342,6 +367,9 @@ function MastersContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-2/50">
+                    <th className="w-8 px-2 py-2.5" title={canReorder ? "Drag to reorder" : "Clear search and show inactive to reorder"}>
+                      {!canReorder && <GripVertical className="size-3.5 text-muted/30" />}
+                    </th>
                     <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Name</th>
                     {config.parentSlug && <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{config.parentLabel}</th>}
                     {config.hasCode && <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted w-24">Code</th>}
@@ -355,7 +383,7 @@ function MastersContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((item) => (
+                  {filtered.map((item, index) => (
                     <ItemRow
                       key={item._id}
                       item={item}
@@ -363,6 +391,12 @@ function MastersContent() {
                       parentMap={parentMap}
                       onEdit={() => { setEditItem(item); setFormOpen(true); }}
                       onToggle={() => handleToggle(item)}
+                      draggable={canReorder}
+                      isDragging={dragIndex === index}
+                      onDragStart={() => setDragIndex(index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop(index)}
+                      onDragEnd={() => setDragIndex(null)}
                     />
                   ))}
                 </tbody>
@@ -398,21 +432,41 @@ function MastersContent() {
 
 function ItemRow({
   item, config, parentMap, onEdit, onToggle,
+  draggable, isDragging, onDragStart, onDragOver, onDrop, onDragEnd,
 }: {
   item: MasterItem;
   config: MasterConfig;
   parentMap: Record<string, string>;
   onEdit: () => void;
   onToggle: () => void;
+  draggable: boolean;
+  isDragging: boolean;
+  onDragStart: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
 }) {
   return (
-    <tr className={`group transition-colors hover:bg-surface-2/50 ${!item.isActive ? "opacity-50" : ""}`}>
+    <tr
+      draggable={draggable}
+      onDragStart={draggable ? onDragStart : undefined}
+      onDragOver={draggable ? onDragOver : undefined}
+      onDrop={draggable ? onDrop : undefined}
+      onDragEnd={draggable ? onDragEnd : undefined}
+      className={`group transition-colors hover:bg-surface-2/50 ${!item.isActive ? "opacity-50" : ""} ${isDragging ? "opacity-30" : ""}`}
+    >
+      <td className="px-2 py-3">
+        {draggable && (
+          <GripVertical className="size-3.5 text-muted/40 cursor-grab active:cursor-grabbing" />
+        )}
+      </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           <div className={`size-7 rounded-md grid place-items-center shrink-0 ${config.iconBg}`}>
             <config.icon className={`size-3.5 ${config.iconText}`} />
           </div>
           <span className="font-medium text-sm">{item.name}</span>
+          {item.isBuiltIn && <Badge tone="neutral">Built-in</Badge>}
         </div>
       </td>
 
@@ -493,15 +547,17 @@ function ItemRow({
           >
             <Edit2 className="size-3.5" />
           </button>
-          <button
-            onClick={onToggle}
-            className={`size-7 grid place-items-center rounded-md transition-colors text-muted ${
-              item.isActive ? "hover:bg-danger/10 hover:text-danger" : "hover:bg-success/10 hover:text-success"
-            }`}
-            title={item.isActive ? "Deactivate" : "Activate"}
-          >
-            <Power className="size-3.5" />
-          </button>
+          {!item.isBuiltIn && (
+            <button
+              onClick={onToggle}
+              className={`size-7 grid place-items-center rounded-md transition-colors text-muted ${
+                item.isActive ? "hover:bg-danger/10 hover:text-danger" : "hover:bg-success/10 hover:text-success"
+              }`}
+              title={item.isActive ? "Deactivate" : "Activate"}
+            >
+              <Power className="size-3.5" />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -593,7 +649,11 @@ function ItemFormModal({
               placeholder="Enter name…"
               autoFocus
               required
+              disabled={item?.isBuiltIn}
             />
+            {item?.isBuiltIn && (
+              <p className="text-[11px] text-muted mt-1">Built-in status names can't be changed — the app's logic depends on them.</p>
+            )}
           </div>
 
           {/* Parent dropdown */}

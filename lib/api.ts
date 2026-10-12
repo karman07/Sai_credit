@@ -192,6 +192,14 @@ export interface Notification {
   caseId?: string; caseCode?: string; isRead: boolean; createdAt: string;
 }
 
+export interface MessageAttachment {
+  url: string; fileName: string; fileType?: string;
+}
+export interface CaseMessage {
+  _id: string; caseId: string; text: string; attachments: MessageAttachment[];
+  authorId: string; authorName: string; authorRole: string; createdAt: string;
+}
+
 // ── Domain API helpers ─────────────────────────────────────────────────
 
 export const casesApi = {
@@ -263,7 +271,7 @@ export interface MasterItem {
   _id: string; type: string; name: string; code?: string; shortName?: string;
   parentId?: string; colorClass?: string; isTerminal?: boolean;
   category?: string; metadata?: Record<string, unknown>;
-  sortOrder?: number; isActive: boolean; createdAt: string;
+  sortOrder?: number; isActive: boolean; isBuiltIn?: boolean; createdAt: string;
 }
 
 export const RTO_STATUSES = ["Pending", "Documents Pending", "Under Verification", "Approved", "Insurance Endorsement Pending", "Completed", "On Hold", "Rejected"];
@@ -274,6 +282,9 @@ export const mastersApi = {
   create: (resource: string, body: unknown) => api.post<MasterItem>(`/master/${resource}`, body),
   update: (resource: string, id: string, body: unknown) => api.put<MasterItem>(`/master/${resource}/${id}`, body),
   toggle: (resource: string, id: string) => api.put<{ id: string; isActive: boolean }>(`/master/${resource}/${id}/toggle-status`),
+  /** Persists a drag-and-drop reorder; every form reading this resource reflects it automatically. */
+  reorder: (resource: string, orderedIds: string[]) =>
+    api.put<MasterItem[]>(`/master/${resource}/reorder`, { orderedIds }),
 };
 
 export type FieldType = 'text' | 'number' | 'select' | 'tel' | 'date' | 'boolean' | 'file';
@@ -300,6 +311,17 @@ export const uploadsApi = {
     fd.append("file", file);
     return api.post<{ url: string; fileName: string }>("/uploads", fd);
   },
+};
+
+/** Resolves an uploaded file's relative URL (e.g. "/uploads/x.jpg") to a fully-qualified one. */
+export function fileUrl(u: string) {
+  return u.startsWith("http") ? u : API_BASE.replace("/api/v1", "") + u;
+}
+
+export const caseMessagesApi = {
+  list: (caseId: string) => api.get<CaseMessage[]>(`/case-messages/case/${caseId}`),
+  send: (caseId: string, body: { text: string; attachments: MessageAttachment[] }) =>
+    api.post<CaseMessage>(`/case-messages/case/${caseId}`, body),
 };
 
 export interface TeamMember { _id: string; firstName: string; lastName: string; email: string; role: string; isActive: boolean; }

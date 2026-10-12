@@ -13,8 +13,8 @@ import {
   type LoanCase, type FormSchema, type PageMeta, type Bank, type Dealer, type FieldDef, type Customer,
 } from "../../../lib/api";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { CaseChatThread } from "../../../components/CaseChatThread";
 
-const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 
 function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
 
@@ -172,6 +172,7 @@ function TeamCasesPageInner() {
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
   const [states, setStates] = useState<string[]>([]);
   const [cities, setCities] = useState<string[]>([]);
+  const [customStatuses, setCustomStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
 
   // New Case modal
   const [newCaseOpen, setNewCaseOpen] = useState(false);
@@ -230,6 +231,15 @@ function TeamCasesPageInner() {
   // to a specific product) — e.g. extra fields under Customer / Loan / Bank sections.
   const genericCustomFields: FieldDef[] = (caseSchema?.sections ?? []).flatMap((s) =>
     s.fields.filter((f) => !f.isCore && f.isActive),
+  );
+
+  // Built-in statuses are now seeded into the case-statuses catalog alongside
+  // custom ones, so this list is already complete and in the admin's chosen
+  // drag-and-drop order — CASE_STATUSES is only a fallback if the catalog
+  // hasn't loaded yet.
+  const allStatuses: string[] = customStatuses.length > 0 ? customStatuses.map((c) => c.name) : CASE_STATUSES;
+  const customStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
+    customStatuses.map((c) => [c.name, c.colorClass]),
   );
 
   // Inline "add new dealer" from the edit form or the New Case modal
@@ -303,6 +313,7 @@ function TeamCasesPageInner() {
     formSchemasApi.get("new-case").then(({ data }) => setCaseSchema(data)).catch(() => {});
     mastersApi.list("cities").then(({ data }) => setCities([...new Set<string>(data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort())).catch(() => {});
     mastersApi.list("states").then(({ data }) => setStates([...new Set<string>(data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort())).catch(() => {});
+    mastersApi.list("case-statuses").then(({ data }) => setCustomStatuses(data.filter((d: any) => d.isActive).map((d: any) => ({ name: d.name, colorClass: d.colorClass })))).catch(() => {});
   }, []);
 
   // Fetches a product's extra-fields schema by name.
@@ -591,7 +602,7 @@ function TeamCasesPageInner() {
           <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name, ID, or reg…" className="w-64" />
         </div>
         <div className="overflow-x-auto">
-          <Tabs tabs={STATUS_TABS.map((s) => ({ id: s, label: s }))} active={statusTab} onChange={(s) => { setStatusTab(s); setPage(1); }} />
+          <Tabs tabs={["All", ...allStatuses].map((s) => ({ id: s, label: s }))} active={statusTab} onChange={(s) => { setStatusTab(s); setPage(1); }} />
         </div>
         <div className="overflow-x-auto">
           <table className="data-table">
@@ -621,7 +632,7 @@ function TeamCasesPageInner() {
                   <td className="text-xs text-foreground-secondary">{c.product}</td>
                   <td className="text-xs text-foreground-secondary">{c.bankName ?? "—"}</td>
                   <td className="font-mono text-xs font-semibold">{c.loanAmount ? `₹${c.loanAmount.toLocaleString("en-IN")}` : "—"}</td>
-                  <td><CaseStatusBadge status={c.status} /></td>
+                  <td><CaseStatusBadge status={c.status} colorClass={customStatusColorMap[c.status]} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
                       <button onClick={() => openDetail(c)} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted hover:text-foreground transition-colors"><Eye className="size-3.5" /></button>
@@ -648,10 +659,10 @@ function TeamCasesPageInner() {
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <div className="flex items-center gap-2">
-                <CaseStatusBadge status={detailCase.status} />
+                <CaseStatusBadge status={detailCase.status} colorClass={customStatusColorMap[detailCase.status]} />
                 <Select value={detailCase.status} onChange={(e) => handleStatusChange(e.target.value as CaseStatus)}
                   className="h-7 text-xs py-0 w-36 bg-surface border-border">
-                  {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {allStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
                 </Select>
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -662,13 +673,13 @@ function TeamCasesPageInner() {
                   className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "overview" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
                   Overview
                 </button>
-                <button onClick={() => { setDetailTab("pipeline"); setEditMode(false); }}
-                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "pipeline" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
-                  Pipeline
-                </button>
                 <button onClick={() => { setDetailTab("documents"); setEditMode(false); }}
                   className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "documents" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
                   Documents {detailCase.docRequests?.filter(r => !r.isResolved).length > 0 && <span className="ml-1 px-1 bg-orange text-white rounded-full text-[9px]">!</span>}
+                </button>
+                <button onClick={() => { setDetailTab("chat"); setEditMode(false); }}
+                  className={cn("px-3 py-1 text-xs font-semibold rounded-md transition-colors", detailTab === "chat" ? "bg-primary text-white" : "bg-surface-2 hover:bg-surface-3 text-foreground-secondary")}>
+                  Chat
                 </button>
               </div>
             </div>
@@ -873,42 +884,6 @@ function TeamCasesPageInner() {
               </div>
             )}
 
-            {detailTab === "pipeline" && (
-              <div className="space-y-2">
-                <p className="text-xs text-muted mb-3">Approval pipeline stages for this case.</p>
-                {!detailCase.pipeline || detailCase.pipeline.length === 0 ? (
-                  <p className="text-sm text-muted italic">No pipeline data available.</p>
-                ) : (
-                  detailCase.pipeline.map((item) => (
-                    <div key={item.stage} className={cn(
-                      "flex items-start gap-3 p-3 rounded-lg border",
-                      item.status === "Done" ? "bg-success-subtle border-success-border" :
-                      item.status === "NA" ? "bg-surface-2 border-border opacity-60" :
-                      "bg-surface border-border"
-                    )}>
-                      <div className={cn(
-                        "size-5 rounded-full flex items-center justify-center shrink-0 mt-0.5",
-                        item.status === "Done" ? "bg-success" : "border-2 border-border"
-                      )}>
-                        {item.status === "Done" && <CheckCircle2 className="size-3 text-white" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={cn("text-sm font-medium", item.status === "NA" && "line-through text-muted")}>{item.stage}</p>
-                        {item.doneAt && (
-                          <p className="text-xs text-muted mt-0.5">
-                            {new Date(item.doneAt).toLocaleDateString("en-IN")}
-                            {item.doneByName ? ` · ${item.doneByName}` : ""}
-                          </p>
-                        )}
-                        {item.remarks && <p className="text-xs text-muted/80 mt-0.5 italic">{item.remarks}</p>}
-                      </div>
-                      <Badge tone={item.status === "Done" ? "success" : "neutral"}>{item.status}</Badge>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
             {detailTab === "documents" && (
               <div className="space-y-5">
                 {detailCase.status === "Incomplete" && (
@@ -1036,6 +1011,10 @@ function TeamCasesPageInner() {
                 </div>
               </div>
             )}
+
+            {detailTab === "chat" && (
+              <CaseChatThread caseId={detailCase._id} height="460px" />
+            )}
           </div>
         )}
       </Drawer>
@@ -1128,7 +1107,7 @@ function TeamCasesPageInner() {
             <div className="w-48">
               <Label>Status</Label>
               <Select value={newCaseForm.status} onChange={(e) => setNewCaseForm((p) => ({ ...p, status: e.target.value }))}>
-                {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {allStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
             </div>
           </div>
