@@ -51,6 +51,12 @@ export class Master {
 
   @Prop({ default: true })
   isActive!: boolean;
+
+  /** True for statuses the app's own logic depends on by name (e.g. CaseStatus
+   *  enum values) — seeded automatically so they can share the drag-and-drop
+   *  ordering with custom entries, but may not be renamed or deactivated. */
+  @Prop({ default: false })
+  isBuiltIn?: boolean;
 }
 
 export const MasterSchema = SchemaFactory.createForClass(Master);

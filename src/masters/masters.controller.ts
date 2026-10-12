@@ -14,6 +14,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import {
   CreateMasterSchema, CreateMasterDto,
   UpdateMasterSchema, UpdateMasterDto,
+  ReorderMasterSchema, ReorderMasterDto,
 } from './masters.dto';
 
 @Controller('master')
@@ -40,6 +41,16 @@ export class MastersController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.masters.create(resource, dto, actor);
+  }
+
+  // Must be declared before ':resource/:id' — otherwise Nest matches "reorder" as an :id.
+  @Put(':resource/reorder')
+  reorder(
+    @Param('resource') resource: string,
+    @Body(new ZodValidationPipe(ReorderMasterSchema)) dto: ReorderMasterDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.masters.reorder(resource, dto, actor);
   }
 
   @Put(':resource/:id')

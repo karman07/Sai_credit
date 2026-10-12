@@ -115,6 +115,19 @@ const DEFAULT_TEMPLATES: DefaultTemplate[] = [
       '<p>Please take the necessary renewal action.</p>' +
       '<p>— Sai Credit CRM</p>',
   },
+  {
+    key: 'case_message',
+    name: 'New Case Chat Message',
+    description: 'Sent to admins, the case\'s coordinator, and the assigned sales rep whenever someone posts a message in a case\'s chat.',
+    variables: ['caseCode', 'customerName', 'authorName', 'messageText', 'attachmentCount'],
+    subject: 'New Message on {{caseCode}} — from {{authorName}}',
+    html:
+      '<p>Hi,</p>' +
+      '<p><b>{{authorName}}</b> sent a message on case <b>{{caseCode}}</b> for <b>{{customerName}}</b>:</p>' +
+      '<p style="padding:10px 14px;background:#f4f4f6;border-radius:8px;">{{messageText}}</p>' +
+      '<p>{{attachmentCount}} attachment(s)</p>' +
+      '<p>— Sai Credit CRM</p>',
+  },
 ];
 
 @Injectable()

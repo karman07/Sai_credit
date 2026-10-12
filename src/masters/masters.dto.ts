@@ -31,3 +31,8 @@ export type CreateMasterDto = z.infer<typeof CreateMasterSchema>;
 
 export const UpdateMasterSchema = CreateMasterSchema.partial();
 export type UpdateMasterDto = z.infer<typeof UpdateMasterSchema>;
+
+export const ReorderMasterSchema = z.object({
+  orderedIds: z.array(objectId).min(1),
+});
+export type ReorderMasterDto = z.infer<typeof ReorderMasterSchema>;

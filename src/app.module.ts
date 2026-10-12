@@ -33,6 +33,7 @@ import { LeavePolicyModule } from './leave-policy/leave-policy.module';
 import { InsuranceLeadsModule } from './insurance-leads/insurance-leads.module';
 import { MailTemplatesModule } from './mail-templates/mail-templates.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { CaseMessagesModule } from './case-messages/case-messages.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { UploadsModule } from './uploads/uploads.module';
     InsuranceLeadsModule,
     MailTemplatesModule,
     UploadsModule,
+    CaseMessagesModule,
   ],
   controllers: [AppController],
   providers: [

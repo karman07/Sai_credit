@@ -12,7 +12,11 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   app.setGlobalPrefix('api/v1');
-  app.use(helmet());
+  // Default CORP ("same-origin") blocks the admin/coordinator/sales frontends — each on
+  // its own port/origin — from embedding uploaded files (e.g. chat/case images) via <img>,
+  // even though CORS already allows the request. These are first-party frontends for the
+  // same product, so relax it to "cross-origin" rather than leaving embeds silently broken.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.enableCors({
     origin: true,
     credentials: true,
