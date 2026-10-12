@@ -17,10 +17,53 @@ import {
   type MasterItem, type FieldDef, type FormSchema,
 } from "../../../lib/api";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { CaseChatThread } from "../../../components/CaseChatThread";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
 function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
+
+async function exportCasesToExcel(rows: LoanCase[], filename: string) {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet("Cases");
+  sheet.columns = [
+    { header: "Case ID", key: "caseCode", width: 18 },
+    { header: "Date", key: "date", width: 12 },
+    { header: "Customer", key: "customer", width: 24 },
+    { header: "Phone", key: "phone", width: 16 },
+    { header: "Product", key: "product", width: 20 },
+    { header: "Bank", key: "bank", width: 22 },
+    { header: "Loan Amount", key: "loanAmount", width: 16 },
+    { header: "Status", key: "status", width: 14 },
+    { header: "Disbursed", key: "disbursed", width: 12 },
+    { header: "Assigned To", key: "assignedTo", width: 18 },
+    { header: "Coordinator", key: "coordinator", width: 18 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const c of rows) {
+    sheet.addRow({
+      caseCode: c.caseCode,
+      date: c.date ? new Date(c.date).toLocaleDateString("en-IN") : "",
+      customer: `${c.customer.firstName} ${c.customer.lastName}`,
+      phone: c.customer.contact ?? "",
+      product: c.product ?? "",
+      bank: c.bankName ?? "",
+      loanAmount: c.loanAmount ?? 0,
+      status: c.status,
+      disbursed: c.disbursementDate ? new Date(c.disbursementDate).toLocaleDateString("en-IN") : "",
+      assignedTo: c.assignedToName ?? "",
+      coordinator: c.coordinatorName ?? "",
+    });
+  }
+  sheet.getColumn("loanAmount").numFmt = "#,##0";
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 function ProductDynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
   const cls = "w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:outline-none";
@@ -189,6 +232,7 @@ function CasesPageInner() {
 
   // UI state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
   const [drawerCase, setDrawerCase] = useState<LoanCase | null>(null);
   const [drawerTab, setDrawerTab] = useState("overview");
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -501,6 +545,102 @@ function CasesPageInner() {
     } catch (e: any) { toast("error", e.message ?? "Failed to change coordinator"); }
   }
 
+  // ── Download case as PDF ───────────────────────────────────────────
+  async function downloadCasePdf(c: LoanCase) {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 48;
+    const colWidth = (pageWidth - marginX * 2 - 24) / 2;
+    let y = 56;
+
+    function ensureSpace(next: number) {
+      if (y + next > doc.internal.pageSize.getHeight() - 48) {
+        doc.addPage();
+        y = 56;
+      }
+    }
+
+    function sectionTitle(title: string) {
+      ensureSpace(28);
+      doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(120, 120, 130);
+      doc.text(title.toUpperCase(), marginX, y);
+      y += 6;
+      doc.setDrawColor(225, 225, 230);
+      doc.line(marginX, y, pageWidth - marginX, y);
+      y += 18;
+    }
+
+    function fieldRow(fields: { label: string; value: string }[]) {
+      for (let i = 0; i < fields.length; i += 2) {
+        ensureSpace(36);
+        const pair = fields.slice(i, i + 2);
+        pair.forEach((f, idx) => {
+          const x = marginX + idx * (colWidth + 24);
+          doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(140, 140, 150);
+          doc.text(f.label.toUpperCase(), x, y);
+          doc.setFont("helvetica", "normal").setFontSize(11).setTextColor(30, 30, 35);
+          const lines = doc.splitTextToSize(f.value || "—", colWidth);
+          doc.text(lines, x, y + 15);
+        });
+        y += 36;
+      }
+      y += 6;
+    }
+
+    // Header
+    doc.setFont("helvetica", "bold").setFontSize(18).setTextColor(20, 20, 25);
+    doc.text(c.caseCode, marginX, y);
+    y += 20;
+    doc.setFont("helvetica", "normal").setFontSize(11).setTextColor(110, 110, 120);
+    doc.text(`${c.customer.firstName} ${c.customer.lastName} · ${c.product ?? "—"}`, marginX, y);
+    y += 10;
+    doc.setDrawColor(200, 200, 210);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 24;
+
+    sectionTitle("Case Status");
+    fieldRow([
+      { label: "Status", value: c.status },
+      { label: "Assigned To", value: c.assignedToName ?? "Unassigned" },
+      { label: "Coordinator", value: c.coordinatorName ?? "Unassigned" },
+    ]);
+
+    sectionTitle("Case Details");
+    fieldRow([
+      { label: "Customer", value: `${c.customer.firstName} ${c.customer.lastName}` },
+      { label: "Contact", value: c.customer.contact ?? "—" },
+      { label: "Product", value: c.product ?? "—" },
+      { label: "Firm", value: (c as any).firm ?? "—" },
+      { label: "Loan Amount", value: c.loanAmount ? `Rs. ${c.loanAmount.toLocaleString("en-IN")}` : "—" },
+      { label: "Bank", value: c.bankName ?? "—" },
+      { label: "Dealer", value: c.dealerName ?? "—" },
+      { label: "Location", value: c.customer.location ?? "—" },
+      { label: "Entry Date", value: fmtDate(c.date) },
+      { label: "Disbursal Date", value: fmtDate(c.disbursementDate) },
+    ]);
+
+    if (genericCustomFields.length > 0) {
+      sectionTitle("Additional Fields");
+      fieldRow(
+        genericCustomFields.map((field) => {
+          const raw = c.customFields?.[field.key];
+          const value = raw == null || raw === "" ? "—" : typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw);
+          return { label: field.label, value };
+        }),
+      );
+    }
+
+    if (c.remarks) {
+      sectionTitle("Remarks");
+      ensureSpace(24);
+      doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(60, 60, 70);
+      doc.text(doc.splitTextToSize(c.remarks, pageWidth - marginX * 2), marginX, y);
+    }
+
+    doc.save(`${c.caseCode}.pdf`);
+  }
+
   // ── Edit case ──────────────────────────────────────────────────────
   function openEditModal(c: LoanCase) {
     setEditForm({
@@ -662,10 +802,11 @@ function CasesPageInner() {
   }
 
   const hasFilters = bankFilter || productFilter || firmFilter;
-  const allStatuses: string[] = [
-    ...CASE_STATUSES,
-    ...customStatuses.filter((c) => !CASE_STATUSES.includes(c.name as any)).map((c) => c.name),
-  ];
+  // Built-in statuses are now seeded into the case-statuses catalog alongside
+  // custom ones, so this list is already complete and in the admin's chosen
+  // drag-and-drop order — CASE_STATUSES is only a fallback if the catalog
+  // hasn't loaded yet.
+  const allStatuses: string[] = customStatuses.length > 0 ? customStatuses.map((c) => c.name) : CASE_STATUSES;
   const customStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
     customStatuses.map((c) => [c.name, c.colorClass])
   );
@@ -686,6 +827,33 @@ function CasesPageInner() {
     else { const n = new Set(selectedIds); cases.forEach((c) => n.add(c._id)); setSelectedIds(n); }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      let rows: LoanCase[];
+      if (selectedIds.size > 0) {
+        rows = cases.filter((c) => selectedIds.has(c._id));
+      } else {
+        const { data } = await casesApi.listWithMeta({
+          page: 1, limit: meta.total || 1000,
+          search: search || undefined,
+          status: statusFilter !== "All" ? statusFilter : undefined,
+          bankId: bankFilter || undefined,
+          product: productFilter || undefined,
+          firm: firmFilter || undefined,
+        });
+        rows = data as unknown as LoanCase[];
+      }
+      if (rows.length === 0) { toast("error", "No cases to export"); return; }
+      await exportCasesToExcel(rows, `cases-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast("success", `Exported ${rows.length} case${rows.length !== 1 ? "s" : ""} to Excel`);
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to export cases");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-4 animate-fadeIn">
       {/* Header */}
@@ -695,7 +863,9 @@ function CasesPageInner() {
           <p className="text-sm text-muted mt-0.5">Track and manage all loan cases</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
+          <Button variant="secondary" size="sm" onClick={handleExport} loading={exporting}>
+            <Download className="size-3.5" /> Export{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+          </Button>
           <Button size="sm" onClick={() => { clearSelectedCustomer(); setNewCaseOpen(true); }}><FileText className="size-3.5" /> New Case</Button>
         </div>
       </div>
@@ -829,6 +999,7 @@ function CasesPageInner() {
                 { id: "documents", label: "Documents" },
                 { id: "rto", label: "RTO" },
                 { id: "activity", label: "Activity" },
+                { id: "chat", label: "Chat" },
               ]}
               active={drawerTab} onChange={setDrawerTab}
             />
@@ -883,6 +1054,9 @@ function CasesPageInner() {
                           ))}
                         </Select>
                       </div>
+                      <Button size="sm" variant="secondary" onClick={() => downloadCasePdf(drawerCase)}>
+                        <Download className="size-3.5" /> PDF
+                      </Button>
                       <Button size="sm" variant="secondary" onClick={() => openEditModal(drawerCase)}>
                         <Pencil className="size-3.5" /> Edit
                       </Button>
@@ -1298,6 +1472,10 @@ function CasesPageInner() {
                     ? <EmptyState title="No activity yet" />
                     : <Timeline items={activities.map((a) => ({ label: a.description, time: new Date(a.createdAt).toLocaleString("en-IN"), user: a.createdByName, note: a.note }))} />}
                 </div>
+              )}
+
+              {drawerTab === "chat" && (
+                <CaseChatThread caseId={drawerCase._id} height="460px" />
               )}
             </div>
           </div>

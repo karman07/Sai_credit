@@ -399,6 +399,7 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
   const [refsLoaded, setRefsLoaded] = useState(false);
   const [products, setProducts] = useState<MasterItem[]>([]);
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
+  const [caseStatuses, setCaseStatuses] = useState<string[]>([]);
 
   // Load reference data once
   useEffect(() => {
@@ -408,7 +409,8 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
       usersApi.list({ role: "sales_executive" }), mastersApi.list("document-types"),
       mastersApi.list("cities"), mastersApi.list("states"),
       mastersApi.list("products").catch(() => ({ data: [] })),
-    ]).then(([bl, dl, ul, dtl, citl, stl, pl]) => {
+      mastersApi.list("case-statuses").catch(() => ({ data: [] })),
+    ]).then(([bl, dl, ul, dtl, citl, stl, pl, csl]) => {
       setBanks(bl.data);
       setDealers(dl.data);
       setSalesUsers(ul.data);
@@ -416,6 +418,8 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setStates([...new Set<string>(stl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
       setProducts(pl.data.filter((d: any) => d.isActive));
+      const statusNames = csl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string);
+      setCaseStatuses(statusNames.length > 0 ? statusNames : CASE_STATUSES);
       setRefsLoaded(true);
     }).catch(() => {});
   }, [refsLoaded]);
@@ -677,7 +681,7 @@ export function CaseDrawer({ caseId, onClose, onCaseChange }: CaseDrawerProps) {
                           onChange={(e) => changeStatus(e.target.value)}
                           disabled={statusChanging}
                         >
-                          {CASE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          {(caseStatuses.length > 0 ? caseStatuses : CASE_STATUSES).map((s) => <option key={s} value={s}>{s}</option>)}
                         </Select>
                       </div>
                     </div>
