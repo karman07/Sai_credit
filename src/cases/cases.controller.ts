@@ -32,8 +32,14 @@ export class CasesController {
     @Query('bankId') bankId?: string,
     @Query('product') product?: string,
     @Query('firm') firm?: string,
+    @CurrentUser() actor?: AuthUser,
   ) {
-    return this.svc.stats({ from, to, bankId, product, firm });
+    const isSales = actor ? isSalesRole(actor.role) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator;
+    return this.svc.stats({
+      from, to, bankId, product, firm,
+      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined,
+    });
   }
 
   @Get('stats/trend')
@@ -46,8 +52,14 @@ export class CasesController {
     @Query('product') product?: string,
     @Query('firm') firm?: string,
     @Query('status') status?: string,
+    @CurrentUser() actor?: AuthUser,
   ) {
-    return this.svc.trend({ from, to, groupBy, bankId, product, firm, status });
+    const isSales = actor ? isSalesRole(actor.role) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator;
+    return this.svc.trend({
+      from, to, groupBy, bankId, product, firm, status,
+      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined,
+    });
   }
 
   @Get()

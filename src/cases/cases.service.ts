@@ -78,6 +78,30 @@ export class CasesService {
     }
   }
 
+  /**
+   * Coordinators see cases assigned to the sales reps assigned to them, plus
+   * any case they created themselves directly (e.g. not yet assigned to a rep).
+   * Sales users see cases they created OR were assigned to. `coordinatorId`/
+   * `createdBy` were historically saved as plain strings in some records
+   * instead of ObjectId (pre-existing data inconsistency), so matches are
+   * done against both forms rather than assuming one. Shared by `list`,
+   * `stats`, and `trend` so every case-derived figure — not just the table —
+   * is scoped to what the caller is actually allowed to see.
+   */
+  private async buildScopeFilter(params: { userId?: string; scopeToUser?: boolean; coordinatorId?: string }): Promise<Record<string, any> | null> {
+    const { userId, scopeToUser, coordinatorId } = params;
+    if (coordinatorId) {
+      const cid = new Types.ObjectId(coordinatorId);
+      const reps = await this.userModel.find({ coordinatorId: { $in: [cid, coordinatorId] } }, '_id').lean();
+      return { $or: [{ assignedTo: { $in: reps.map((r) => r._id) } }, { createdBy: { $in: [cid, coordinatorId] } }] };
+    }
+    if (scopeToUser && userId) {
+      const uid = new Types.ObjectId(userId);
+      return { $or: [{ createdBy: { $in: [uid, userId] } }, { assignedTo: uid }] };
+    }
+    return null;
+  }
+
   async list(params: {
     page?: number; limit?: number; search?: string; status?: string;
     bankId?: string; dealerId?: string; product?: string; firm?: string;
@@ -86,23 +110,8 @@ export class CasesService {
     const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId } = params;
     const filter: Record<string, any> = { isActive: true };
 
-    // Coordinators see cases assigned to the sales reps assigned to them, plus
-    // any case they created themselves directly (e.g. not yet assigned to a rep).
-    // `coordinatorId`/`createdBy` were historically saved as plain strings in
-    // some records instead of ObjectId (pre-existing data inconsistency), so
-    // matches are done against both forms rather than assuming one.
-    if (coordinatorId) {
-      const cid = new Types.ObjectId(coordinatorId);
-      const reps = await this.userModel.find({ coordinatorId: { $in: [cid, coordinatorId] } }, '_id').lean();
-      filter.$or = [
-        { assignedTo: { $in: reps.map((r) => r._id) } },
-        { createdBy: { $in: [cid, coordinatorId] } },
-      ];
-    } else if (scopeToUser && userId) {
-      // Sales users see cases they created OR were assigned to
-      const uid = new Types.ObjectId(userId);
-      filter.$or = [{ createdBy: { $in: [uid, userId] } }, { assignedTo: uid }];
-    }
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
+    if (scopeFilter) filter.$or = scopeFilter.$or;
 
     if (search) {
       const re = new RegExp(search, 'i');
@@ -904,10 +913,14 @@ export class CasesService {
    * every figure scopes to it (leads/status/bank/product by createdAt, disbursed
    * figures by disbursementDate).
    */
-  async stats(params: { from?: string; to?: string; bankId?: string; product?: string; firm?: string } = {}) {
-    const { from, to, bankId, product, firm } = params;
+  async stats(params: {
+    from?: string; to?: string; bankId?: string; product?: string; firm?: string;
+    userId?: string; scopeToUser?: boolean; coordinatorId?: string;
+  } = {}) {
+    const { from, to, bankId, product, firm, userId, scopeToUser, coordinatorId } = params;
 
-    const baseMatch: Record<string, any> = { isActive: true };
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
+    const baseMatch: Record<string, any> = { isActive: true, ...(scopeFilter ?? {}) };
     if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
     if (product) baseMatch.product = product;
     if (firm) baseMatch.firm = firm;
@@ -972,8 +985,9 @@ export class CasesService {
   async trend(params: {
     from?: string; to?: string; groupBy?: 'day' | 'month';
     bankId?: string; product?: string; firm?: string; status?: string;
+    userId?: string; scopeToUser?: boolean; coordinatorId?: string;
   }) {
-    const { from, to, groupBy = 'day', bankId, product, firm, status } = params;
+    const { from, to, groupBy = 'day', bankId, product, firm, status, userId, scopeToUser, coordinatorId } = params;
 
     const toDate = to ? new Date(new Date(to).getTime() + 86_400_000 - 1) : new Date();
     const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 29 * 86_400_000);
@@ -982,7 +996,8 @@ export class CasesService {
       throw new BadRequestException('Date range too large for daily grouping — use monthly grouping or a shorter range');
     }
 
-    const baseMatch: Record<string, any> = { isActive: true };
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
+    const baseMatch: Record<string, any> = { isActive: true, ...(scopeFilter ?? {}) };
     if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
     if (product) baseMatch.product = product;
     if (firm) baseMatch.firm = firm;
