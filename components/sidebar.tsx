@@ -7,7 +7,7 @@ import {
   LayoutDashboard, FileText, Wallet, Building2, ShieldCheck,
   Bell, User, ChevronLeft, ChevronRight, Compass,
   CalendarDays, Receipt, Palmtree, Wallet as PayslipIcon,
-  Layers, Settings2, Clipboard,
+  Layers, Settings2, Clipboard, BarChart3,
 } from "lucide-react";
 import { cn } from "./ui";
 import { notificationsApi } from "../lib/api";
@@ -24,6 +24,7 @@ function buildNav(hasRtoAccess: boolean) {
         { label: "Cases", href: "/cases", icon: FileText },
         { label: "Payout Management", href: "/payout", icon: Wallet },
         ...(hasRtoAccess ? [{ label: "RTO / Documents", href: "/rto", icon: Clipboard }] : []),
+        { label: "Reports", href: "/reports", icon: BarChart3 },
       ],
     },
     {
