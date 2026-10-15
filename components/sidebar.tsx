@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, FileText, Building2, ShieldCheck,
   Bell, User, ChevronLeft, ChevronRight, Leaf, Users,
-  CalendarDays, Receipt, Palmtree, Clipboard, Files,
+  CalendarDays, Receipt, Palmtree, Clipboard, Files, BarChart3,
 } from "lucide-react";
 import { cn } from "./ui";
 import { notificationsApi } from "../lib/api";
@@ -19,6 +19,7 @@ const NAV = [
       { label: "My Cases", href: "/cases", icon: FileText },
       { label: "Customers", href: "/customers", icon: Users },
       { label: "RTO / Documents", href: "/rto-checklist", icon: Clipboard },
+      { label: "Reports", href: "/reports", icon: BarChart3 },
     ],
   },
   {

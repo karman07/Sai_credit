@@ -136,6 +136,20 @@ export interface LoanCase {
   createdAt: string;
 }
 
+export interface DashboardStats {
+  totalLeads: number; disbursedMTD: number; disbursedMTDAmount: number;
+  activeCases: number; activeCasesAmount: number;
+  statusBreakdown: Record<string, number>;
+  bankWise: { _id: string; count: number; volume: number }[];
+  productMix: { _id: string; count: number }[];
+}
+
+export interface CaseTrendPoint { date: string; leads: number; disbursed: number; volume: number }
+
+export interface StatsFilters {
+  from?: string; to?: string; bankId?: string; product?: string; firm?: string;
+}
+
 export interface InsurancePolicy {
   _id: string; name: string; insurer: string;
   coverageType: string; vehicleTypes: string[];
@@ -201,6 +215,9 @@ export interface SalesCustomer {
 export const casesApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<LoanCase[]>("/cases", q),
   get: (id: string) => api.get<LoanCase>(`/cases/${id}`),
+  stats: (q?: StatsFilters) => api.get<DashboardStats>("/cases/stats", q as Record<string, string | undefined>),
+  trend: (q?: StatsFilters & { groupBy?: "day" | "month"; status?: string }) =>
+    api.get<CaseTrendPoint[]>("/cases/stats/trend", q as Record<string, string | undefined>),
   create: (body: unknown) => api.post<LoanCase>("/cases", body),
   update: (id: string, body: unknown) => api.put<LoanCase>(`/cases/${id}`, body),
   updateStatus: (id: string, body: { status: string; note?: string }) => api.put<LoanCase>(`/cases/${id}/status`, body),
