@@ -7,7 +7,7 @@ import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
   Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, PhoneInput, Select, cn
 } from "../../../components/ui";
-import { downloadXlsx, xlDate, xlCell, customKeys } from "../../../lib/excel";
+import { downloadXlsxSheets, xlDate, xlCell, customKeys } from "../../../lib/excel";
 import {
   casesApi, mastersApi, banksApi, dealersApi, formSchemasApi, customersApi,
   VEHICLE_PRODUCTS, API_BASE, FIRMS, LOAN_TYPES, CASE_STATUSES,
@@ -299,14 +299,15 @@ function TeamCasesPageInner() {
       // Every case field, plus one column per Form Builder custom field seen across the exported cases.
       const ck = customKeys(rows);
       const pipelineStages = [...new Set(rows.flatMap((c) => (c.pipeline ?? []).map((p) => p.stage)))];
-      await downloadXlsx(
-        "Cases",
-        ["Case ID", "Date", "Customer", "Father's Name", "Phone", "Alt Phone", "City", "State", "District", "Pin Code", "Residential Status", "E-Bill Owner",
+      const name = (c: LoanCase) => `${c.customer.firstName} ${c.customer.lastName}`.trim();
+      await downloadXlsxSheets([
+        { name: "Cases",
+          headers: ["Case ID", "Date", "Customer", "Father's Name", "Phone", "Alt Phone", "City", "State", "District", "Pin Code", "Residential Status", "E-Bill Owner",
           "Product", "Loan Type", "Firm", "Vehicle Model", "Reg. Number", "Owner Serial", "Existing Insurer", "Hypothecation", "NOC Required", "Challans",
           "Loan Amount", "Bank", "Branch", "BM Name", "BM Contact", "Bank Executive", "Dealer", "Payout %",
           "Status", "Disbursed On", "Assigned To", "Coordinator", "Pending Doc Requests", "Documents Uploaded", "Document Names", "Remarks", "Created On",
-          ...pipelineStages.map((st) => `Pipeline: ${st}`), ...ck],
-        rows.map((c) => [
+            ...pipelineStages.flatMap((st) => [`${st} — Status`, `${st} — Done On`, `${st} — Done By`, `${st} — Remarks`]), ...ck],
+          rows: rows.map((c) => [
           c.caseCode, fmt(c.date), `${c.customer.firstName} ${c.customer.lastName}`.trim(), c.customer.fatherName ?? "",
           c.customer.contact ?? "", c.customer.altContact ?? "", c.customer.location ?? "", c.customer.state ?? "",
           c.customer.district ?? "", c.customer.pinCode ?? "", c.customer.residentialStatus ?? "", c.customer.ebillOwner ? "Yes" : "No",
@@ -316,11 +317,25 @@ function TeamCasesPageInner() {
           c.dealerName ?? "", c.payoutPct ?? 0,
           c.status, fmt(c.disbursementDate), c.assignedToName ?? "", (c as any).coordinatorName ?? "",
           (c.docRequests ?? []).filter((d) => !d.isResolved).length, (c.documents ?? []).length, (c.documents ?? []).map((d) => `${d.docType}: ${d.fileName}`).join("; "), c.remarks ?? "", xlDate(c.createdAt),
-          ...pipelineStages.map((st) => c.pipeline?.find((p) => p.stage === st)?.status ?? ""),
+          ...pipelineStages.flatMap((st) => {
+            const p = c.pipeline?.find((x) => x.stage === st);
+            return [p?.status ?? "", xlDate(p?.doneAt), p?.doneByName ?? "", p?.remarks ?? ""];
+          }),
           ...ck.map((k) => xlCell(c.customFields?.[k])),
-        ]),
-        `cases-export-${new Date().toISOString().slice(0, 10)}.xlsx`,
-      );
+        ]) },
+        { name: "Documents",
+          headers: ["Case ID", "Customer", "Document Type", "File Name", "Link", "Remarks", "Uploaded By", "Uploaded On"],
+          rows: rows.flatMap((c) => (c.documents ?? []).map((d) => [
+            c.caseCode, name(c), d.docType, d.fileName, d.url ? (d.url.startsWith("http") ? d.url : API_BASE.replace("/api/v1", "") + d.url) : "",
+            d.remarks ?? "", d.uploadedByName, new Date(d.uploadedAt).toLocaleString("en-IN"),
+          ])) },
+        { name: "Document Requests",
+          headers: ["Case ID", "Customer", "Documents Requested", "Remarks", "Requested By", "Requested On", "Resolved", "Resolved On"],
+          rows: rows.flatMap((c) => (c.docRequests ?? []).map((r) => [
+            c.caseCode, name(c), r.docTypes.join(", "), r.remarks, r.requestedByName,
+            new Date(r.requestedAt).toLocaleString("en-IN"), r.isResolved ? "Yes" : "No", r.resolvedAt ? new Date(r.resolvedAt).toLocaleString("en-IN") : "",
+          ])) },
+      ], `cases-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
       toast("success", `Exported ${rows.length} case${rows.length !== 1 ? "s" : ""} to Excel`);
     } catch (e: any) {
       toast("error", e.message ?? "Failed to export cases");
