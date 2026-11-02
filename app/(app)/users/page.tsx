@@ -417,9 +417,9 @@ function UserFormModal({
                   className="mt-0.5 rounded size-4"
                 />
                 <div>
-                  <label htmlFor="rtoAccess" className="text-sm font-medium cursor-pointer">RTO Access</label>
+                  <label htmlFor="rtoAccess" className="text-sm font-medium cursor-pointer">RTO Coordinator</label>
                   <p className="text-xs text-muted mt-0.5">
-                    Grants this specific coordinator access to the RTO / Documents section. Off by default — most coordinators don't need it.
+                    Makes this a dedicated RTO coordinator: they see only Disbursed car-loan files and work the RTO stages (Data Catalog → RTO Stages), request documents from sales and chat. They lose regular coordinator pages (cases, payout, catalog…). Takes effect on their next login.
                   </p>
                 </div>
               </div>

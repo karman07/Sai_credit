@@ -195,6 +195,19 @@ export interface InsuranceMIS {
   lastRenewedAt?: string;
 }
 
+export type RTOStageStatus = "Pending" | "In Progress" | "Done" | "NA";
+export interface RTOStageComment { _id: string; text: string; authorName: string; at: string }
+export interface RTOStage {
+  stageId: string; name: string; order: number; status: RTOStageStatus;
+  doneAt?: string; updatedAt?: string; updatedByName?: string; comments: RTOStageComment[];
+}
+export interface RTODocRequest {
+  _id: string; docTypes: string[]; remarks: string; stageName?: string;
+  requestedByName: string; requestedAt: string;
+  response?: { text: string; attachments: { url: string; fileName: string }[]; byName: string; at: string };
+  isResolved: boolean; resolvedAt?: string; resolvedByName?: string;
+}
+
 export interface RTORecord {
   _id: string; caseId?: string; caseCode?: string; customerName?: string;
   status?: string;
@@ -207,6 +220,8 @@ export interface RTORecord {
   rtoSlipUrl?: string; rtoSlipFileName?: string;
   verification: string; approval: string; approvalDate?: string;
   insuranceEndorsement: string; balancePayment: number;
+  stages?: RTOStage[]; docRequests?: RTODocRequest[];
+  salesRepName?: string; rtoOwnerName?: string; completedAt?: string; product?: string;
   remarks?: string; createdAt: string;
   customFields?: Record<string, any>;
 }
@@ -307,10 +322,19 @@ export const insurancePoliciesApi = {
 
 export const rtoApi = {
   list: (caseId?: string) => api.get<RTORecord[]>("/rto-tracker", caseId ? { caseId } : undefined),
+  /** RTO coordinators get the record created (stages seeded from the Data Catalog) on first open. */
   create: (body: unknown) => api.post<RTORecord>("/rto-tracker", body),
   update: (id: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/${id}`, body),
-  upsertByCase: (caseId: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/by-case/${caseId}`, body),
   uploadSlip: (id: string, formData: FormData) => api.post<RTORecord>(`/rto-tracker/${id}/upload-slip`, formData),
+  getByCase: (caseId: string) => api.get<RTORecord | null>(`/rto-tracker/by-case/${caseId}`),
+  upsertByCase: (caseId: string, body: unknown) => api.put<RTORecord>(`/rto-tracker/by-case/${caseId}`, body),
+  updateStage: (id: string, stageId: string, body: { status?: RTOStageStatus; comment?: string }) =>
+    api.put<RTORecord>(`/rto-tracker/${id}/stages/${stageId}`, body),
+  requestDocs: (id: string, body: { docTypes: string[]; remarks: string; stageName?: string }) =>
+    api.post<RTORecord>(`/rto-tracker/${id}/request-docs`, body),
+  resolveRequest: (id: string, reqId: string) => api.put<RTORecord>(`/rto-tracker/${id}/requests/${reqId}/resolve`),
+  respond: (id: string, reqId: string, body: { text?: string; attachments?: { url: string; fileName: string }[] }) =>
+    api.post<RTORecord>(`/rto-tracker/${id}/requests/${reqId}/respond`, body),
 };
 
 export const notificationsApi = {

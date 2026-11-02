@@ -10,6 +10,8 @@ const TYPE_META: Record<string, { label: string; icon: React.ElementType; tone: 
   insurance_reminder: { label: "Insurance",  icon: ShieldCheck,   tone: "danger"   },
   stagnant_case:      { label: "Stagnant",   icon: Clock,         tone: "warning"  },
   rto_complete:       { label: "RTO",        icon: CheckCircle2,  tone: "success"  },
+  rto_doc_request:    { label: "RTO Docs",   icon: CheckCircle2,  tone: "warning"  },
+  rto_doc_response:   { label: "RTO Docs",   icon: CheckCircle2,  tone: "info"     },
   pipeline_complete:  { label: "Disbursed",  icon: CheckCircle2,  tone: "teal"     },
   document:           { label: "Document",   icon: FileText,      tone: "orange"   },
   doc_uploaded:       { label: "Document",   icon: FileText,      tone: "orange"   },

@@ -112,6 +112,12 @@ function formToBody(f: RTOForm, c: LoanCase) {
 // ── Progress ──────────────────────────────────────────────────────────────────
 
 function calcProgress(r: Partial<RTORecord> & { rtoOwnership?: string }) {
+  // Records worked by the RTO coordinator are driven by Data Catalog stages.
+  if (r.stages?.length) {
+    const active = r.stages.filter(s => s.status !== "NA");
+    const done = active.filter(s => s.status === "Done").length;
+    return { completed: done, total: active.length, pct: active.length ? Math.round((done / active.length) * 100) : 0 };
+  }
   const checklist = [
     r.rtoOwnership, r.challanCheck, r.bankNocCheck,
     r.insuranceCheck, r.hypothecation, r.aadhaarMatch,
@@ -389,6 +395,31 @@ export default function RTOTrackerPage() {
 
                 {isOpen && (
                   <div className="border-t border-border p-4 animate-fadeIn space-y-5 bg-surface-2/40">
+
+                    {/* ── RTO coordinator's work (stages + requests to sales) ── */}
+                    {r?.stages && r.stages.length > 0 && (
+                      <section className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
+                          RTO Stages{r.rtoOwnerName ? ` · ${r.rtoOwnerName}` : ""}{r.completedAt ? " · completed" : ""}
+                        </p>
+                        <ul className="space-y-1.5">
+                          {[...r.stages].sort((a, b) => a.order - b.order).map(st => (
+                            <li key={st.stageId} className="text-sm">
+                              <span className="font-medium">{st.name}</span>
+                              <span className="text-xs text-muted"> · {st.status === "NA" ? "Not applicable" : st.status}{st.updatedByName ? ` · ${st.updatedByName}` : ""}</span>
+                              {st.comments.slice(-2).map(c => (
+                                <p key={c._id} className="text-xs text-muted pl-3">“{c.text}” — {c.authorName}</p>
+                              ))}
+                            </li>
+                          ))}
+                        </ul>
+                        {(r.docRequests ?? []).length > 0 && (
+                          <p className="text-xs text-muted">
+                            Document requests: {r.docRequests!.filter(d => d.isResolved).length}/{r.docRequests!.length} resolved
+                          </p>
+                        )}
+                      </section>
+                    )}
 
                     {/* ── RTO Status ── */}
                     <section className="space-y-2">
