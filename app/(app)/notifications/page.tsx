@@ -42,6 +42,8 @@ const TYPE_CONFIG: Record<string, { icon: typeof Bell; bg: string; text: string 
   coordinator_changed: { icon: UserCog,    bg: "bg-blue-100",   text: "text-blue-700" },
   pipeline_complete:  { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
   rto_complete:       { icon: CheckCircle2, bg: "bg-green-100", text: "text-green-700" },
+  rto_doc_request:    { icon: FileText,     bg: "bg-orange-100", text: "text-orange-700" },
+  rto_doc_response:   { icon: FileText,     bg: "bg-blue-100",   text: "text-blue-700" },
   stagnant_case:      { icon: Clock,        bg: "bg-yellow-100", text: "text-yellow-700" },
   general:            { icon: Bell,         bg: "bg-surface-2",  text: "text-muted" },
 };

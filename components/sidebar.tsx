@@ -18,7 +18,7 @@ const NAV = [
     items: [
       { label: "My Cases", href: "/cases", icon: FileText },
       { label: "Customers", href: "/customers", icon: Users },
-      { label: "RTO / Documents", href: "/rto-checklist", icon: Clipboard },
+      { label: "RTO Status", href: "/rto-checklist", icon: Clipboard },
       { label: "Reports", href: "/reports", icon: BarChart3 },
     ],
   },
