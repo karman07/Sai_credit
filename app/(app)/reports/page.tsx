@@ -14,6 +14,7 @@ import {
   EmptyState, Skeleton, useToast, type BadgeTone,
 } from "../../../components/ui";
 import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
+import { downloadXlsx } from "../../../lib/excel";
 import {
   casesApi, payoutApi, insuranceApi, banksApi, mastersApi, ApiError,
   type LoanCase, type PayoutRecord, type InsuranceMIS, type Bank, type MasterItem,
@@ -63,18 +64,6 @@ function inRange(dateStr: string | undefined, from: string, to: string) {
   if (!dateStr) return false;
   const d = dateStr.slice(0, 10);
   return d >= from && d <= to;
-}
-
-function downloadCSV(headers: string[], rows: (string | number)[][], filename: string) {
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")),
-  ];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -211,43 +200,43 @@ export default function ReportsPage() {
     }
   }, [selected, dateFrom, dateTo, productFilter, bankFilter]);
 
-  const exportCSV = () => {
+  const exportExcel = async () => {
     if (!data) return;
     const rt = REPORT_TYPES.find((r) => r.id === selected)!;
-    const fname = `${rt.id}-${dateFrom}-to-${dateTo}.csv`;
+    const fname = `${rt.id}-${dateFrom}-to-${dateTo}.xlsx`;
 
     if (data.type === "disbursement") {
-      downloadCSV(
+      await downloadXlsx(rt.title, 
         ["Case ID", "Customer", "Bank", "Product", "Loan Amount", "Disbursement Date"],
         data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.loanAmount ?? 0, fmtDate(c.disbursementDate)]),
         fname,
       );
     } else if (data.type === "rejection") {
-      downloadCSV(
+      await downloadXlsx(rt.title, 
         ["Case ID", "Customer", "Bank", "Product", "Remarks", "Date"],
         data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.remarks ?? "", fmtDate(c.createdAt)]),
         fname,
       );
     } else if (data.type === "payout") {
-      downloadCSV(
+      await downloadXlsx(rt.title, 
         ["Bank", "Month", "Invoice Amt", "Commission", "Total Amt", "Invoice Status", "Payout Status"],
         data.records.map((r) => [r.bankName ?? "", r.businessMonth, r.invoiceAmount, r.commission, r.totalAmount, r.invoiceStatus, r.payoutStatus]),
         fname,
       );
     } else if (data.type === "insurance") {
-      downloadCSV(
+      await downloadXlsx(rt.title, 
         ["Case ID", "Customer", "Insurer", "Policy", "End Date", "Days Left", "Owner"],
         data.records.map((r) => [r.caseCode ?? "", r.customerName ?? "", r.insurer, r.policyName ?? "", fmtDate(r.endDate), daysDiff(r.endDate), r.ownerType]),
         fname,
       );
     } else if (data.type === "bank") {
-      downloadCSV(
+      await downloadXlsx(rt.title, 
         ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
         data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
         fname,
       );
     }
-    toast("success", "CSV exported successfully");
+    toast("success", "Excel file exported");
   };
 
   // ── Summary stats ───────────────────────────────────────────────────────────
@@ -579,8 +568,8 @@ export default function ReportsPage() {
                 <BarChart3 className="size-3.5" /> Generate
               </Button>
               {data && !loading && (
-                <Button variant="secondary" onClick={exportCSV}>
-                  <Download className="size-3.5" /> Export CSV
+                <Button variant="secondary" onClick={() => exportExcel().catch((e) => toast("error", e?.message ?? "Failed to export"))}>
+                  <Download className="size-3.5" /> Export Excel
                 </Button>
               )}
             </div>

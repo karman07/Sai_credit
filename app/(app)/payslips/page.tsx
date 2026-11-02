@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
 import {
   IndianRupee, FileText, ChevronDown, ChevronUp,
   CheckCircle2, Clock, AlertTriangle, Calendar, TrendingDown,
@@ -211,9 +213,24 @@ export default function PayslipsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold">My Payslips</h1>
-        <p className="text-sm text-muted mt-0.5">Monthly salary breakdown with attendance & deductions</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-bold">My Payslips</h1>
+          <p className="text-sm text-muted mt-0.5">Monthly salary breakdown with attendance & deductions</p>
+        </div>
+        <ExportButton onExport={async () => {
+          await downloadXlsx(
+            "Payslips",
+            ["Month", "Basic", "HRA", "Travel", "DA", "Medical", "Other Allowance", "Incentives", "Reimbursements", "LOP Deduction", "Gross Pay", "Net Pay", "Working Days", "Present", "Half Days", "Absent", "Leave Days", "Status", "Paid On", "Remarks"],
+            payrolls.map((p) => [
+              p.month, p.basicSalary, p.hra ?? 0, p.travelAllowance ?? 0, p.da ?? 0, p.medicalAllowance ?? 0, p.otherAllowance ?? 0,
+              p.incentives.reduce((s, i) => s + i.amount, 0), p.reimbursementTotal, p.lopDeduction, p.grossPay, p.netPay,
+              p.workingDaysInMonth, p.presentDays, p.halfDays, p.absentDays, p.leaveDays, p.status, xlDate(p.paidAt), p.remarks ?? "",
+            ]),
+            stampedName("payslips"),
+          );
+          return payrolls.length;
+        }} />
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}

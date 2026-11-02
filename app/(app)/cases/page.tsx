@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { FileText, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, FileWarning } from "lucide-react";
+import { Download, Filter, FileText, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, FileWarning } from "lucide-react";
 import {
   Button, Badge, CaseStatusBadge, SearchInput, Modal, Drawer, Label, Textarea,
   Tabs, Pagination, EmptyState, Skeleton, useToast, type CaseStatus, Input, PhoneInput, Select, cn
 } from "../../../components/ui";
+import { downloadXlsx, xlDate, xlCell, customKeys } from "../../../lib/excel";
 import {
   casesApi, mastersApi, banksApi, dealersApi, formSchemasApi, customersApi,
   VEHICLE_PRODUCTS, API_BASE, FIRMS, LOAN_TYPES, CASE_STATUSES,
@@ -129,6 +130,11 @@ function TeamCasesPageInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusTab, setStatusTab] = useState("All");
+  const [bankFilter, setBankFilter] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [firmFilter, setFirmFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const hasFilters = !!(bankFilter || productFilter || firmFilter);
   const [detailCase, setDetailCase] = useState<LoanCase | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
   const [remarkCase, setRemarkCase] = useState<LoanCase | null>(null);
@@ -273,6 +279,56 @@ function TeamCasesPageInner() {
     }
   }
 
+  const [exporting, setExporting] = useState(false);
+
+  /** Exports every case matching the current search/status filter (not just the visible page) as .xlsx. */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const { data } = await casesApi.list({
+        page: 1, limit: Math.max(meta.total, 1),
+        search: search || undefined,
+        status: statusTab !== "All" ? statusTab : undefined,
+        bankId: bankFilter || undefined,
+        product: productFilter || undefined,
+        firm: firmFilter || undefined,
+      });
+      const rows = data as unknown as LoanCase[];
+      if (rows.length === 0) { toast("error", "No cases to export"); return; }
+      const fmt = (d?: string) => (d ? new Date(d).toLocaleDateString("en-IN") : "");
+      // Every case field, plus one column per Form Builder custom field seen across the exported cases.
+      const ck = customKeys(rows);
+      const pipelineStages = [...new Set(rows.flatMap((c) => (c.pipeline ?? []).map((p) => p.stage)))];
+      await downloadXlsx(
+        "Cases",
+        ["Case ID", "Date", "Customer", "Father's Name", "Phone", "Alt Phone", "City", "State", "District", "Pin Code", "Residential Status", "E-Bill Owner",
+          "Product", "Loan Type", "Firm", "Vehicle Model", "Reg. Number", "Owner Serial", "Existing Insurer", "Hypothecation", "NOC Required", "Challans",
+          "Loan Amount", "Bank", "Branch", "BM Name", "BM Contact", "Bank Executive", "Dealer", "Payout %",
+          "Status", "Disbursed On", "Assigned To", "Coordinator", "Pending Doc Requests", "Documents Uploaded", "Document Names", "Remarks", "Created On",
+          ...pipelineStages.map((st) => `Pipeline: ${st}`), ...ck],
+        rows.map((c) => [
+          c.caseCode, fmt(c.date), `${c.customer.firstName} ${c.customer.lastName}`.trim(), c.customer.fatherName ?? "",
+          c.customer.contact ?? "", c.customer.altContact ?? "", c.customer.location ?? "", c.customer.state ?? "",
+          c.customer.district ?? "", c.customer.pinCode ?? "", c.customer.residentialStatus ?? "", c.customer.ebillOwner ? "Yes" : "No",
+          c.product ?? "", c.loanType ?? "", c.firm ?? "", c.vehicleModel ?? "", c.regNumber ?? "", c.ownerSerial ?? "",
+          c.existingInsurer ?? "", c.hypothecation ? "Yes" : "No", c.nocRequired ? "Yes" : "No", c.challanCount ?? 0,
+          c.loanAmount ?? 0, c.bankName ?? "", c.bankBranch ?? "", c.bmName ?? "", c.bmContact ?? "", c.bankExecutive ?? "",
+          c.dealerName ?? "", c.payoutPct ?? 0,
+          c.status, fmt(c.disbursementDate), c.assignedToName ?? "", (c as any).coordinatorName ?? "",
+          (c.docRequests ?? []).filter((d) => !d.isResolved).length, (c.documents ?? []).length, (c.documents ?? []).map((d) => `${d.docType}: ${d.fileName}`).join("; "), c.remarks ?? "", xlDate(c.createdAt),
+          ...pipelineStages.map((st) => c.pipeline?.find((p) => p.stage === st)?.status ?? ""),
+          ...ck.map((k) => xlCell(c.customFields?.[k])),
+        ]),
+        `cases-export-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
+      toast("success", `Exported ${rows.length} case${rows.length !== 1 ? "s" : ""} to Excel`);
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to export cases");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -280,6 +336,9 @@ function TeamCasesPageInner() {
         page, limit,
         search: search || undefined,
         status: statusTab !== "All" ? statusTab : undefined,
+        bankId: bankFilter || undefined,
+        product: productFilter || undefined,
+        firm: firmFilter || undefined,
       });
       setCases(data as unknown as LoanCase[]);
       if (m) setMeta(m);
@@ -288,7 +347,7 @@ function TeamCasesPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusTab, toast]);
+  }, [page, limit, search, statusTab, bankFilter, productFilter, firmFilter, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -592,15 +651,54 @@ function TeamCasesPageInner() {
           <h1 className="text-xl font-bold tracking-tight">Team Cases</h1>
           <p className="text-sm text-muted mt-0.5">{meta.total} cases across your assigned sales reps and the ones you've created</p>
         </div>
-        <Button size="sm" onClick={() => { setNewCaseForm(blankNewCase); clearSelectedCustomer(); setNewCaseOpen(true); }}>
-          <FileText className="size-3.5" /> New Case
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={handleExport} loading={exporting}>
+            <Download className="size-3.5" /> Export
+          </Button>
+          <Button size="sm" onClick={() => { setNewCaseForm(blankNewCase); clearSelectedCustomer(); setNewCaseOpen(true); }}>
+            <FileText className="size-3.5" /> New Case
+          </Button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
         <div className="flex items-center gap-2 p-3 border-b border-border">
           <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name, ID, or reg…" className="w-64" />
+          <Button variant={filterOpen ? "outline" : "secondary"} size="sm" onClick={() => setFilterOpen((o) => !o)}>
+            <Filter className="size-3.5" /> Filters
+            {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
+          </Button>
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={() => { setBankFilter(""); setProductFilter(""); setFirmFilter(""); setPage(1); }}>
+              <X className="size-3" /> Clear
+            </Button>
+          )}
         </div>
+        {filterOpen && (
+          <div className="flex flex-wrap gap-3 px-4 py-3 bg-surface-2 border-b border-border animate-fadeIn">
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <Label>Bank</Label>
+              <Select className="!h-8 text-xs" value={bankFilter} onChange={(e) => { setBankFilter(e.target.value); setPage(1); }}>
+                <option value="">All Banks</option>
+                {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <Label>Product</Label>
+              <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
+                <option value="">All Products</option>
+                {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[180px]">
+              <Label>Firm</Label>
+              <Select className="!h-8 text-xs" value={firmFilter} onChange={(e) => { setFirmFilter(e.target.value); setPage(1); }}>
+                <option value="">All Firms</option>
+                {FIRMS.map((f) => <option key={f} value={f}>{f}</option>)}
+              </Select>
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <Tabs tabs={["All", ...allStatuses].map((s) => ({ id: s, label: s }))} active={statusTab} onChange={(s) => { setStatusTab(s); setPage(1); }} />
         </div>

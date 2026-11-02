@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
 import { Clock, LogIn, LogOut, Calendar, Timer } from "lucide-react";
 import { attendanceApi, type AttendanceRecord, type AttendanceSummary } from "../../../lib/api";
 
@@ -68,6 +70,16 @@ export default function AttendancePage() {
           <h1 className="text-xl font-bold">My Attendance</h1>
           <p className="text-sm text-muted mt-0.5">Track your daily attendance and work hours</p>
         </div>
+        <ExportButton onExport={async () => {
+          const t = (v?: string) => (v ? new Date(v).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "");
+          await downloadXlsx(
+            "Attendance",
+            ["Date", "Clock In", "Clock Out", "Work Hours", "Status", "Note"],
+            records.map((r) => [xlDate(r.date), t(r.clockIn), t(r.clockOut), r.workHours, r.status.replace("_", " "), r.note ?? ""]),
+            stampedName(`attendance-${month}`),
+          );
+          return records.length;
+        }} />
         <input
           type="month"
           value={month}

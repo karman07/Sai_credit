@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldCheck, Car, MapPin, Users, FileText,
   Plus, Edit2, Power, RefreshCw, Search, Map,
-  X, Hash, ListOrdered, Tags, Layers, GripVertical,
+  X, Hash, ListOrdered, ListChecks, Tags, Layers, GripVertical,
 } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
@@ -48,6 +48,7 @@ const CATALOG: MasterConfig[] = [
   // Loan Operations
   { slug: "products",            label: "Loan Products",       description: "Products offered — controls product choices and case-code prefixes app-wide", group: "loan-ops", icon: Layers, iconBg: "bg-purple-500/10", iconText: "text-purple-600", hasCode: true },
   { slug: "case-statuses",       label: "Case Statuses",       description: "All case statuses — built-in and custom — drag to reorder; built-ins can't be renamed or deactivated", group: "loan-ops", icon: Tags, iconBg: "bg-sky-500/10", iconText: "text-sky-600", hasColorClass: true },
+  { slug: "rto-stages",         label: "RTO Stages",          description: "Ordered workflow steps the RTO coordinator works through on every disbursed car loan — drag to reorder; the admin is notified when all stages are done", group: "loan-ops", icon: ListChecks, iconBg: "bg-indigo-500/10", iconText: "text-indigo-600" },
   { slug: "rto-statuses",        label: "RTO Statuses",        description: "Custom RTO statuses that appear alongside the built-in ones",  group: "loan-ops", icon: Tags, iconBg: "bg-teal-500/10", iconText: "text-teal-600", hasColorClass: true },
 ];
 
@@ -93,6 +94,8 @@ function MastersContent() {
   const [showInactive, setShowInactive] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState<MasterItem | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
   // Reset search/inactive when type changes via URL
   useEffect(() => { setSearch(""); setShowInactive(false); }, [selectedSlug]);
@@ -158,24 +161,33 @@ function MastersContent() {
   const activeCount = items.filter((i) => i.isActive).length;
   const totalCount = items.length;
 
-  // Drag-and-drop reorder — only safe when every item is visible (no search/
-  // inactive filtering hiding part of the list), since sortOrder is a flat
-  // index across the whole catalog.
-  const canReorder = filtered.length === items.length;
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Drag-and-drop reorder. Works on whatever is visible: the reordered rows take
+  // the slots the visible rows already occupied, so hidden (inactive / filtered-out)
+  // items keep their place and sortOrder stays a flat index across the whole catalog.
+  const canReorder = filtered.length > 1;
+
+  function endDrag() { setDragIndex(null); setOverIndex(null); }
 
   async function handleDrop(dropIndex: number) {
-    if (dragIndex === null || dragIndex === dropIndex) { setDragIndex(null); return; }
-    const reordered = [...items];
-    const [moved] = reordered.splice(dragIndex, 1);
-    reordered.splice(dropIndex, 0, moved);
+    const from = dragIndex;
+    endDrag();
+    if (from === null || from === dropIndex) return;
+
+    const visible = [...filtered];
+    const [moved] = visible.splice(from, 1);
+    visible.splice(dropIndex, 0, moved);
+
+    const visibleIds = new Set(filtered.map((i) => i._id));
+    let next = 0;
+    const reordered = items.map((i) => (visibleIds.has(i._id) ? visible[next++] : i));
+
+    const previous = items;
     setItems(reordered);
-    setDragIndex(null);
     try {
       await mastersApi.reorder(selectedSlug, reordered.map((i) => i._id));
     } catch (e: any) {
+      setItems(previous);
       toast("error", e.message ?? "Failed to save new order");
-      load();
     }
   }
 
@@ -367,8 +379,8 @@ function MastersContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-2/50">
-                    <th className="w-8 px-2 py-2.5" title={canReorder ? "Drag to reorder" : "Clear search and show inactive to reorder"}>
-                      {!canReorder && <GripVertical className="size-3.5 text-muted/30" />}
+                    <th className="w-8 px-2 py-2.5" title="Drag rows to reorder">
+                      <GripVertical className="size-3.5 text-muted/40" />
                     </th>
                     <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Name</th>
                     {config.parentSlug && <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{config.parentLabel}</th>}
@@ -393,10 +405,11 @@ function MastersContent() {
                       onToggle={() => handleToggle(item)}
                       draggable={canReorder}
                       isDragging={dragIndex === index}
+                      dropEdge={dragIndex !== null && overIndex === index && dragIndex !== index ? (dragIndex < index ? "below" : "above") : null}
                       onDragStart={() => setDragIndex(index)}
-                      onDragOver={(e) => e.preventDefault()}
+                      onDragOver={() => setOverIndex(index)}
                       onDrop={() => handleDrop(index)}
-                      onDragEnd={() => setDragIndex(null)}
+                      onDragEnd={endDrag}
                     />
                   ))}
                 </tbody>
@@ -432,7 +445,7 @@ function MastersContent() {
 
 function ItemRow({
   item, config, parentMap, onEdit, onToggle,
-  draggable, isDragging, onDragStart, onDragOver, onDrop, onDragEnd,
+  draggable, isDragging, dropEdge, onDragStart, onDragOver, onDrop, onDragEnd,
 }: {
   item: MasterItem;
   config: MasterConfig;
@@ -441,19 +454,25 @@ function ItemRow({
   onToggle: () => void;
   draggable: boolean;
   isDragging: boolean;
+  dropEdge: "above" | "below" | null;
   onDragStart: () => void;
-  onDragOver: (e: React.DragEvent) => void;
+  onDragOver: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
 }) {
   return (
     <tr
       draggable={draggable}
-      onDragStart={draggable ? onDragStart : undefined}
-      onDragOver={draggable ? onDragOver : undefined}
-      onDrop={draggable ? onDrop : undefined}
+      onDragStart={draggable ? (e) => {
+        // Firefox won't start a drag without data on the transfer.
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", item._id);
+        onDragStart();
+      } : undefined}
+      onDragOver={draggable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; onDragOver(); } : undefined}
+      onDrop={draggable ? (e) => { e.preventDefault(); onDrop(); } : undefined}
       onDragEnd={draggable ? onDragEnd : undefined}
-      className={`group transition-colors hover:bg-surface-2/50 ${!item.isActive ? "opacity-50" : ""} ${isDragging ? "opacity-30" : ""}`}
+      className={`group transition-colors hover:bg-surface-2/50 ${!item.isActive ? "opacity-50" : ""} ${isDragging ? "opacity-30" : ""} ${dropEdge === "above" ? "shadow-[inset_0_2px_0_0_var(--primary)]" : ""} ${dropEdge === "below" ? "shadow-[inset_0_-2px_0_0_var(--primary)]" : ""} ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <td className="px-2 py-3">
         {draggable && (

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, downloadXlsxSheets, xlDate, xlCell, customKeys, stampedName } from "../../../lib/excel";
 import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee, RotateCw } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
@@ -119,6 +121,20 @@ export default function InsurancePage() {
           <p className="text-sm text-muted mt-0.5">Insurance policies logged across all loan cases</p>
         </div>
         <div className="flex gap-2">
+          <ExportButton onExport={async () => {
+            const ck = customKeys(filtered);
+            await downloadXlsx(
+              "Insurance",
+              ["Case ID", "Customer", "Customer Email", "Vehicle", "Insurer", "Policy", "Coverage", "Vehicle Type", "Owner Type", "Premium", "Insured Name", "Agent", "Start Date", "End Date", "Reminder Date", "Hold Amount", "Renewal Tagged", "Times Renewed", "Last Renewed", "Active", "Created By", "Created On", ...ck],
+              filtered.map((e) => [
+                e.caseCode ?? "", e.customerName ?? "", e.customerEmail ?? "", e.vehicleModel ?? "", e.insurer, e.policyName ?? "", e.coverageType ?? "",
+                e.vehicleType ?? "", e.ownerType, e.premiumAmount, e.insuredName ?? "", e.agentName ?? "",
+                xlDate(e.startDate), xlDate(e.endDate), xlDate(e.reminderDate), e.holdAmount, e.renewal ? "Yes" : "No", (e.renewalHistory ?? []).length, xlDate(e.lastRenewedAt), e.isActive ? "Yes" : "No", e.createdByName ?? "", xlDate(e.createdAt), ...ck.map((k) => xlCell(e.customFields?.[k])),
+              ]),
+              stampedName("insurance"),
+            );
+            return filtered.length;
+          }} />
           <Button variant="secondary" size="sm" onClick={load}>
             <RefreshCw className="size-3.5" /> Refresh
           </Button>

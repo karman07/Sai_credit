@@ -1,145 +1,378 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Save, RefreshCw, ChevronDown, ChevronRight, Lock } from "lucide-react";
-import { Label, ProgressBar, Badge, CaseStatusBadge, EmptyState } from "../../../components/ui";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  RefreshCw, Lock, CheckCircle2, Circle, Loader2, MinusCircle, Send, Save,
+  MessageSquare, ListChecks, FileQuestion, ClipboardList, Paperclip, Check,
+} from "lucide-react";
+import { Label, ProgressBar, Badge, CaseStatusBadge, EmptyState, SearchInput, cn, useToast } from "../../../components/ui";
 import { useAuth } from "../../../lib/auth-context";
 import {
-  casesApi, rtoApi, formSchemasApi,
-  type LoanCase, type RTORecord, type FieldDef, type SectionDef,
+  casesApi, rtoApi, formSchemasApi, mastersApi, fileUrl,
+  type LoanCase, type RTORecord, type RTOStage, type RTOStageStatus, type FieldDef, type SectionDef,
 } from "../../../lib/api";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, xlDate, xlCell, customKeys, stampedName } from "../../../lib/excel";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { CaseChatThread } from "../../../components/CaseChatThread";
 
-const VEHICLE_PRODUCTS = ["Car Loan", "Commercial Vehicle Loan"];
-const CHECKLIST_OPTS   = ["Pending", "Received", "Not Required"] as const;
-const STAGE_OPTS       = ["Pending", "Done"] as const;
-const OWNERSHIP_TYPES  = ["Banker", "Dealer", "Sai Credit Solutions"] as const;
+const STAGE_STATUSES: RTOStageStatus[] = ["Pending", "In Progress", "Done", "NA"];
+const inp = "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary";
 
-type RTOForm = {
-  rtoOwnershipType: string; rtoOwnership: string; rtoReceiving: boolean;
-  challanCheck: string; bankNocCheck: string; insuranceCheck: string;
-  hypothecation: string; aadhaarMatch: string; aadhaarMismatchNote: string;
-  nocHoldAmt: string; pendingDocuments: string;
-  verification: string; approval: string; approvalDate: string;
-  insuranceEndorsement: string; balancePayment: string; remarks: string;
-  customFields: Record<string, string>;
-};
+/** Core fields now covered by the Data Catalog stages — hidden from the details form. */
+const SUPERSEDED_KEYS = new Set(["verification", "approval", "insuranceEndorsement"]);
 
-const BLANK: RTOForm = {
-  rtoOwnershipType: "Banker", rtoOwnership: "Pending", rtoReceiving: false,
-  challanCheck: "Pending", bankNocCheck: "Pending", insuranceCheck: "Pending",
-  hypothecation: "Pending", aadhaarMatch: "Pending", aadhaarMismatchNote: "",
-  nocHoldAmt: "0", pendingDocuments: "",
-  verification: "Pending", approval: "Pending", approvalDate: "",
-  insuranceEndorsement: "Pending", balancePayment: "0", remarks: "",
-  customFields: {},
-};
+type Tab = "stages" | "details" | "requests" | "chat";
 
-function rtoToForm(r: RTORecord): RTOForm {
-  return {
-    rtoOwnershipType:    (r as any).rtoOwnershipType ?? "Banker",
-    rtoOwnership:        r.rtoOwnership ?? "Pending",
-    rtoReceiving:        (r as any).rtoReceiving ?? false,
-    challanCheck:        r.challanCheck ?? "Pending",
-    bankNocCheck:        (r as any).bankNocCheck ?? "Pending",
-    insuranceCheck:      (r as any).insuranceCheck ?? "Pending",
-    hypothecation:       r.hypothecation ?? "Pending",
-    aadhaarMatch:        r.aadhaarMatch ?? "Pending",
-    aadhaarMismatchNote: r.aadhaarMismatchNote ?? "",
-    nocHoldAmt:          String((r as any).nocHoldAmt ?? 0),
-    pendingDocuments:    ((r as any).pendingDocuments ?? []).join(", "),
-    verification:        (r as any).verification ?? "Pending",
-    approval:            (r as any).approval ?? "Pending",
-    approvalDate:        (r as any).approvalDate ? String((r as any).approvalDate).substring(0, 10) : "",
-    insuranceEndorsement: (r as any).insuranceEndorsement ?? "Pending",
-    balancePayment:      String((r as any).balancePayment ?? 0),
-    remarks:             r.remarks ?? "",
-    customFields:        Object.fromEntries(
-      Object.entries((r as any).customFields ?? {}).map(([k, v]) => [k, String(v ?? "")]),
-    ),
-  };
+function stageProgress(r?: RTORecord | null) {
+  const active = (r?.stages ?? []).filter(s => s.status !== "NA");
+  const done = active.filter(s => s.status === "Done").length;
+  return { done, total: active.length, pct: active.length ? Math.round((done / active.length) * 100) : 0 };
 }
 
-function calcProgress(f: RTOForm) {
-  const checklist = [f.rtoOwnership, f.challanCheck, f.bankNocCheck, f.insuranceCheck, f.hypothecation, f.aadhaarMatch];
-  const applicable = checklist.filter(v => v && v !== "Not Required").length;
-  const done       = checklist.filter(v => v === "Received").length;
-  const stagesDone = [f.verification, f.approval, f.insuranceEndorsement].filter(v => v === "Done").length;
-  const total      = applicable + 3;
-  const completed  = done + stagesDone;
-  return { completed, total, pct: total > 0 ? Math.round((completed / total) * 100) : 0 };
+function StageIcon({ status }: { status: RTOStageStatus }) {
+  if (status === "Done") return <CheckCircle2 className="size-5 text-success" />;
+  if (status === "In Progress") return <Loader2 className="size-5 text-primary" />;
+  if (status === "NA") return <MinusCircle className="size-5 text-muted" />;
+  return <Circle className="size-5 text-muted" />;
 }
 
-function DynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
-  const base = "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary";
-  if (field.type === "select") {
-    return (
-      <select value={value} onChange={e => onChange(e.target.value)} className={base}>
-        <option value="">—</option>
-        {field.options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-    );
+// ── Stages ────────────────────────────────────────────────────────────
+
+function StagesPanel({ record, onChange }: { record: RTORecord; onChange: (r: RTORecord) => void }) {
+  const toast = useToast();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function act(stage: RTOStage, body: { status?: RTOStageStatus; comment?: string }) {
+    setBusy(stage.stageId);
+    try {
+      const { data } = await rtoApi.updateStage(record._id, stage.stageId, body);
+      onChange(data);
+      if (body.comment) setDrafts(d => ({ ...d, [stage.stageId]: "" }));
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to update stage");
+    } finally {
+      setBusy(null);
+    }
   }
-  if (field.type === "boolean") {
-    return (
-      <div className="flex items-center gap-2 mt-1">
-        <input type="checkbox" checked={value === "true"} onChange={e => onChange(e.target.checked ? "true" : "false")} className="size-4 rounded" />
-        <span className="text-sm">{field.label}</span>
+
+  const stages = [...(record.stages ?? [])].sort((a, b) => a.order - b.order);
+  if (stages.length === 0) {
+    return <p className="text-sm text-muted">No RTO stages are configured yet. Ask an admin to add them in the Data Catalog → RTO Stages.</p>;
+  }
+
+  return (
+    <ol className="space-y-3">
+      {stages.map((s, i) => (
+        <li key={s.stageId} className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
+          <div className="flex items-center gap-3">
+            <StageIcon status={s.status} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">{i + 1}. {s.name}</p>
+              {s.updatedByName && (
+                <p className="text-[11px] text-muted">Updated by {s.updatedByName}{s.updatedAt ? ` · ${new Date(s.updatedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</p>
+              )}
+            </div>
+            <select
+              value={s.status}
+              disabled={busy === s.stageId}
+              onChange={e => act(s, { status: e.target.value as RTOStageStatus })}
+              className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              {STAGE_STATUSES.map(o => <option key={o} value={o}>{o === "NA" ? "Not Applicable" : o}</option>)}
+            </select>
+          </div>
+
+          {s.comments.length > 0 && (
+            <ul className="space-y-1.5 pl-8">
+              {s.comments.map(c => (
+                <li key={c._id} className="text-xs bg-surface-2 rounded-md px-2.5 py-1.5">
+                  <span className="font-semibold">{c.authorName}</span>
+                  <span className="text-muted"> · {new Date(c.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                  <p className="mt-0.5 whitespace-pre-wrap">{c.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex gap-2 pl-8">
+            <input
+              value={drafts[s.stageId] ?? ""}
+              onChange={e => setDrafts(d => ({ ...d, [s.stageId]: e.target.value }))}
+              onKeyDown={e => { if (e.key === "Enter" && drafts[s.stageId]?.trim()) act(s, { comment: drafts[s.stageId].trim() }); }}
+              placeholder="Add a comment on this stage…"
+              className={cn(inp, "py-1.5 text-xs")}
+            />
+            <button
+              disabled={busy === s.stageId || !drafts[s.stageId]?.trim()}
+              onClick={() => act(s, { comment: drafts[s.stageId].trim() })}
+              className="shrink-0 px-3 rounded-md bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-40"
+            >
+              Comment
+            </button>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ── Details form (driven by Form Builder → RTO) ───────────────────────
+
+function toFormValue(field: FieldDef, record: RTORecord): string {
+  const raw = field.isCore ? (record as any)[field.key] : record.customFields?.[field.key];
+  if (raw === undefined || raw === null || raw === "") return field.defaultValue ?? "";
+  if (Array.isArray(raw)) return raw.join(", ");
+  if (typeof raw === "boolean") return raw ? "true" : "false";
+  if (field.type === "date") return String(raw).substring(0, 10);
+  return String(raw);
+}
+
+function fromFormValue(field: FieldDef, value: string): unknown {
+  switch (field.type) {
+    case "number": return Number(value) || 0;
+    case "boolean": return value === "true" || value === "Yes";
+    case "date": return value || undefined;
+    default:
+      if (field.key === "pendingDocuments") return value.split(",").map(s => s.trim()).filter(Boolean);
+      return value;
+  }
+}
+
+function DetailsPanel({ record, sections, onChange }: { record: RTORecord; sections: SectionDef[]; onChange: (r: RTORecord) => void }) {
+  const toast = useToast();
+  const visible = useMemo(
+    () => sections
+      .map(sec => ({ ...sec, fields: sec.fields.filter(f => f.isActive !== false && !SUPERSEDED_KEYS.has(f.key)).sort((a, b) => a.order - b.order) }))
+      .filter(sec => sec.fields.length > 0),
+    [sections],
+  );
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const v: Record<string, string> = {};
+    for (const sec of visible) for (const f of sec.fields) v[f.key] = toFormValue(f, record);
+    setValues(v);
+  }, [record._id, visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save() {
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {};
+      const custom: Record<string, unknown> = { ...(record.customFields ?? {}) };
+      for (const sec of visible) for (const f of sec.fields) {
+        const val = fromFormValue(f, values[f.key] ?? "");
+        if (f.isCore) { if (val !== undefined) body[f.key] = val; } else custom[f.key] = val;
+      }
+      body.customFields = custom;
+      const { data } = await rtoApi.upsertByCase(record.caseId!, body);
+      onChange(data);
+      toast("success", "RTO details saved");
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (k: string, v: string) => setValues(p => ({ ...p, [k]: v }));
+
+  return (
+    <div className="space-y-5">
+      {visible.map(sec => (
+        <section key={sec.id} className="space-y-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sec.title}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {sec.fields.map(f => {
+              const v = values[f.key] ?? "";
+              const wide = f.type === "boolean" || f.key === "remarks" || f.key === "pendingDocuments";
+              return (
+                <div key={f.key} className={wide ? "col-span-2" : ""}>
+                  {f.type === "boolean" ? (
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                      <input type="checkbox" className="size-4 rounded" checked={v === "true" || v === "Yes"} onChange={e => set(f.key, e.target.checked ? "true" : "false")} />
+                      {f.label}
+                    </label>
+                  ) : (
+                    <>
+                      <Label>{f.label}{f.required && " *"}</Label>
+                      {f.type === "select" ? (
+                        <select value={v} onChange={e => set(f.key, e.target.value)} className={inp}>
+                          <option value="">—</option>
+                          {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : f.type === "file" ? (
+                        <FileFieldInput value={v} onChange={nv => set(f.key, nv)} />
+                      ) : f.key === "remarks" ? (
+                        <textarea value={v} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} className={cn(inp, "min-h-[56px] resize-y")} />
+                      ) : (
+                        <input
+                          type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                          value={v} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} className={inp}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+      <div className="flex justify-end">
+        <button onClick={save} disabled={saving} className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
+          <Save className="size-3.5" /> {saving ? "Saving…" : "Save details"}
+        </button>
       </div>
-    );
-  }
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={base} />;
-  if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
-  if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
-  return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
+    </div>
+  );
 }
 
-interface CaseRow { loanCase: LoanCase; rtoRecord: RTORecord | null; }
+// ── Requests to sales ─────────────────────────────────────────────────
 
-export default function RTOChecklistPage() {
+function RequestsPanel({ record, stages, onChange }: { record: RTORecord; stages: RTOStage[]; onChange: (r: RTORecord) => void }) {
+  const toast = useToast();
+  const [catalog, setCatalog] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [other, setOther] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [stageName, setStageName] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    mastersApi.list("document-types").then(r => setCatalog(r.data.map(d => d.name))).catch(() => {});
+  }, []);
+
+  async function send() {
+    const docTypes = [...picked, ...other.split(",").map(s => s.trim()).filter(Boolean)];
+    if (!docTypes.length || !remarks.trim()) { toast("error", "Pick at least one document and add remarks"); return; }
+    setSending(true);
+    try {
+      const { data } = await rtoApi.requestDocs(record._id, { docTypes, remarks: remarks.trim(), stageName: stageName || undefined });
+      onChange(data);
+      setPicked([]); setOther(""); setRemarks(""); setStageName("");
+      toast("success", "Request sent to the sales team");
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to send request");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function resolve(reqId: string) {
+    try {
+      const { data } = await rtoApi.resolveRequest(record._id, reqId);
+      onChange(data);
+    } catch (e: any) {
+      toast("error", e.message ?? "Failed to resolve");
+    }
+  }
+
+  const requests = [...(record.docRequests ?? [])].reverse();
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-border bg-surface p-3 space-y-3">
+        <p className="text-sm font-semibold">Request documents from sales</p>
+        {catalog.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {catalog.map(d => (
+              <button
+                key={d} type="button"
+                onClick={() => setPicked(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])}
+                className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                  picked.includes(d) ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-surface-2")}
+              >{d}</button>
+            ))}
+          </div>
+        )}
+        <input value={other} onChange={e => setOther(e.target.value)} placeholder="Other documents (comma separated)" className={inp} />
+        {stages.length > 0 && (
+          <select value={stageName} onChange={e => setStageName(e.target.value)} className={inp}>
+            <option value="">Related stage (optional)</option>
+            {stages.map(s => <option key={s.stageId} value={s.name}>{s.name}</option>)}
+          </select>
+        )}
+        <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="What is needed and why…" className={cn(inp, "min-h-[56px] resize-y")} />
+        <div className="flex justify-end">
+          <button onClick={send} disabled={sending} className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
+            <Send className="size-3.5" /> {sending ? "Sending…" : "Send request"}
+          </button>
+        </div>
+      </section>
+
+      {requests.length === 0 ? (
+        <p className="text-sm text-muted">No document requests yet.</p>
+      ) : requests.map(r => (
+        <div key={r._id} className="rounded-lg border border-border bg-surface p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">{r.docTypes.join(", ")}</p>
+              <p className="text-[11px] text-muted">
+                {r.requestedByName} · {new Date(r.requestedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                {r.stageName ? ` · ${r.stageName}` : ""}
+              </p>
+            </div>
+            {r.isResolved
+              ? <Badge tone="success">Resolved</Badge>
+              : <Badge tone={r.response ? "info" : "warning"}>{r.response ? "Response received" : "Awaiting sales"}</Badge>}
+          </div>
+          <p className="text-xs whitespace-pre-wrap">{r.remarks}</p>
+          {r.response && (
+            <div className="bg-surface-2 rounded-md p-2.5 text-xs space-y-1">
+              <p><span className="font-semibold">{r.response.byName}</span> replied:</p>
+              {r.response.text && <p className="whitespace-pre-wrap">{r.response.text}</p>}
+              {r.response.attachments.map((a, i) => (
+                <a key={i} href={fileUrl(a.url)} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-primary hover:underline">
+                  <Paperclip className="size-3" /> {a.fileName}
+                </a>
+              ))}
+            </div>
+          )}
+          {!r.isResolved && (
+            <button onClick={() => resolve(r._id)} className="flex items-center gap-1 text-xs font-semibold text-success hover:underline">
+              <Check className="size-3.5" /> Mark resolved
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────
+
+export default function RTOPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const hasAccess = !!user?.rtoAccess;
-  const [rows, setRows]         = useState<CaseRow[]>([]);
-  const [forms, setForms]       = useState<Record<string, RTOForm>>({});
+
+  const [cases, setCases] = useState<LoanCase[]>([]);
+  const [records, setRecords] = useState<Record<string, RTORecord>>({});
   const [sections, setSections] = useState<SectionDef[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState<string | null>(null);
-  const [error, setError]       = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [tab, setTab] = useState<Tab>("stages");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "open" | "completed" | "waiting">("open");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      // The server already limits cases to Disbursed vehicle loans for RTO coordinators.
       const [caseRes, rtoRes, schemaRes] = await Promise.all([
         casesApi.list({ limit: 500 }),
         rtoApi.list(),
         formSchemasApi.get("rto"),
       ]);
-
+      setCases(caseRes.data as unknown as LoanCase[]);
+      setRecords(Object.fromEntries(rtoRes.data.filter(r => r.caseId).map(r => [r.caseId!, r])));
       setSections(schemaRes.data.sections);
-
-      const allCases = (caseRes.data as any as LoanCase[]).filter(
-        c => VEHICLE_PRODUCTS.includes(c.product),
-      );
-      const rtoMap = new Map<string, RTORecord>();
-      for (const r of rtoRes.data) {
-        const rid = (r as any).caseId;
-        if (rid) rtoMap.set(rid, r);
-      }
-
-      const merged: CaseRow[] = allCases.map(c => ({
-        loanCase: c, rtoRecord: rtoMap.get(c._id) ?? null,
-      }));
-      setRows(merged);
-
-      const initForms: Record<string, RTOForm> = {};
-      for (const { loanCase: c, rtoRecord: r } of merged) {
-        initForms[c._id] = r ? rtoToForm(r) : { ...BLANK };
-      }
-      setForms(initForms);
-
-      if (merged.length > 0) setExpanded(new Set([merged[0].loanCase._id]));
     } catch (e: any) {
       setError(e.message ?? "Failed to load RTO data");
     } finally {
@@ -149,292 +382,202 @@ export default function RTOChecklistPage() {
 
   useEffect(() => { if (hasAccess) load(); else setLoading(false); }, [load, hasAccess]);
 
-  function schemaLabel(fieldKey: string, fallback: string): string {
-    for (const sec of sections) {
-      const f = sec.fields.find(f => f.key === fieldKey && f.isCore);
-      if (f) return f.label;
-    }
-    return fallback;
-  }
-
-  function sectionTitle(sectionId: string, fallback: string): string {
-    return sections.find(s => s.id === sectionId)?.title ?? fallback;
-  }
-
-  function customFieldsForSection(sectionId: string): FieldDef[] {
-    const sec = sections.find(s => s.id === sectionId);
-    if (!sec) return [];
-    return sec.fields.filter(f => !f.isCore && f.isActive);
-  }
-
-  function toggle(caseId: string) {
-    setExpanded(prev => { const n = new Set(prev); n.has(caseId) ? n.delete(caseId) : n.add(caseId); return n; });
-  }
-
-  function setField<K extends keyof RTOForm>(caseId: string, key: K, val: RTOForm[K]) {
-    setForms(prev => ({ ...prev, [caseId]: { ...prev[caseId], [key]: val } }));
-  }
-
-  function setCustomField(caseId: string, key: string, val: string) {
-    setForms(prev => ({
-      ...prev,
-      [caseId]: { ...prev[caseId], customFields: { ...prev[caseId].customFields, [key]: val } },
-    }));
-  }
-
-  async function save(row: CaseRow) {
-    const { loanCase: c } = row;
-    const f = forms[c._id];
-    if (!f) return;
-    setSaving(c._id);
+  async function open(caseId: string) {
+    setSelectedId(caseId);
+    setTab("stages");
+    setOpening(true);
     try {
-      const body = {
-        caseCode:     c.caseCode,
-        customerName: `${c.customer.firstName} ${c.customer.lastName}`,
-        rtoOwnershipType: f.rtoOwnershipType,
-        rtoOwnership:     f.rtoOwnership,
-        rtoReceiving:     f.rtoReceiving,
-        challanCheck:     f.challanCheck,
-        bankNocCheck:     f.bankNocCheck,
-        insuranceCheck:   f.insuranceCheck,
-        hypothecation:    f.hypothecation,
-        aadhaarMatch:     f.aadhaarMatch,
-        aadhaarMismatchNote: f.aadhaarMismatchNote || undefined,
-        nocHoldAmt:       Number(f.nocHoldAmt) || 0,
-        pendingDocuments: f.pendingDocuments.split(",").map(s => s.trim()).filter(Boolean),
-        verification:     f.verification,
-        approval:         f.approval,
-        approvalDate:     f.approvalDate || undefined,
-        insuranceEndorsement: f.insuranceEndorsement,
-        balancePayment:   Number(f.balancePayment) || 0,
-        remarks:          f.remarks || undefined,
-        customFields:     f.customFields,
-      };
-      const { data } = await rtoApi.upsertByCase(c._id, body);
-      setRows(prev => prev.map(r => r.loanCase._id === c._id ? { ...r, rtoRecord: data } : r));
+      const { data } = await rtoApi.getByCase(caseId);
+      if (data) setRecords(p => ({ ...p, [caseId]: data }));
     } catch (e: any) {
-      alert(e.message ?? "Failed to save");
+      toast("error", e.message ?? "Could not open RTO file");
     } finally {
-      setSaving(null);
+      setOpening(false);
     }
   }
 
-  const inp = "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary";
+  function applyRecord(r: RTORecord) {
+    if (r.caseId) setRecords(p => ({ ...p, [r.caseId!]: r }));
+  }
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return cases.filter(c => {
+      const r = records[c._id];
+      if (q && !`${c.caseCode} ${c.customer.firstName} ${c.customer.lastName} ${c.regNumber ?? ""}`.toLowerCase().includes(q)) return false;
+      const completed = r?.status === "Completed";
+      const waiting = !!r?.docRequests?.some(d => !d.isResolved);
+      if (filter === "open") return !completed;
+      if (filter === "completed") return completed;
+      if (filter === "waiting") return waiting;
+      return true;
+    });
+  }, [cases, records, search, filter]);
 
   if (!hasAccess) {
     return (
       <div className="max-w-2xl">
-        <EmptyState
-          icon={Lock}
-          title="No access to RTO"
-          description="RTO / Document access is granted per-coordinator. Ask an admin to enable it for your account if you need it."
-        />
+        <EmptyState icon={Lock} title="No access to RTO" description="RTO access is granted per coordinator. Ask an admin to enable it for your account." />
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-4 max-w-2xl">
-        {[1, 2, 3].map(i => <div key={i} className="h-20 bg-surface-2 rounded-xl animate-pulse" />)}
-      </div>
-    );
-  }
+  const selectedCase = cases.find(c => c._id === selectedId);
+  const selectedRecord = selectedId ? records[selectedId] : undefined;
 
-  if (error) {
-    return (
-      <div className="max-w-2xl card p-4 border-danger-border bg-danger-subtle">
-        <p className="text-sm text-danger font-medium">{error}</p>
-        <button onClick={load} className="mt-2 text-xs text-primary underline">Retry</button>
-      </div>
-    );
-  }
+  const tabs: { id: Tab; label: string; icon: typeof ListChecks }[] = [
+    { id: "stages", label: "Stages", icon: ListChecks },
+    { id: "details", label: "Details", icon: ClipboardList },
+    { id: "requests", label: "Sales requests", icon: FileQuestion },
+    { id: "chat", label: "Chat", icon: MessageSquare },
+  ];
 
   return (
-    <div className="space-y-5 animate-fadeIn max-w-2xl">
+    <div className="space-y-4 animate-fadeIn">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">RTO / Document Checklist</h1>
-          <p className="text-sm text-muted mt-0.5">Track compliance for your team's vehicle loan cases</p>
+          <h1 className="text-xl font-bold tracking-tight">RTO Work</h1>
+          <p className="text-sm text-muted mt-0.5">Disbursed vehicle loans waiting on RTO. Work the stages, request documents from sales, and close each file.</p>
         </div>
-        <button onClick={load} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors mt-1">
-          <RefreshCw className="size-3.5" /> Refresh
-        </button>
+        <div className="flex items-center gap-3 mt-1">
+          <ExportButton onExport={async () => {
+            // One row per case in the current list, with a column per catalog stage.
+            const stageNames = [...new Set(Object.values(records).flatMap((r) => (r.stages ?? []).map((st) => st.name)))];
+            const ck = customKeys(Object.values(records));
+            await downloadXlsx(
+              "RTO",
+              ["Case ID", "Customer", "Phone", "Vehicle", "Reg. Number", "Bank", "Dealer", "Sales Rep", "RTO Status", "Progress %", "RTO Owner",
+                ...stageNames, "Open Doc Requests", "Total Doc Requests", "Completed On",
+                "Ownership Type", "RTO Ownership", "RTO Receiving", "Challan Check", "Bank NOC", "NOC Hold (₹)", "Insurance Check",
+                "Hypothecation", "Aadhaar Match", "Aadhaar Mismatch Note", "Pending Documents", "Balance Payment (₹)", "Approval Date",
+                "RTO Slip", "Remarks", ...ck],
+              rows.map((c) => {
+                const r = records[c._id];
+                const byName = new Map((r?.stages ?? []).map((st) => [st.name, st.status]));
+                return [
+                  c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`.trim(), c.customer.contact ?? "", c.vehicleModel ?? "",
+                  c.regNumber ?? "", c.bankName ?? "", c.dealerName ?? "", c.assignedToName ?? "", r?.status ?? "Not started",
+                  stageProgress(r).pct, r?.rtoOwnerName ?? "",
+                  ...stageNames.map((n) => byName.get(n) ?? ""),
+                  (r?.docRequests ?? []).filter((d) => !d.isResolved).length, (r?.docRequests ?? []).length,
+                  xlDate(r?.completedAt),
+                  r?.rtoOwnershipType ?? "", r?.rtoOwnership ?? "", r?.rtoReceiving ? "Yes" : "No", r?.challanCheck ?? "", r?.bankNocCheck ?? "",
+                  r?.nocHoldAmt ?? "", r?.insuranceCheck ?? "", r?.hypothecation ?? "", r?.aadhaarMatch ?? "", r?.aadhaarMismatchNote ?? "",
+                  (r?.pendingDocuments ?? []).join(", "), r?.balancePayment ?? "", xlDate(r?.approvalDate), r?.rtoSlipFileName ?? "",
+                  r?.remarks ?? "", ...ck.map((k) => xlCell(r?.customFields?.[k])),
+                ];
+              }),
+              stampedName("rto"),
+            );
+            return rows.length;
+          }} />
+          <button onClick={load} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground">
+            <RefreshCw className="size-3.5" /> Refresh
+          </button>
+        </div>
       </div>
 
-      {rows.length === 0 && (
-        <div className="card p-8 text-center">
-          <p className="text-muted text-sm">No vehicle loan cases found.</p>
+      {error && (
+        <div className="card p-4 border-danger-border bg-danger-subtle">
+          <p className="text-sm text-danger font-medium">{error}</p>
+          <button onClick={load} className="mt-2 text-xs text-primary underline">Retry</button>
         </div>
       )}
 
-      {rows.map(row => {
-        const { loanCase: c, rtoRecord: r } = row;
-        const caseId   = c._id;
-        const f        = forms[caseId] ?? BLANK;
-        const isOpen   = expanded.has(caseId);
-        const { completed, total, pct } = calcProgress(f);
-        const isSaving = saving === caseId;
-
-        return (
-          <div key={caseId} className="card p-0 overflow-hidden">
-            <button
-              className="w-full flex items-center gap-3 p-4 text-left hover:bg-surface-2 transition-colors"
-              onClick={() => toggle(caseId)}
-            >
-              {isOpen ? <ChevronDown className="size-4 text-muted shrink-0" /> : <ChevronRight className="size-4 text-muted shrink-0" />}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-xs text-primary font-semibold">{c.caseCode}</span>
-                  <span className="text-sm font-medium">{c.customer.firstName} {c.customer.lastName}</span>
-                  <Badge tone="neutral">{c.product}</Badge>
-                  {c.vehicleModel && <span className="text-xs text-muted">· {c.vehicleModel}</span>}
-                  <CaseStatusBadge status={r?.status ?? "Pending"} />
-                </div>
-                <div className="mt-1.5">
-                  <ProgressBar value={pct} tone={pct >= 80 ? "success" : pct >= 50 ? "warning" : "danger"} size="sm" />
-                </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <span className="text-xs font-semibold text-primary">{pct}%</span>
-                <p className="text-[11px] text-muted">{completed}/{total} done</p>
-              </div>
-            </button>
-
-            {isOpen && (
-              <div className="border-t border-border p-4 space-y-5 bg-surface-2/30 animate-fadeIn">
-
-                {/* ── Ownership ── */}
-                <section className="space-y-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("ownership", "Ownership")}</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>{schemaLabel("rtoOwnershipType", "Ownership Type")}</Label>
-                      <select value={f.rtoOwnershipType} onChange={e => setField(caseId, "rtoOwnershipType", e.target.value)} className={inp}>
-                        {OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <Label>{schemaLabel("rtoOwnership", "RTO Ownership")}</Label>
-                      <select value={f.rtoOwnership} onChange={e => setField(caseId, "rtoOwnership", e.target.value)} className={inp}>
-                        {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2 col-span-2">
-                      <input type="checkbox" id={`recv-${caseId}`} checked={f.rtoReceiving} onChange={e => setField(caseId, "rtoReceiving", e.target.checked)} className="size-4 rounded" />
-                      <label htmlFor={`recv-${caseId}`} className="text-sm font-medium cursor-pointer">{schemaLabel("rtoReceiving", "RTO Receiving")}</label>
-                    </div>
-                    {customFieldsForSection("ownership").map(field => (
-                      <div key={field.key} className={field.type === "boolean" ? "col-span-2" : ""}>
-                        <Label>{field.label}</Label>
-                        <DynField field={field} value={f.customFields[field.key] ?? field.defaultValue ?? ""} onChange={v => setCustomField(caseId, field.key, v)} />
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* ── Document Checklist ── */}
-                <section className="space-y-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("document-checklist", "Document Checklist")}</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {([
-                      ["challanCheck",   "Challan Check"],
-                      ["bankNocCheck",   "Bank NOC"],
-                      ["insuranceCheck", "Insurance Check"],
-                      ["hypothecation",  "Hypothecation"],
-                      ["aadhaarMatch",   "Aadhaar Match"],
-                    ] as const).map(([key, fallback]) => (
-                      <div key={key}>
-                        <Label>{schemaLabel(key, fallback)}</Label>
-                        <select value={f[key]} onChange={e => setField(caseId, key, e.target.value)} className={inp}>
-                          {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                    <div className="col-span-2">
-                      <Label>{schemaLabel("aadhaarMismatchNote", "Aadhaar Mismatch Note")}</Label>
-                      <input value={f.aadhaarMismatchNote} onChange={e => setField(caseId, "aadhaarMismatchNote", e.target.value)} placeholder="Optional note" className={inp} />
-                    </div>
-                    {customFieldsForSection("document-checklist").map(field => (
-                      <div key={field.key} className={field.type === "boolean" ? "col-span-2" : ""}>
-                        <Label>{field.label}</Label>
-                        <DynField field={field} value={f.customFields[field.key] ?? field.defaultValue ?? ""} onChange={v => setCustomField(caseId, field.key, v)} />
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* ── Financials ── */}
-                <section className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>{schemaLabel("nocHoldAmt", "NOC Hold (₹)")}</Label>
-                    <input type="number" value={f.nocHoldAmt} onChange={e => setField(caseId, "nocHoldAmt", e.target.value)} className={inp} />
-                  </div>
-                  <div>
-                    <Label>{schemaLabel("balancePayment", "Balance Payment (₹)")}</Label>
-                    <input type="number" value={f.balancePayment} onChange={e => setField(caseId, "balancePayment", e.target.value)} className={inp} />
-                  </div>
-                  <div className="col-span-2">
-                    <Label>{schemaLabel("pendingDocuments", "Pending Documents")}</Label>
-                    <input value={f.pendingDocuments} onChange={e => setField(caseId, "pendingDocuments", e.target.value)} placeholder="RC, Form 35, Insurance…" className={inp} />
-                  </div>
-                </section>
-
-                {/* ── Verification & Approval ── */}
-                <section className="space-y-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{sectionTitle("verification-approval", "Verification & Approval")}</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {([
-                      ["verification",        "Verification"],
-                      ["approval",            "Approval"],
-                      ["insuranceEndorsement","Insurance Endorsement"],
-                    ] as const).map(([key, fallback]) => (
-                      <div key={key}>
-                        <Label>{schemaLabel(key, fallback)}</Label>
-                        <select value={f[key]} onChange={e => setField(caseId, key, e.target.value)} className={inp}>
-                          {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                    <div>
-                      <Label>{schemaLabel("approvalDate", "Approval Date")}</Label>
-                      <input type="date" value={f.approvalDate} onChange={e => setField(caseId, "approvalDate", e.target.value)} className={inp} />
-                    </div>
-                    {customFieldsForSection("verification-approval").map(field => (
-                      <div key={field.key} className={field.type === "boolean" ? "col-span-2" : ""}>
-                        <Label>{field.label}</Label>
-                        <DynField field={field} value={f.customFields[field.key] ?? field.defaultValue ?? ""} onChange={v => setCustomField(caseId, field.key, v)} />
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* ── Remarks + Save ── */}
-                <section className="space-y-2">
-                  <Label>{schemaLabel("remarks", "Remarks")}</Label>
-                  <textarea
-                    className={`${inp} min-h-[56px] resize-y`}
-                    value={f.remarks}
-                    onChange={e => setField(caseId, "remarks", e.target.value)}
-                    placeholder="Optional remarks"
-                  />
-                  <div className="flex justify-end pt-1">
-                    <button
-                      onClick={() => save(row)}
-                      disabled={!!saving}
-                      className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                    >
-                      <Save className="size-3.5" />
-                      {isSaving ? "Saving…" : r ? "Update RTO" : "Save RTO"}
-                    </button>
-                  </div>
-                </section>
-
-              </div>
-            )}
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
+        {/* Case list */}
+        <div className="card p-3 space-y-3 lg:sticky lg:top-20">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search case, customer, reg. no." />
+          <div className="flex gap-1.5 flex-wrap">
+            {([["open", "Open"], ["waiting", "Waiting on sales"], ["completed", "Completed"], ["all", "All"]] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setFilter(id)}
+                className={cn("text-xs px-2.5 py-1 rounded-full border", filter === id ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-surface-2")}>
+                {label}
+              </button>
+            ))}
           </div>
-        );
-      })}
+          <div className="space-y-1.5 max-h-[68vh] overflow-y-auto">
+            {loading ? [1, 2, 3].map(i => <div key={i} className="h-16 bg-surface-2 rounded-lg animate-pulse" />)
+              : rows.length === 0 ? <p className="text-sm text-muted text-center py-6">No disbursed vehicle cases match.</p>
+              : rows.map(c => {
+                const r = records[c._id];
+                const { pct } = stageProgress(r);
+                const waiting = r?.docRequests?.filter(d => !d.isResolved).length ?? 0;
+                return (
+                  <button key={c._id} onClick={() => open(c._id)}
+                    className={cn("w-full text-left rounded-lg border p-2.5 transition-colors",
+                      selectedId === c._id ? "border-primary bg-primary/5" : "border-border hover:bg-surface-2")}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-primary font-semibold">{c.caseCode}</span>
+                      <span className="text-sm font-medium truncate">{c.customer.firstName} {c.customer.lastName}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <CaseStatusBadge status={r?.status ?? "Pending"} />
+                      {waiting > 0 && <Badge tone="warning">{waiting} open request{waiting > 1 ? "s" : ""}</Badge>}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <div className="flex-1"><ProgressBar value={pct} tone={pct === 100 ? "success" : pct >= 50 ? "warning" : "danger"} size="sm" /></div>
+                      <span className="text-[11px] text-muted">{pct}%</span>
+                    </div>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        {/* Detail */}
+        <div className="card p-0 overflow-hidden min-h-[320px]">
+          {!selectedCase ? (
+            <div className="p-10 text-center text-sm text-muted">Select a case to start working its RTO.</div>
+          ) : (
+            <>
+              <div className="p-4 border-b border-border space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-sm text-primary font-semibold">{selectedCase.caseCode}</span>
+                  <span className="font-semibold">{selectedCase.customer.firstName} {selectedCase.customer.lastName}</span>
+                  <Badge tone="neutral">{selectedCase.product}</Badge>
+                  {selectedRecord?.status && <CaseStatusBadge status={selectedRecord.status} />}
+                </div>
+                <p className="text-xs text-muted">
+                  {[selectedCase.vehicleModel, selectedCase.regNumber, selectedCase.bankName && `Bank: ${selectedCase.bankName}`,
+                    selectedCase.dealerName && `Dealer: ${selectedCase.dealerName}`,
+                    selectedCase.assignedToName && `Sales: ${selectedCase.assignedToName}`].filter(Boolean).join(" · ")}
+                </p>
+                {selectedRecord && (() => {
+                  const p = stageProgress(selectedRecord);
+                  return <p className="text-xs text-muted">{p.done}/{p.total} stages done{selectedRecord.completedAt ? " · admin notified of completion" : ""}</p>;
+                })()}
+              </div>
+
+              <div className="flex border-b border-border overflow-x-auto">
+                {tabs.map(t => (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={cn("flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap",
+                      tab === t.id ? "border-primary text-primary" : "border-transparent text-muted hover:text-foreground")}>
+                    <t.icon className="size-3.5" /> {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-4">
+                {opening && !selectedRecord ? (
+                  <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-14 bg-surface-2 rounded-lg animate-pulse" />)}</div>
+                ) : !selectedRecord ? (
+                  <p className="text-sm text-muted">Could not load the RTO file for this case.</p>
+                ) : tab === "stages" ? (
+                  <StagesPanel record={selectedRecord} onChange={applyRecord} />
+                ) : tab === "details" ? (
+                  <DetailsPanel record={selectedRecord} sections={sections} onChange={applyRecord} />
+                ) : tab === "requests" ? (
+                  <RequestsPanel record={selectedRecord} stages={selectedRecord.stages ?? []} onChange={applyRecord} />
+                ) : (
+                  <CaseChatThread caseId={selectedCase._id} height="460px" />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

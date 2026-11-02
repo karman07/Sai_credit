@@ -14,8 +14,38 @@ import { notificationsApi } from "../lib/api";
 import { useAuth } from "../lib/auth-context";
 
 type NavItem = { label: string; icon: React.ElementType; href: string };
+type NavSection = { title?: string; items: NavItem[] };
 
-function buildNav(hasRtoAccess: boolean) {
+const HR_SECTION: NavSection = {
+  title: "My HR",
+  items: [
+    { label: "Attendance", href: "/attendance", icon: CalendarDays },
+    { label: "My Leaves",  href: "/leaves",     icon: Palmtree },
+    { label: "My Claims",  href: "/claims",     icon: Receipt },
+    { label: "Payslips",   href: "/payslips",   icon: PayslipIcon },
+  ],
+};
+
+const ACCOUNT_SECTION: NavSection = {
+  items: [
+    { label: "Notifications", href: "/notifications", icon: Bell },
+    { label: "My Profile",    href: "/profile",       icon: User },
+  ],
+};
+
+/** Routes an RTO coordinator may open — everything else redirects to /rto (see app layout). */
+export const RTO_COORDINATOR_ROUTES = ["/dashboard", "/rto", "/attendance", "/leaves", "/claims", "/payslips", "/notifications", "/profile"];
+
+function buildNav(isRtoCoordinator: boolean): NavSection[] {
+  // RTO coordinators only work disbursed files — no cases, payout, reports, catalog or builder.
+  if (isRtoCoordinator) {
+    return [
+      { items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }] },
+      { title: "RTO", items: [{ label: "RTO Work", href: "/rto", icon: Clipboard }] },
+      HR_SECTION,
+      ACCOUNT_SECTION,
+    ];
+  }
   return [
     { items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }] },
     {
@@ -23,7 +53,6 @@ function buildNav(hasRtoAccess: boolean) {
       items: [
         { label: "Cases", href: "/cases", icon: FileText },
         { label: "Payout Management", href: "/payout", icon: Wallet },
-        ...(hasRtoAccess ? [{ label: "RTO / Documents", href: "/rto", icon: Clipboard }] : []),
         { label: "Reports", href: "/reports", icon: BarChart3 },
       ],
     },
@@ -41,24 +70,10 @@ function buildNav(hasRtoAccess: boolean) {
         { label: "Data Catalog", href: "/masters",      icon: Layers },
       ],
     },
-    {
-      title: "My HR",
-      items: [
-        { label: "Attendance", href: "/attendance", icon: CalendarDays },
-        { label: "My Leaves",  href: "/leaves",     icon: Palmtree },
-        { label: "My Claims",  href: "/claims",     icon: Receipt },
-        { label: "Payslips",   href: "/payslips",   icon: PayslipIcon },
-      ],
-    },
-    {
-      items: [
-        { label: "Notifications", href: "/notifications", icon: Bell },
-        { label: "My Profile",    href: "/profile",       icon: User },
-      ],
-    },
+    HR_SECTION,
+    ACCOUNT_SECTION,
   ];
 }
-
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();

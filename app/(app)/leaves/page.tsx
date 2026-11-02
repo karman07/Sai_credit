@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
 import {
   Plus, CheckCircle2, XCircle, Clock, CalendarOff, CalendarDays,
   X, Trash2, Sun, Briefcase, AlertTriangle, Info,
@@ -371,9 +373,21 @@ export default function LeavesPage() {
           <h1 className="text-xl font-bold">Leave Portal</h1>
           <p className="text-sm text-muted mt-0.5">Track your leave balance, weekly offs, and attendance</p>
         </div>
-        <Button onClick={() => setShowForm(true)} size="sm" className="gap-2">
-          <Plus className="size-4" /> Apply for Leave
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton onExport={async () => {
+            const name = (u?: string | { firstName: string; lastName: string }) => (u && typeof u === "object" ? `${u.firstName} ${u.lastName}` : "");
+            await downloadXlsx(
+              "Leaves",
+              ["Type", "From", "To", "Days", "Reason", "Status", "Reviewed By", "Review Note", "Reviewed On", "Applied On"],
+              leaves.map((l) => [l.type, xlDate(l.startDate), xlDate(l.endDate), l.totalDays, l.reason, l.status, name(l.reviewedBy), l.reviewNote ?? "", xlDate(l.reviewedAt), xlDate(l.createdAt)]),
+              stampedName("leaves"),
+            );
+            return leaves.length;
+          }} />
+          <Button onClick={() => setShowForm(true)} size="sm" className="gap-2">
+            <Plus className="size-4" /> Apply for Leave
+          </Button>
+        </div>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}

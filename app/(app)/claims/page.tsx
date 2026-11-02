@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { ExportButton } from "../../../components/ExportButton";
+import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
 import { Plus, Receipt, CheckCircle2, XCircle, Clock, Trash2, X, Upload, FileText, Image, ExternalLink, Paperclip } from "lucide-react";
 import { Button, Input, Select, Textarea, Label } from "../../../components/ui";
 import { api, claimsApi, type Claim, API_BASE } from "../../../lib/api";
@@ -149,9 +151,21 @@ export default function ClaimsPage() {
           <h1 className="text-xl font-bold">My Claims</h1>
           <p className="text-sm text-muted mt-0.5">Submit and track reimbursement claims</p>
         </div>
-        <Button onClick={() => setShowForm(true)} size="sm" className="gap-2">
-          <Plus className="size-4" /> New Claim
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton onExport={async () => {
+            const name = (u?: string | { firstName: string; lastName: string }) => (u && typeof u === "object" ? `${u.firstName} ${u.lastName}` : "");
+            await downloadXlsx(
+              "Claims",
+              ["Month", "Type", "Amount", "Description", "Status", "Reviewed By", "Review Note", "Reviewed On", "Submitted On"],
+              claims.map((c) => [c.month, c.type, c.amount, c.description, c.status, name(c.reviewedBy), c.reviewNote ?? "", xlDate(c.reviewedAt), xlDate(c.createdAt)]),
+              stampedName("claims"),
+            );
+            return claims.length;
+          }} />
+          <Button onClick={() => setShowForm(true)} size="sm" className="gap-2">
+            <Plus className="size-4" /> New Claim
+          </Button>
+        </div>
       </div>
 
       {error && (
