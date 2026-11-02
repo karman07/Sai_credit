@@ -30,6 +30,23 @@ export class MastersService implements OnModuleInit {
    * is never clobbered on restart.
    */
   async onModuleInit() {
+    await this.seedDefaultRtoStages();
+    await this.seedCaseStatuses();
+  }
+
+  /** Seeds a starter set of RTO stages once (when none exist); admins then own the list in the Data Catalog. */
+  private async seedDefaultRtoStages() {
+    if (await this.masters.exists({ type: MasterType.RtoStage })) return;
+    const defaults = [
+      'Documents Collection', 'Verification', 'RTO Submission',
+      'RTO Approval', 'Insurance Endorsement', 'Handover & Closure',
+    ];
+    await this.masters.insertMany(
+      defaults.map((name, i) => ({ type: MasterType.RtoStage, name, sortOrder: i, isActive: true })),
+    );
+  }
+
+  private async seedCaseStatuses() {
     const builtIns = Object.values(CaseStatus);
     const existing = await this.masters.find({ type: MasterType.CaseStatus }).lean();
     const existingBuiltInNames = new Set(existing.filter((e) => e.isBuiltIn).map((e) => e.name));

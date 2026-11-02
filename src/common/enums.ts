@@ -115,6 +115,7 @@ export enum MasterType {
   EnumSet = 'enum_set',
   CaseStatus = 'case_status',
   RtoStatus = 'rto_status',
+  RtoStage = 'rto_stage',
   Product = 'product',
 }
 

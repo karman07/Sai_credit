@@ -90,7 +90,7 @@ const SALES_SENIOR: Permission[] = [
   'cases.create','cases.read','cases.update','cases.assign',
   'banks.read','dealers.read','dealers.create',
   'insurance.read','insurance.create','insurance.update',
-  'rto.read','rto.update',
+  'rto.read',
   'payout.read',
   'document_types.manage',
   'dashboard.sales',
@@ -153,19 +153,38 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.Coordinator]: COORDINATOR,
 };
 
-/** Permissions individually grantable to a specific user, layered on top of their role. */
-const PER_USER_GRANTABLE: Permission[] = ['rto.read', 'rto.update'];
+/**
+ * RTO coordinator: a coordinator flagged with `rtoAccess` is dedicated to RTO
+ * work and nothing else. They see only Disbursed vehicle-loan cases (enforced
+ * in CasesService), work the RTO stages, and chat / request documents from
+ * sales. They get self-service HR but none of the team-coordination, payout,
+ * insurance, catalog or form-builder access a regular coordinator has.
+ */
+const RTO_COORDINATOR: Permission[] = [
+  'cases.read',
+  'customers.read',
+  'banks.read','dealers.read',
+  'documents.read','documents.upload',
+  'rto.read','rto.update',
+  'dashboard.sales',
+  'attendance.read','attendance.clock',
+  'claims.create','claims.read',
+  'payroll.read',
+  'leaves.create','leaves.read',
+  'leave_policy.read',
+];
+
+/** True for a coordinator dedicated to RTO work (see RTO_COORDINATOR). */
+export function isRtoCoordinator(user: { role: UserRole; rtoAccess?: boolean }): boolean {
+  return user.role === UserRole.Coordinator && !!user.rtoAccess;
+}
 
 /**
- * Resolves whether `user` may perform `perm`. Most permissions are purely
- * role-based, but a few (currently RTO) can additionally be granted to one
- * specific coordinator at a time via `user.rtoAccess` — set through the Users
- * admin screen — rather than opening it up to every coordinator.
+ * Resolves whether `user` may perform `perm`. Roles map to a fixed permission
+ * set, except a coordinator with `rtoAccess` (set through the Users admin
+ * screen), who is swapped onto the dedicated RTO_COORDINATOR set instead.
  */
 export function hasPermission(user: { role: UserRole; rtoAccess?: boolean }, perm: Permission): boolean {
-  if (ROLE_PERMISSIONS[user.role]?.includes(perm)) return true;
-  if (user.role === UserRole.Coordinator && user.rtoAccess && PER_USER_GRANTABLE.includes(perm)) {
-    return true;
-  }
-  return false;
+  if (isRtoCoordinator(user)) return RTO_COORDINATOR.includes(perm);
+  return !!ROLE_PERMISSIONS[user.role]?.includes(perm);
 }

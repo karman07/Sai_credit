@@ -8,7 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/schemas/user.schema';
 import { AuthUser } from '../common/types';
-import { ADMIN_PORTAL_ROLES } from '../common/enums';
+import { ADMIN_PORTAL_ROLES, CaseStatus, UserRole } from '../common/enums';
 
 @Injectable()
 export class CaseMessagesService {
@@ -54,6 +54,13 @@ export class CaseMessagesService {
     const recipientIds = new Set<string>(admins.map((u) => String(u._id)));
     if (caseDoc.coordinatorId) recipientIds.add(String(caseDoc.coordinatorId));
     if (caseDoc.assignedTo) recipientIds.add(String(caseDoc.assignedTo));
+    // Once disbursed, the RTO coordinators are part of the conversation too.
+    if (caseDoc.status === CaseStatus.Disbursed) {
+      const rtoTeam = await this.userModel
+        .find({ role: UserRole.Coordinator, rtoAccess: true, isActive: true }, '_id')
+        .lean();
+      rtoTeam.forEach((u) => recipientIds.add(String(u._id)));
+    }
     recipientIds.delete(actor.id);
 
     if (!recipientIds.size) return;

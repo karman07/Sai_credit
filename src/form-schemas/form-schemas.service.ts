@@ -86,12 +86,9 @@ const DEFAULT_RTO: any = {
     },
     {
       id: 'verification-approval',
-      title: 'Verification & Approval',
+      title: 'Approval & Remarks',
       fields: [
-        { key: 'verification',       label: 'Verification',          type: 'select', required: false, placeholder: '', defaultValue: 'Pending', options: DONE_PENDING, order: 1, isCore: true, isActive: true },
-        { key: 'approval',           label: 'Approval',              type: 'select', required: false, placeholder: '', defaultValue: 'Pending', options: DONE_PENDING, order: 2, isCore: true, isActive: true },
         { key: 'approvalDate',       label: 'Approval Date',         type: 'date',   required: false, placeholder: '', defaultValue: '', options: [], order: 3, isCore: true, isActive: true },
-        { key: 'insuranceEndorsement', label: 'Insurance Endorsement', type: 'select', required: false, placeholder: '', defaultValue: 'Pending', options: DONE_PENDING, order: 4, isCore: true, isActive: true },
         { key: 'remarks',            label: 'Remarks',               type: 'text',   required: false, placeholder: 'Optional remarks', defaultValue: '', options: [], order: 5, isCore: true, isActive: true },
       ],
     },

@@ -19,6 +19,7 @@ import {
   UpdatePipelineStageSchema, UpdatePipelineStageDto,
 } from './cases.dto';
 import { isSalesRole, UserRole } from '../common/enums';
+import { isRtoCoordinator } from '../rbac/permissions';
 
 @Controller('cases')
 export class CasesController {
@@ -35,10 +36,11 @@ export class CasesController {
     @CurrentUser() actor?: AuthUser,
   ) {
     const isSales = actor ? isSalesRole(actor.role) : false;
-    const isCoordinator = actor?.role === UserRole.Coordinator;
+    const rtoOnly = actor ? isRtoCoordinator(actor) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator && !rtoOnly;
     return this.svc.stats({
       from, to, bankId, product, firm,
-      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined,
+      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined, rtoOnly,
     });
   }
 
@@ -55,10 +57,11 @@ export class CasesController {
     @CurrentUser() actor?: AuthUser,
   ) {
     const isSales = actor ? isSalesRole(actor.role) : false;
-    const isCoordinator = actor?.role === UserRole.Coordinator;
+    const rtoOnly = actor ? isRtoCoordinator(actor) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator && !rtoOnly;
     return this.svc.trend({
       from, to, groupBy, bankId, product, firm, status,
-      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined,
+      userId: actor?.id, scopeToUser: isSales, coordinatorId: isCoordinator ? actor!.id : undefined, rtoOnly,
     });
   }
 
@@ -77,7 +80,8 @@ export class CasesController {
     @CurrentUser() actor?: AuthUser,
   ) {
     const isSales = actor ? isSalesRole(actor.role) : false;
-    const isCoordinator = actor?.role === UserRole.Coordinator;
+    const rtoOnly = actor ? isRtoCoordinator(actor) : false;
+    const isCoordinator = actor?.role === UserRole.Coordinator && !rtoOnly;
     return this.svc.list({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 25,
@@ -85,7 +89,7 @@ export class CasesController {
       assignedTo,
       userId: actor?.id,
       scopeToUser: isSales,
-      coordinatorId: isCoordinator ? actor!.id : undefined,
+      coordinatorId: isCoordinator ? actor!.id : undefined, rtoOnly,
     });
   }
 

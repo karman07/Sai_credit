@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ForbiddenException 
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
-import { LoanCase, pipelineStagesFor } from './schemas/case.schema';
+import { LoanCase, pipelineStagesFor, VEHICLE_PRODUCTS } from './schemas/case.schema';
 import {
   CreateCaseDto, UpdateCaseDto, UpdateCaseStatusDto,
   AssignCaseDto, AssignCoordinatorDto, RequestDocsDto, UploadDocDto, EditDocDto,
@@ -20,6 +20,7 @@ import { User } from '../users/schemas/user.schema';
 import { Master } from '../masters/schemas/master.schema';
 import { MailService } from '../mail/mail.service';
 import { FormSchemasService } from '../form-schemas/form-schemas.service';
+import { isRtoCoordinator } from '../rbac/permissions';
 
 @Injectable()
 export class CasesService {
@@ -88,8 +89,10 @@ export class CasesService {
    * `stats`, and `trend` so every case-derived figure — not just the table —
    * is scoped to what the caller is actually allowed to see.
    */
-  private async buildScopeFilter(params: { userId?: string; scopeToUser?: boolean; coordinatorId?: string }): Promise<Record<string, any> | null> {
-    const { userId, scopeToUser, coordinatorId } = params;
+  private async buildScopeFilter(params: { userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean }): Promise<Record<string, any> | null> {
+    const { userId, scopeToUser, coordinatorId, rtoOnly } = params;
+    // RTO coordinators work every disbursed vehicle-loan file, regardless of which rep/coordinator owns it.
+    if (rtoOnly) return { status: CaseStatus.Disbursed, product: { $in: VEHICLE_PRODUCTS } };
     if (coordinatorId) {
       const cid = new Types.ObjectId(coordinatorId);
       const reps = await this.userModel.find({ coordinatorId: { $in: [cid, coordinatorId] } }, '_id').lean();
@@ -105,17 +108,17 @@ export class CasesService {
   async list(params: {
     page?: number; limit?: number; search?: string; status?: string;
     bankId?: string; dealerId?: string; product?: string; firm?: string;
-    assignedTo?: string; userId?: string; scopeToUser?: boolean; coordinatorId?: string;
+    assignedTo?: string; userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
   }) {
-    const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId } = params;
+    const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId, rtoOnly } = params;
     const filter: Record<string, any> = { isActive: true };
 
-    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
-    if (scopeFilter) filter.$or = scopeFilter.$or;
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
+    if (scopeFilter?.$or) filter.$or = scopeFilter.$or;
 
     if (search) {
       const re = new RegExp(search, 'i');
-      const searchOr = [{ caseCode: re }, { 'customer.firstName': re }, { 'customer.lastName': re }, { 'customer.contact': re }];
+      const searchOr = [{ caseCode: re }, { 'customer.firstName': re }, { 'customer.lastName': re }, { 'customer.contact': re }, { regNumber: re }];
       if (filter.$or) {
         // Combine with existing $or using $and
         filter.$and = [{ $or: filter.$or }, { $or: searchOr }];
@@ -131,6 +134,8 @@ export class CasesService {
     if (dealerId) filter.dealerId = new Types.ObjectId(dealerId);
     if (product) filter.product = product;
     if (firm) filter.firm = firm;
+    // Applied last so a caller-supplied status/product can never widen an RTO coordinator's view.
+    if (rtoOnly) Object.assign(filter, scopeFilter);
 
     const total = await this.model.countDocuments(filter);
     const data = await this.model
@@ -146,7 +151,7 @@ export class CasesService {
   async findById(id: string, actor?: AuthUser) {
     const doc = await this.model.findOne({ _id: id, isActive: true }).lean();
     if (!doc) throw new NotFoundException('Case not found');
-    if (actor) await this.assertCanAccessCase(actor, doc);
+    if (actor) await this.assertCanAccessCase(actor, doc, false);
     return doc;
   }
 
@@ -154,7 +159,18 @@ export class CasesService {
    * Coordinators may only touch cases assigned to a sales rep assigned to them.
    * Sales-role users (executives, telecallers, RMs) may only touch cases they created or are assigned to.
    */
-  private async assertCanAccessCase(actor: AuthUser, existing: { assignedTo?: Types.ObjectId; createdBy?: Types.ObjectId }) {
+  private async assertCanAccessCase(
+    actor: AuthUser,
+    existing: { assignedTo?: Types.ObjectId; createdBy?: Types.ObjectId; status?: string; product?: string },
+    write = true,
+  ) {
+    // RTO coordinators can view disbursed vehicle-loan files only, and never modify the case itself —
+    // their work lives in the RTO record (rto-tracker) and the case chat.
+    if (isRtoCoordinator(actor)) {
+      const viewable = existing.status === CaseStatus.Disbursed && !!existing.product && VEHICLE_PRODUCTS.includes(existing.product);
+      if (write || !viewable) throw new ForbiddenException('You do not have access to this case');
+      return;
+    }
     if (actor.role === UserRole.Coordinator) {
       // Cases the coordinator created directly (e.g. not yet assigned to a rep) are always theirs.
       if (existing.createdBy && String(existing.createdBy) === actor.id) return;
@@ -915,11 +931,11 @@ export class CasesService {
    */
   async stats(params: {
     from?: string; to?: string; bankId?: string; product?: string; firm?: string;
-    userId?: string; scopeToUser?: boolean; coordinatorId?: string;
+    userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
   } = {}) {
-    const { from, to, bankId, product, firm, userId, scopeToUser, coordinatorId } = params;
+    const { from, to, bankId, product, firm, userId, scopeToUser, coordinatorId, rtoOnly } = params;
 
-    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
     const baseMatch: Record<string, any> = { isActive: true, ...(scopeFilter ?? {}) };
     if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
     if (product) baseMatch.product = product;
@@ -985,9 +1001,9 @@ export class CasesService {
   async trend(params: {
     from?: string; to?: string; groupBy?: 'day' | 'month';
     bankId?: string; product?: string; firm?: string; status?: string;
-    userId?: string; scopeToUser?: boolean; coordinatorId?: string;
+    userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
   }) {
-    const { from, to, groupBy = 'day', bankId, product, firm, status, userId, scopeToUser, coordinatorId } = params;
+    const { from, to, groupBy = 'day', bankId, product, firm, status, userId, scopeToUser, coordinatorId, rtoOnly } = params;
 
     const toDate = to ? new Date(new Date(to).getTime() + 86_400_000 - 1) : new Date();
     const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 29 * 86_400_000);
@@ -996,7 +1012,7 @@ export class CasesService {
       throw new BadRequestException('Date range too large for daily grouping — use monthly grouping or a shorter range');
     }
 
-    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId });
+    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
     const baseMatch: Record<string, any> = { isActive: true, ...(scopeFilter ?? {}) };
     if (bankId) baseMatch.bankId = new Types.ObjectId(bankId);
     if (product) baseMatch.product = product;

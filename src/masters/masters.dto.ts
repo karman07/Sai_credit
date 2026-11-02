@@ -13,6 +13,7 @@ export const SLUG_TO_TYPE: Record<string, MasterType> = {
   'enum-sets':           MasterType.EnumSet,
   'case-statuses':       MasterType.CaseStatus,
   'rto-statuses':        MasterType.RtoStatus,
+  'rto-stages':          MasterType.RtoStage,
   products:              MasterType.Product,
 };
 

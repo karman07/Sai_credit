@@ -17,7 +17,7 @@ export class CaseMessagesController {
   }
 
   @Post('case/:caseId')
-  @RequirePermissions('cases.update')
+  @RequirePermissions('cases.read')
   send(
     @Param('caseId') caseId: string,
     @Body(new ZodValidationPipe(SendCaseMessageSchema)) dto: SendCaseMessageDto,

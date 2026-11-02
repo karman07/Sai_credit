@@ -7,7 +7,11 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
-import { CreateRTOSchema, CreateRTODto, UpdateRTOSchema, UpdateRTODto } from './rto-tracker.dto';
+import {
+  CreateRTOSchema, CreateRTODto, UpdateRTOSchema, UpdateRTODto,
+  UpdateStageSchema, UpdateStageDto, RequestRtoDocsSchema, RequestRtoDocsDto,
+  RespondToRequestSchema, RespondToRequestDto,
+} from './rto-tracker.dto';
 
 @Controller('rto-tracker')
 export class RTOTrackerController {
@@ -15,14 +19,59 @@ export class RTOTrackerController {
 
   @Get()
   @RequirePermissions('rto.read')
-  list(@Query('caseId') caseId?: string) {
-    return this.svc.list(caseId);
+  list(@CurrentUser() actor: AuthUser, @Query('caseId') caseId?: string) {
+    return this.svc.list(actor, caseId);
+  }
+
+  @Get('by-case/:caseId')
+  @RequirePermissions('rto.read')
+  getByCase(@Param('caseId') caseId: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.getByCase(caseId, actor);
   }
 
   @Get(':id')
   @RequirePermissions('rto.read')
-  findOne(@Param('id') id: string) {
-    return this.svc.findById(id);
+  findOne(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.findById(id, actor);
+  }
+
+  @Put(':id/stages/:stageId')
+  @RequirePermissions('rto.update')
+  updateStage(
+    @Param('id') id: string,
+    @Param('stageId') stageId: string,
+    @Body(new ZodValidationPipe(UpdateStageSchema)) dto: UpdateStageDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.updateStage(id, stageId, dto, actor);
+  }
+
+  @Post(':id/request-docs')
+  @RequirePermissions('rto.update')
+  requestDocs(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RequestRtoDocsSchema)) dto: RequestRtoDocsDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.requestDocs(id, dto, actor);
+  }
+
+  @Put(':id/requests/:reqId/resolve')
+  @RequirePermissions('rto.update')
+  resolveRequest(@Param('id') id: string, @Param('reqId') reqId: string, @CurrentUser() actor: AuthUser) {
+    return this.svc.resolveRequest(id, reqId, actor);
+  }
+
+  // Sales-side answer to a request; scoped to the rep's own files by the service.
+  @Post(':id/requests/:reqId/respond')
+  @RequirePermissions('rto.read')
+  respond(
+    @Param('id') id: string,
+    @Param('reqId') reqId: string,
+    @Body(new ZodValidationPipe(RespondToRequestSchema)) dto: RespondToRequestDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.svc.respond(id, reqId, dto, actor);
   }
 
   @Post()
