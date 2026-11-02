@@ -23,45 +23,92 @@ function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—";
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
 function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
 
+const xlDate = (d?: string) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : t.toLocaleDateString("en-IN"); };
+const xlDateTime = (d?: string) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : t.toLocaleString("en-IN"); };
+const xlCell = (v: unknown): string | number => {
+  if (v === undefined || v === null) return "";
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (Array.isArray(v)) return v.map((x) => String(xlCell(x))).join(", ");
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+};
+
+/**
+ * Exports every case field to Excel: one "Cases" row per case (all core fields, every Form Builder
+ * custom field, and the status of each pipeline stage) plus "Documents" and "Document Requests"
+ * sheets with one row per item, keyed by Case ID.
+ */
 async function exportCasesToExcel(rows: LoanCase[], filename: string) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
-  const sheet = wb.addWorksheet("Cases");
-  sheet.columns = [
-    { header: "Case ID", key: "caseCode", width: 18 },
-    { header: "Date", key: "date", width: 12 },
-    { header: "Customer", key: "customer", width: 24 },
-    { header: "Phone", key: "phone", width: 16 },
-    { header: "Product", key: "product", width: 20 },
-    { header: "Bank", key: "bank", width: 22 },
-    { header: "Loan Amount", key: "loanAmount", width: 16 },
-    { header: "Status", key: "status", width: 14 },
-    { header: "Disbursed", key: "disbursed", width: 12 },
-    { header: "Assigned To", key: "assignedTo", width: 18 },
-    { header: "Coordinator", key: "coordinator", width: 18 },
-  ];
-  sheet.getRow(1).font = { bold: true };
-  for (const c of rows) {
-    sheet.addRow({
-      caseCode: c.caseCode,
-      date: c.date ? new Date(c.date).toLocaleDateString("en-IN") : "",
-      customer: `${c.customer.firstName} ${c.customer.lastName}`,
-      phone: c.customer.contact ?? "",
-      product: c.product ?? "",
-      bank: c.bankName ?? "",
-      loanAmount: c.loanAmount ?? 0,
-      status: c.status,
-      disbursed: c.disbursementDate ? new Date(c.disbursementDate).toLocaleDateString("en-IN") : "",
-      assignedTo: c.assignedToName ?? "",
-      coordinator: c.coordinatorName ?? "",
+
+  const addSheet = (name: string, headers: string[], data: (string | number)[][]) => {
+    const sheet = wb.addWorksheet(name);
+    sheet.addRow(headers).font = { bold: true };
+    data.forEach((r) => sheet.addRow(r));
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    sheet.columns.forEach((col, i) => {
+      const longest = Math.max(headers[i]?.length ?? 0, ...data.map((r) => String(r[i] ?? "").length));
+      col.width = Math.min(Math.max(longest + 2, 10), 50);
     });
-  }
-  sheet.getColumn("loanAmount").numFmt = "#,##0";
+    return sheet;
+  };
+
+  const customKeys = [...new Set(rows.flatMap((c) => Object.keys(c.customFields ?? {})))];
+  const stages = [...new Set(rows.flatMap((c) => (c.pipeline ?? []).map((p) => p.stage)))];
+
+  const cases = addSheet(
+    "Cases",
+    ["Case ID", "Date", "Status", "Customer", "Father's Name", "Phone", "Alt Phone", "City", "State", "District", "Pin Code",
+      "Residential Status", "E-Bill Owner", "Product", "Loan Type", "Firm", "Vehicle Model", "Reg. Number", "Owner Serial",
+      "Existing Insurer", "Hypothecation", "NOC Required", "Challans", "Loan Amount", "Bank", "Branch", "BM Name", "BM Contact",
+      "Bank Executive", "Dealer", "Payout %", "Disbursed On", "Assigned To", "Coordinator", "Documents Uploaded",
+      "Open Doc Requests", "Total Doc Requests", "Remarks", "Created On",
+      ...stages.flatMap((st) => [`${st} — Status`, `${st} — Done On`, `${st} — Done By`, `${st} — Remarks`]),
+      ...customKeys],
+    rows.map((c) => [
+      c.caseCode, xlDate(c.date), c.status, `${c.customer.firstName} ${c.customer.lastName}`.trim(), c.customer.fatherName ?? "",
+      c.customer.contact ?? "", c.customer.altContact ?? "", c.customer.location ?? "", c.customer.state ?? "",
+      c.customer.district ?? "", c.customer.pinCode ?? "", c.customer.residentialStatus ?? "", xlCell(c.customer.ebillOwner),
+      c.product ?? "", c.loanType ?? "", c.firm ?? "", c.vehicleModel ?? "", c.regNumber ?? "", c.ownerSerial ?? "",
+      c.existingInsurer ?? "", xlCell(c.hypothecation), xlCell(c.nocRequired), c.challanCount ?? 0, c.loanAmount ?? 0,
+      c.bankName ?? "", c.bankBranch ?? "", c.bmName ?? "", c.bmContact ?? "", c.bankExecutive ?? "", c.dealerName ?? "",
+      c.payoutPct ?? 0, xlDate(c.disbursementDate), c.assignedToName ?? "", c.coordinatorName ?? "",
+      (c.documents ?? []).length, (c.docRequests ?? []).filter((d) => !d.isResolved).length, (c.docRequests ?? []).length,
+      c.remarks ?? "", xlDate(c.createdAt),
+      ...stages.flatMap((st) => {
+        const p = c.pipeline?.find((x) => x.stage === st);
+        return [p?.status ?? "", xlDate(p?.doneAt), p?.doneByName ?? "", p?.remarks ?? ""];
+      }),
+      ...customKeys.map((k) => xlCell(c.customFields?.[k])),
+    ]),
+  );
+  cases.getColumn(24).numFmt = "#,##0"; // Loan Amount
+
+  addSheet(
+    "Documents",
+    ["Case ID", "Customer", "Document Type", "File Name", "Link", "Remarks", "Uploaded By", "Uploaded On"],
+    rows.flatMap((c) => (c.documents ?? []).map((d) => [
+      c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`.trim(), d.docType, d.fileName,
+      d.url ? (d.url.startsWith("http") ? d.url : API_BASE.replace("/api/v1", "") + d.url) : "",
+      d.remarks ?? "", d.uploadedByName, xlDateTime(d.uploadedAt),
+    ])),
+  );
+
+  addSheet(
+    "Document Requests",
+    ["Case ID", "Customer", "Documents Requested", "Remarks", "Requested By", "Requested On", "Resolved", "Resolved On"],
+    rows.flatMap((c) => (c.docRequests ?? []).map((r) => [
+      c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`.trim(), r.docTypes.join(", "), r.remarks,
+      r.requestedByName, xlDateTime(r.requestedAt), r.isResolved ? "Yes" : "No", xlDateTime(r.resolvedAt),
+    ])),
+  );
+
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
