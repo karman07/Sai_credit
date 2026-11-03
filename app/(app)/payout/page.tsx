@@ -5,6 +5,8 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { downloadXlsxSheets } from "../../../lib/excel";
+import { buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
 import { Plus, Check, Clock, Minus, Download, Pencil, Trash2, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 import {
   Button, Badge, Tabs, SectionHeader, Pagination, Modal, Input, Label, Select,
@@ -388,7 +390,16 @@ export default function PayoutPage() {
         description="Track monthly commission invoices and payout status per bank"
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" size="sm"><Download className="size-3.5" /> Export</Button>
+            <Button
+              variant="secondary" size="sm"
+              onClick={() => {
+                if (rows.length === 0) { toast("error", "No payout records to export"); return; }
+                customLabels()
+                  .then((labels) => downloadXlsxSheets(buildPayoutSheets(rows, labels), `payouts-${activeMonth === "all" ? "all" : activeMonth}-${new Date().toISOString().slice(0, 10)}.xlsx`))
+                  .then(() => toast("success", `Exported ${rows.length} payout record${rows.length !== 1 ? "s" : ""} to Excel`))
+                  .catch((e) => toast("error", e?.message ?? "Failed to export"));
+              }}
+            ><Download className="size-3.5" /> Export</Button>
             <Button size="sm" onClick={openAdd}><Plus className="size-3.5" /> Add Record</Button>
           </div>
         }

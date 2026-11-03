@@ -13,6 +13,8 @@ import {
   Button, Badge, Input, Label, Select, SectionHeader, Pagination,
   EmptyState, Skeleton, useToast, type BadgeTone,
 } from "../../../components/ui";
+import { downloadXlsxSheets } from "../../../lib/excel";
+import { buildCaseSheets, buildInsuranceSheets, buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
 import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
 import {
   casesApi, payoutApi, insuranceApi, banksApi, mastersApi, ApiError,
@@ -65,18 +67,6 @@ function inRange(dateStr: string | undefined, from: string, to: string) {
   return d >= from && d <= to;
 }
 
-function downloadCSV(headers: string[], rows: (string | number)[][], filename: string) {
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")),
-  ];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "success" | "danger" | "warning" | "neutral" }) {
@@ -99,7 +89,7 @@ type ReportData =
   | { type: "rejection";    cases: LoanCase[] }
   | { type: "payout";       records: PayoutRecord[] }
   | { type: "insurance";    records: InsuranceMIS[] }
-  | { type: "bank";         rows: BankRow[] };
+  | { type: "bank";         rows: BankRow[]; cases: LoanCase[] };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -139,7 +129,7 @@ export default function ReportsPage() {
     try {
       if (selected === "disbursement") {
         const { data: cases } = await casesApi.list({
-          status: "Disbursed", limit: 500, showAll: true,
+          status: "Disbursed", limit: 5000, showAll: true,
           product: productFilter || undefined, bankId: bankFilter || undefined,
         });
         setData({ type: "disbursement", cases: cases.filter((c) => inRange(c.disbursementDate, dateFrom, dateTo)) });
@@ -149,7 +139,7 @@ export default function ReportsPage() {
 
       } else if (selected === "rejection") {
         const { data: cases } = await casesApi.list({
-          status: "Rejected", limit: 500, showAll: true,
+          status: "Rejected", limit: 5000, showAll: true,
           product: productFilter || undefined, bankId: bankFilter || undefined,
         });
         setData({ type: "rejection", cases: cases.filter((c) => inRange(c.createdAt, dateFrom, dateTo)) });
@@ -181,7 +171,7 @@ export default function ReportsPage() {
         setTrendData(Object.entries(buckets).map(([label, count]) => ({ label, count })));
 
       } else if (selected === "bank") {
-        const { data: cases } = await casesApi.list({ limit: 1000, showAll: true, product: productFilter || undefined, bankId: bankFilter || undefined });
+        const { data: cases } = await casesApi.list({ limit: 5000, showAll: true, product: productFilter || undefined, bankId: bankFilter || undefined });
         const filtered = cases.filter((c) => inRange(c.createdAt, dateFrom, dateTo));
         const map = new Map<string, BankRow>();
         for (const c of filtered) {
@@ -197,7 +187,7 @@ export default function ReportsPage() {
         const rows = Array.from(map.values())
           .map((r) => ({ ...r, pct: r.total > 0 ? Math.round(((r.approved + r.disbursed) / r.total) * 100) : 0 }))
           .sort((a, b) => b.total - a.total);
-        setData({ type: "bank", rows });
+        setData({ type: "bank", rows, cases: filtered });
         setTrendData(rows.slice(0, 8).map((r) => ({ label: r.bank, count: r.total, volume: parseFloat((r.volume / 100_000).toFixed(2)) })));
       }
     } catch (e: any) {
@@ -211,43 +201,30 @@ export default function ReportsPage() {
     }
   }, [selected, dateFrom, dateTo, productFilter, bankFilter]);
 
-  const exportCSV = () => {
+  const exportExcel = async () => {
     if (!data) return;
     const rt = REPORT_TYPES.find((r) => r.id === selected)!;
-    const fname = `${rt.id}-${dateFrom}-to-${dateTo}.csv`;
+    const fname = `${rt.id}-${dateFrom}-to-${dateTo}.xlsx`;
 
-    if (data.type === "disbursement") {
-      downloadCSV(
-        ["Case ID", "Customer", "Bank", "Product", "Loan Amount", "Disbursement Date"],
-        data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.loanAmount ?? 0, fmtDate(c.disbursementDate)]),
-        fname,
-      );
-    } else if (data.type === "rejection") {
-      downloadCSV(
-        ["Case ID", "Customer", "Bank", "Product", "Remarks", "Date"],
-        data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.remarks ?? "", fmtDate(c.createdAt)]),
-        fname,
-      );
+    const labels = await customLabels();
+    // Every report exports the full underlying records (not just the columns shown on screen).
+    if (data.type === "disbursement" || data.type === "rejection") {
+      await downloadXlsxSheets(buildCaseSheets(data.cases, labels), fname);
     } else if (data.type === "payout") {
-      downloadCSV(
-        ["Bank", "Month", "Invoice Amt", "Commission", "Total Amt", "Invoice Status", "Payout Status"],
-        data.records.map((r) => [r.bankName ?? "", r.businessMonth, r.invoiceAmount, r.commission, r.totalAmount, r.invoiceStatus, r.payoutStatus]),
-        fname,
-      );
+      await downloadXlsxSheets(buildPayoutSheets(data.records, labels), fname);
     } else if (data.type === "insurance") {
-      downloadCSV(
-        ["Case ID", "Customer", "Insurer", "Policy", "End Date", "Days Left", "Owner"],
-        data.records.map((r) => [r.caseCode ?? "", r.customerName ?? "", r.insurer, r.policyName ?? "", fmtDate(r.endDate), daysDiff(r.endDate), r.ownerType]),
-        fname,
-      );
+      await downloadXlsxSheets(buildInsuranceSheets(data.records, labels), fname);
     } else if (data.type === "bank") {
-      downloadCSV(
-        ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
-        data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
-        fname,
-      );
+      await downloadXlsxSheets([
+        {
+          name: "Bank Summary",
+          headers: ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
+          rows: data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
+        },
+        ...buildCaseSheets(data.cases, labels),
+      ], fname);
     }
-    toast("success", "CSV exported successfully");
+    toast("success", "Excel file exported");
   };
 
   // ── Summary stats ───────────────────────────────────────────────────────────
@@ -579,8 +556,8 @@ export default function ReportsPage() {
                 <BarChart3 className="size-3.5" /> Generate
               </Button>
               {data && !loading && (
-                <Button variant="secondary" onClick={exportCSV}>
-                  <Download className="size-3.5" /> Export CSV
+                <Button variant="secondary" onClick={() => exportExcel().catch((e) => toast("error", e?.message ?? "Failed to export"))}>
+                  <Download className="size-3.5" /> Export Excel
                 </Button>
               )}
             </div>
