@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, downloadXlsxSheets, xlDate, xlCell, customKeys, stampedName } from "../../../lib/excel";
+import { downloadXlsxSheets, stampedName } from "../../../lib/excel";
+import { buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
 import { Plus, Check, Clock, Minus, Pencil, Trash2, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 import {
   Button, Badge, Tabs, SectionHeader, Pagination, Modal, Input, Label, Select,
@@ -250,17 +251,7 @@ export default function PayoutPage() {
         action={
           <div className="flex items-center gap-2">
             <ExportButton onExport={async () => {
-              const ck = customKeys(rows);
-              await downloadXlsx(
-                "Payouts",
-                ["Month", "Bank", "Company", "Invoice Date", "Invoice No.", "Invoice Status", "Cases", "Linked Cases", "Invoice Amount", "Commission", "CGST", "SGST", "GST", "Total", "Payout Status", "Payout Date", "Remarks", "Created On", ...ck],
-                rows.map((r) => [
-                  r.businessMonth, r.bankName ?? "", r.company ?? "", xlDate(r.invoiceDate), r.invoiceNumber ?? "", r.invoiceStatus,
-                  r.volumeCases, (r.linkedCases ?? []).map((c) => c.caseCode).join(", "), r.invoiceAmount, r.commission,
-                  r.cgstAmount, r.sgstAmount, r.gstAmount, r.totalAmount, r.payoutStatus, xlDate(r.payoutDate), r.remarks ?? "", xlDate(r.createdAt), ...ck.map((k) => xlCell(r.customFields?.[k])),
-                ]),
-                stampedName(activeMonth === "all" ? "payouts" : `payouts-${activeMonth}`),
-              );
+              await downloadXlsxSheets(buildPayoutSheets(rows, await customLabels()), stampedName(activeMonth === "all" ? "payouts" : `payouts-${activeMonth}`));
               return rows.length;
             }} />
             <Button size="sm" onClick={openCreate}><Plus className="size-3.5" /> New Payout Record</Button>

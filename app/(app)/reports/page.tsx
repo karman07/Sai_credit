@@ -13,8 +13,9 @@ import {
   Button, Badge, Input, Label, Select, SectionHeader, Pagination,
   EmptyState, Skeleton, useToast, type BadgeTone,
 } from "../../../components/ui";
+import { downloadXlsxSheets } from "../../../lib/excel";
+import { buildCaseSheets, buildInsuranceSheets, buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
 import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
-import { downloadXlsx } from "../../../lib/excel";
 import {
   casesApi, payoutApi, insuranceApi, banksApi, mastersApi, ApiError,
   type LoanCase, type PayoutRecord, type InsuranceMIS, type Bank, type MasterItem,
@@ -88,7 +89,7 @@ type ReportData =
   | { type: "rejection";    cases: LoanCase[] }
   | { type: "payout";       records: PayoutRecord[] }
   | { type: "insurance";    records: InsuranceMIS[] }
-  | { type: "bank";         rows: BankRow[] };
+  | { type: "bank";         rows: BankRow[]; cases: LoanCase[] };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,7 @@ export default function ReportsPage() {
         const rows = Array.from(map.values())
           .map((r) => ({ ...r, pct: r.total > 0 ? Math.round(((r.approved + r.disbursed) / r.total) * 100) : 0 }))
           .sort((a, b) => b.total - a.total);
-        setData({ type: "bank", rows });
+        setData({ type: "bank", rows, cases: filtered });
         setTrendData(rows.slice(0, 8).map((r) => ({ label: r.bank, count: r.total, volume: parseFloat((r.volume / 100_000).toFixed(2)) })));
       }
     } catch (e: any) {
@@ -205,36 +206,23 @@ export default function ReportsPage() {
     const rt = REPORT_TYPES.find((r) => r.id === selected)!;
     const fname = `${rt.id}-${dateFrom}-to-${dateTo}.xlsx`;
 
-    if (data.type === "disbursement") {
-      await downloadXlsx(rt.title, 
-        ["Case ID", "Customer", "Bank", "Product", "Loan Amount", "Disbursement Date"],
-        data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.loanAmount ?? 0, fmtDate(c.disbursementDate)]),
-        fname,
-      );
-    } else if (data.type === "rejection") {
-      await downloadXlsx(rt.title, 
-        ["Case ID", "Customer", "Bank", "Product", "Remarks", "Date"],
-        data.cases.map((c) => [c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`, c.bankName ?? "", c.product ?? "", c.remarks ?? "", fmtDate(c.createdAt)]),
-        fname,
-      );
+    const labels = await customLabels();
+    // Every report exports the full underlying records (not just the columns shown on screen).
+    if (data.type === "disbursement" || data.type === "rejection") {
+      await downloadXlsxSheets(buildCaseSheets(data.cases, labels), fname);
     } else if (data.type === "payout") {
-      await downloadXlsx(rt.title, 
-        ["Bank", "Month", "Invoice Amt", "Commission", "Total Amt", "Invoice Status", "Payout Status"],
-        data.records.map((r) => [r.bankName ?? "", r.businessMonth, r.invoiceAmount, r.commission, r.totalAmount, r.invoiceStatus, r.payoutStatus]),
-        fname,
-      );
+      await downloadXlsxSheets(buildPayoutSheets(data.records, labels), fname);
     } else if (data.type === "insurance") {
-      await downloadXlsx(rt.title, 
-        ["Case ID", "Customer", "Insurer", "Policy", "End Date", "Days Left", "Owner"],
-        data.records.map((r) => [r.caseCode ?? "", r.customerName ?? "", r.insurer, r.policyName ?? "", fmtDate(r.endDate), daysDiff(r.endDate), r.ownerType]),
-        fname,
-      );
+      await downloadXlsxSheets(buildInsuranceSheets(data.records, labels), fname);
     } else if (data.type === "bank") {
-      await downloadXlsx(rt.title, 
-        ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
-        data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
-        fname,
-      );
+      await downloadXlsxSheets([
+        {
+          name: "Bank Summary",
+          headers: ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
+          rows: data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
+        },
+        ...buildCaseSheets(data.cases, labels),
+      ], fname);
     }
     toast("success", "Excel file exported");
   };

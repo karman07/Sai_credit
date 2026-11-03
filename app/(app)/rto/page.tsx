@@ -12,7 +12,8 @@ import {
   type LoanCase, type RTORecord, type RTOStage, type RTOStageStatus, type FieldDef, type SectionDef,
 } from "../../../lib/api";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, xlDate, xlCell, customKeys, stampedName } from "../../../lib/excel";
+import { downloadXlsx, xlDate, customKeys, stampedName } from "../../../lib/excel";
+import { customCell, customHead, customLabels } from "../../../lib/exportSheets";
 import { FileFieldInput } from "../../../components/FileFieldInput";
 import { CaseChatThread } from "../../../components/CaseChatThread";
 
@@ -444,13 +445,14 @@ export default function RTOPage() {
             // One row per case in the current list, with a column per catalog stage.
             const stageNames = [...new Set(Object.values(records).flatMap((r) => (r.stages ?? []).map((st) => st.name)))];
             const ck = customKeys(Object.values(records));
+            const labels = await customLabels();
             await downloadXlsx(
               "RTO",
               ["Case ID", "Customer", "Phone", "Vehicle", "Reg. Number", "Bank", "Dealer", "Sales Rep", "RTO Status", "Progress %", "RTO Owner",
                 ...stageNames, "Open Doc Requests", "Total Doc Requests", "Completed On",
                 "Ownership Type", "RTO Ownership", "RTO Receiving", "Challan Check", "Bank NOC", "NOC Hold (₹)", "Insurance Check",
                 "Hypothecation", "Aadhaar Match", "Aadhaar Mismatch Note", "Pending Documents", "Balance Payment (₹)", "Approval Date",
-                "RTO Slip", "Remarks", ...ck],
+                "RTO Slip", "Remarks", ...ck.map((k) => customHead(k, labels))],
               rows.map((c) => {
                 const r = records[c._id];
                 const byName = new Map((r?.stages ?? []).map((st) => [st.name, st.status]));
@@ -464,7 +466,7 @@ export default function RTOPage() {
                   r?.rtoOwnershipType ?? "", r?.rtoOwnership ?? "", r?.rtoReceiving ? "Yes" : "No", r?.challanCheck ?? "", r?.bankNocCheck ?? "",
                   r?.nocHoldAmt ?? "", r?.insuranceCheck ?? "", r?.hypothecation ?? "", r?.aadhaarMatch ?? "", r?.aadhaarMismatchNote ?? "",
                   (r?.pendingDocuments ?? []).join(", "), r?.balancePayment ?? "", xlDate(r?.approvalDate), r?.rtoSlipFileName ?? "",
-                  r?.remarks ?? "", ...ck.map((k) => xlCell(r?.customFields?.[k])),
+                  r?.remarks ?? "", ...ck.map((k) => customCell(r?.customFields?.[k])),
                 ];
               }),
               stampedName("rto"),
