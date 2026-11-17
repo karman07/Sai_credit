@@ -21,6 +21,7 @@ import { Master } from '../masters/schemas/master.schema';
 import { MailService } from '../mail/mail.service';
 import { FormSchemasService } from '../form-schemas/form-schemas.service';
 import { isRtoCoordinator } from '../rbac/permissions';
+import { CaseFilter } from './cases.dto';
 
 @Injectable()
 export class CasesService {
@@ -63,6 +64,30 @@ export class CasesService {
    * requiring Aadhaar/RC/PAN before a case can be created. Configured entirely
    * via the Form Builder API; nothing product-specific is hardcoded here.
    */
+  /** Where each built-in Form Builder field lives on a create/update payload, so "required" can be checked generically. */
+  private static readonly CORE_VALUE: Record<string, (d: any) => unknown> = {
+    firstName: (d) => d.customer?.firstName, lastName: (d) => d.customer?.lastName, fatherName: (d) => d.customer?.fatherName,
+    contact: (d) => d.customer?.contact, altContact: (d) => d.customer?.altContact, state: (d) => d.customer?.state,
+    location: (d) => d.customer?.location, residentialStatus: (d) => d.customer?.residentialStatus, ebillOwner: (d) => d.customer?.ebillOwner,
+    product: (d) => d.product, loanType: (d) => d.loanType, vehicleModel: (d) => d.vehicleModel, regNumber: (d) => d.regNumber,
+    ownerSerial: (d) => d.ownerSerial, existingInsurer: (d) => d.existingInsurer, hypothecation: (d) => d.hypothecation,
+    nocRequired: (d) => d.nocRequired, challanCount: (d) => d.challanCount, loanAmount: (d) => d.loanAmount,
+    bank: (d) => d.bankId, branch: (d) => d.bankBranch, bmName: (d) => d.bmName, bmContact: (d) => d.bmContact,
+    executive: (d) => d.bankExecutive, dealer: (d) => d.dealerId, payoutPct: (d) => d.payoutPct,
+  };
+
+  /** Form Builder is the source of truth: an active field flagged "required" must be filled; hidden or optional ones never block. */
+  private async assertRequiredCaseFields(dto: CreateCaseDto) {
+    const schema = await this.formSchemas.getOrCreate('new-case');
+    for (const f of schema.sections.flatMap((s) => s.fields)) {
+      if (!f.required || f.isActive === false) continue;
+      const value = f.isCore ? CasesService.CORE_VALUE[f.key]?.(dto) : dto.customFields?.[f.key];
+      if (f.isCore && !CasesService.CORE_VALUE[f.key]) continue;
+      const empty = value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+      if (empty) throw new BadRequestException(`${f.label} is required`);
+    }
+  }
+
   private async assertRequiredProductFields(product: string | undefined, customFields: Record<string, any> | undefined) {
     const code = await this.resolveProductCode(product);
     if (!code) return;
@@ -105,47 +130,246 @@ export class CasesService {
     return null;
   }
 
-  async list(params: {
-    page?: number; limit?: number; search?: string; status?: string;
-    bankId?: string; dealerId?: string; product?: string; firm?: string;
-    assignedTo?: string; userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
-  }) {
-    const { page = 1, limit = 25, search, status, bankId, dealerId, product, firm, assignedTo, userId, scopeToUser, coordinatorId, rtoOnly } = params;
-    const filter: Record<string, any> = { isActive: true };
+  /** Escapes user input before it goes into a RegExp, so "(", "+" or "\\" in a search never throws or over-matches. */
+  private escapeRegex(s: string) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
-    const scopeFilter = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
-    if (scopeFilter?.$or) filter.$or = scopeFilter.$or;
+  /**
+   * The single Mongo filter behind the case list, the filter facets and the disbursement analytics.
+   * `scope` is the caller's access scope (sales rep / coordinator / RTO coordinator) and is ANDed in, so no
+   * user-supplied filter can ever widen what someone is allowed to see.
+   */
+  private buildCaseMatch(f: Partial<CaseFilter>, scope: Record<string, any> | null): Record<string, any> {
+    const and: Record<string, any>[] = [{ isActive: true }];
+    const oid = (x: string) => new Types.ObjectId(x);
+    const inList = (field: string, v?: string[], map?: (x: string) => any) => {
+      if (v?.length) and.push({ [field]: { $in: map ? v.map(map) : v } });
+    };
 
-    if (search) {
-      const re = new RegExp(search, 'i');
-      const searchOr = [{ caseCode: re }, { 'customer.firstName': re }, { 'customer.lastName': re }, { 'customer.contact': re }, { regNumber: re }];
-      if (filter.$or) {
-        // Combine with existing $or using $and
-        filter.$and = [{ $or: filter.$or }, { $or: searchOr }];
-        delete filter.$or;
-      } else {
-        filter.$or = searchOr;
+    if (scope) and.push(scope);
+
+    // Alphanumeric search: every whitespace-separated token must match at least one searchable field,
+    // so "swift mh02", "9876 54321" or "rahul sharma" all work.
+    if (f.search) {
+      const fields = [
+        'caseCode', 'customer.firstName', 'customer.lastName', 'customer.fatherName', 'customer.contact', 'customer.altContact',
+        'customer.location', 'customer.state', 'customer.district', 'customer.pinCode', 'regNumber', 'vehicleModel',
+        'bankName', 'dealerName', 'assignedToName', 'coordinatorName', 'product', 'remarks',
+      ];
+      for (const token of f.search.split(/\s+/).filter(Boolean)) {
+        const re = new RegExp(this.escapeRegex(token), 'i');
+        and.push({ $or: fields.map((field) => ({ [field]: re })) });
       }
     }
 
-    if (assignedTo) filter.assignedTo = new Types.ObjectId(assignedTo);
-    if (status && status !== 'All') filter.status = status;
-    if (bankId) filter.bankId = new Types.ObjectId(bankId);
-    if (dealerId) filter.dealerId = new Types.ObjectId(dealerId);
-    if (product) filter.product = product;
-    if (firm) filter.firm = firm;
-    // Applied last so a caller-supplied status/product can never widen an RTO coordinator's view.
-    if (rtoOnly) Object.assign(filter, scopeFilter);
+    inList('status', f.status);
+    // Ids have been stored both as ObjectId and as plain strings historically, so match either form.
+    const eitherForm = (field: string, v?: string[]) => {
+      if (v?.length) and.push({ [field]: { $in: [...v.map(oid), ...v] } });
+    };
+    eitherForm('bankId', f.bankId);
+    eitherForm('dealerId', f.dealerId);
+    inList('product', f.product);
+    inList('firm', f.firm);
+    inList('loanType', f.loanType);
+    eitherForm('assignedTo', f.assignedTo);
+    inList('customer.state', f.state);
+    inList('customer.location', f.city);
+    if (f.coordinatorId?.length) {
+      // coordinatorId has been stored both as ObjectId and as plain string historically.
+      and.push({ coordinatorId: { $in: [...f.coordinatorId.map(oid), ...f.coordinatorId] } });
+    }
 
-    const total = await this.model.countDocuments(filter);
+    const range = (field: string, from?: Date, to?: Date) => {
+      if (from || to) and.push({ [field]: { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } });
+    };
+    range('createdAt', f.createdFrom, f.createdTo);
+    // Disbursement date, falling back to the created date for cases that were disbursed without one being saved.
+    if (f.disbursedFrom || f.disbursedTo) {
+      const r = { ...(f.disbursedFrom ? { $gte: f.disbursedFrom } : {}), ...(f.disbursedTo ? { $lte: f.disbursedTo } : {}) };
+      and.push({ $or: [{ disbursementDate: r }, { disbursementDate: null, createdAt: r }] });
+    }
+    if (f.minAmount !== undefined || f.maxAmount !== undefined) {
+      and.push({ loanAmount: { ...(f.minAmount !== undefined ? { $gte: f.minAmount } : {}), ...(f.maxAmount !== undefined ? { $lte: f.maxAmount } : {}) } });
+    }
+
+    if (f.hypothecation !== undefined) and.push({ hypothecation: f.hypothecation });
+    if (f.nocRequired !== undefined) and.push({ nocRequired: f.nocRequired });
+    if (f.openDocRequests) and.push({ docRequests: { $elemMatch: { isResolved: false } } });
+    if (f.hasDocuments !== undefined) and.push(f.hasDocuments ? { 'documents.0': { $exists: true } } : { documents: { $size: 0 } });
+
+    return and.length === 1 ? and[0] : { $and: and };
+  }
+
+  async list(params: {
+    filter: CaseFilter; userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
+  }) {
+    const { filter: f, userId, scopeToUser, coordinatorId, rtoOnly } = params;
+    const scope = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
+    const match = this.buildCaseMatch(f, scope);
+
+    const total = await this.model.countDocuments(match);
     const data = await this.model
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
+      .find(match)
+      .sort({ [f.sortBy]: f.order, _id: -1 })
+      .skip((f.page - 1) * f.limit)
+      .limit(f.limit)
       .lean();
 
-    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    return { data, meta: { page: f.page, limit: f.limit, total, totalPages: Math.ceil(total / f.limit) } };
+  }
+
+  /** Case counts per status under the current filters (the status filter itself is ignored, so tabs show every status). */
+  async statusCounts(params: { filter: CaseFilter; userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean }) {
+    const { filter: f, userId, scopeToUser, coordinatorId, rtoOnly } = params;
+    const scope = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
+    const match = this.buildCaseMatch({ ...f, status: undefined }, scope);
+    const rows = await this.model.aggregate([{ $match: match }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
+    return Object.fromEntries(rows.map((r) => [r._id as string, r.count as number]));
+  }
+
+  /**
+   * Distinct values for every filter dropdown, taken from the cases the caller can actually see —
+   * so each portal (admin / coordinator / sales / RTO) gets correct options without extra permissions.
+   */
+  async facets(params: { userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean }) {
+    const scope = await this.buildScopeFilter(params);
+    const match = this.buildCaseMatch({}, scope);
+    const pair = (id: string, name: string) => [
+      { $match: { [id]: { $exists: true, $ne: null }, [name]: { $exists: true, $ne: '' } } },
+      // $toString merges the ObjectId and plain-string copies of the same id into a single option.
+      { $group: { _id: { $toString: `$${id}` }, name: { $first: `$${name}` } } },
+      { $sort: { name: 1 } },
+    ];
+    const distinct = (field: string) => [
+      { $match: { [field]: { $exists: true, $nin: [null, ''] } } },
+      { $group: { _id: `$${field}` } },
+      { $sort: { _id: 1 } },
+    ];
+    const [r] = await this.model.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          banks: pair('bankId', 'bankName') as any,
+          dealers: pair('dealerId', 'dealerName') as any,
+          reps: pair('assignedTo', 'assignedToName') as any,
+          coordinators: pair('coordinatorId', 'coordinatorName') as any,
+          products: distinct('product') as any,
+          firms: distinct('firm') as any,
+          loanTypes: distinct('loanType') as any,
+          states: distinct('customer.state') as any,
+          cities: distinct('customer.location') as any,
+          statuses: distinct('status') as any,
+          amount: [{ $group: { _id: null, min: { $min: '$loanAmount' }, max: { $max: '$loanAmount' } } }] as any,
+        },
+      },
+    ]);
+    const idName = (rows: any[]) => rows.map((x) => ({ id: String(x._id), name: x.name }));
+    const vals = (rows: any[]) => rows.map((x) => x._id as string);
+    return {
+      banks: idName(r.banks), dealers: idName(r.dealers), reps: idName(r.reps), coordinators: idName(r.coordinators),
+      products: vals(r.products), firms: vals(r.firms), loanTypes: vals(r.loanTypes), states: vals(r.states),
+      cities: vals(r.cities), statuses: vals(r.statuses),
+      amount: { min: r.amount[0]?.min ?? 0, max: r.amount[0]?.max ?? 0 },
+    };
+  }
+
+  /**
+   * Disbursed-amount analytics over the same filters as the case list. Only Disbursed cases count; the
+   * date axis is the disbursement date (falling back to created date if it was never set). When both
+   * ends of a range are given, the immediately preceding period of equal length is returned for comparison.
+   */
+  async disbursedAnalytics(params: {
+    filter: CaseFilter; userId?: string; scopeToUser?: boolean; coordinatorId?: string; rtoOnly?: boolean;
+  }) {
+    const { filter: f, userId, scopeToUser, coordinatorId, rtoOnly } = params;
+    const scope = await this.buildScopeFilter({ userId, scopeToUser, coordinatorId, rtoOnly });
+    // Status filter is meaningless here (always Disbursed); the range applies to the disbursement date.
+    const base: Partial<CaseFilter> = { ...f, status: [CaseStatus.Disbursed] };
+    const match = this.buildCaseMatch(base, scope);
+
+    const eventDate = { $ifNull: ['$disbursementDate', '$createdAt'] };
+    const sums = { count: { $sum: 1 }, amount: { $sum: { $ifNull: ['$loanAmount', 0] } } };
+    const top = (field: string, limit = 10) => [
+      { $match: { [field]: { $exists: true, $nin: [null, ''] } } },
+      { $group: { _id: `$${field}`, ...sums } },
+      { $sort: { amount: -1 } },
+      { $limit: limit },
+    ];
+    const lakh = 100_000;
+
+    const [r] = await this.model.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          kpi: [{ $group: { _id: null, ...sums, max: { $max: '$loanAmount' }, min: { $min: '$loanAmount' } } }] as any,
+          byMonth: [{ $group: { _id: { $dateToString: { format: '%Y-%m', date: eventDate } }, ...sums } }, { $sort: { _id: 1 } }] as any,
+          byDay: [{ $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: eventDate } }, ...sums } }, { $sort: { _id: 1 } }] as any,
+          byBank: top('bankName') as any,
+          byProduct: top('product') as any,
+          byDealer: top('dealerName') as any,
+          byRep: top('assignedToName') as any,
+          byCoordinator: top('coordinatorName') as any,
+          byFirm: top('firm') as any,
+          byLoanType: top('loanType') as any,
+          byState: top('customer.state') as any,
+          byCity: top('customer.location') as any,
+          bands: [
+            {
+              $bucket: {
+                groupBy: { $ifNull: ['$loanAmount', 0] },
+                boundaries: [0, 5 * lakh, 10 * lakh, 25 * lakh, 50 * lakh, 100 * lakh],
+                default: '1Cr+',
+                output: { ...sums },
+              },
+            },
+          ] as any,
+          topCases: [
+            { $sort: { loanAmount: -1 } },
+            { $limit: 10 },
+            { $project: { caseCode: 1, 'customer.firstName': 1, 'customer.lastName': 1, bankName: 1, product: 1, loanAmount: 1, disbursementDate: 1 } },
+          ] as any,
+        },
+      },
+    ]);
+
+    const k = r.kpi[0] ?? { count: 0, amount: 0, max: 0, min: 0 };
+    const named = (rows: any[]) => rows.map((x) => ({ name: String(x._id), count: x.count, amount: x.amount }));
+    const bandLabels: Record<string, string> = {
+      '0': 'Under 5L', [String(5 * lakh)]: '5L – 10L', [String(10 * lakh)]: '10L – 25L',
+      [String(25 * lakh)]: '25L – 50L', [String(50 * lakh)]: '50L – 1Cr', '1Cr+': '1Cr+',
+    };
+
+    // Previous period of equal length, for a growth comparison.
+    let previous: { count: number; amount: number } | null = null;
+    if (f.disbursedFrom && f.disbursedTo) {
+      const span = f.disbursedTo.getTime() - f.disbursedFrom.getTime() + 1;
+      const prevMatch = this.buildCaseMatch(
+        { ...base, disbursedFrom: new Date(f.disbursedFrom.getTime() - span), disbursedTo: new Date(f.disbursedFrom.getTime() - 1) },
+        scope,
+      );
+      const [p] = await this.model.aggregate([{ $match: prevMatch }, { $group: { _id: null, ...sums } }]);
+      previous = { count: p?.count ?? 0, amount: p?.amount ?? 0 };
+    }
+
+    return {
+      kpi: {
+        count: k.count, amount: k.amount, avgTicket: k.count ? Math.round(k.amount / k.count) : 0,
+        max: k.max ?? 0, min: k.count ? (k.min ?? 0) : 0,
+      },
+      previous,
+      byMonth: named(r.byMonth).map((x) => ({ ...x, month: x.name })),
+      byDay: named(r.byDay).map((x) => ({ ...x, date: x.name })),
+      byBank: named(r.byBank), byProduct: named(r.byProduct), byDealer: named(r.byDealer), byRep: named(r.byRep),
+      byCoordinator: named(r.byCoordinator), byFirm: named(r.byFirm), byLoanType: named(r.byLoanType),
+      byState: named(r.byState), byCity: named(r.byCity),
+      bands: r.bands.map((x: any) => ({ name: bandLabels[String(x._id)] ?? String(x._id), count: x.count, amount: x.amount })),
+      topCases: r.topCases.map((c: any) => ({
+        _id: String(c._id), caseCode: c.caseCode, customer: `${c.customer?.firstName ?? ''} ${c.customer?.lastName ?? ''}`.trim(),
+        bankName: c.bankName, product: c.product, loanAmount: c.loanAmount, disbursementDate: c.disbursementDate,
+      })),
+    };
   }
 
   async findById(id: string, actor?: AuthUser) {
@@ -268,44 +492,16 @@ export class CasesService {
   async create(dto: CreateCaseDto, actor: AuthUser) {
     const status = dto.status ?? CaseStatus.Sales;
 
-    if (status === CaseStatus.Draft) {
-      if (!dto.customer?.firstName || dto.customer.firstName.trim().length === 0) {
-        throw new BadRequestException('First Name (or name) is required to save draft');
-      }
-      if (!dto.customer?.contact || dto.customer.contact.trim().length === 0) {
-        throw new BadRequestException('Contact number is required to save draft');
-      }
-      if (!dto.dealerId) {
-        throw new BadRequestException('Dealer is required to save draft');
-      }
-    } else {
-      if (!dto.customer?.firstName || dto.customer.firstName.trim().length === 0) {
-        throw new BadRequestException('First Name is required');
-      }
-      if (!dto.customer?.lastName || dto.customer.lastName.trim().length === 0) {
-        throw new BadRequestException('Last Name is required');
-      }
-      if (!dto.customer?.contact || dto.customer.contact.trim().length === 0) {
-        throw new BadRequestException('Contact number is required');
-      }
-      if (!dto.customer?.location || dto.customer.location.trim().length === 0) {
-        throw new BadRequestException('Location is required');
-      }
-      if (!dto.product) {
-        throw new BadRequestException('Product Type is required');
-      }
-      if (!dto.firm) {
-        throw new BadRequestException('Firm is required');
-      }
-      if (!dto.loanAmount) {
-        throw new BadRequestException('Loan Amount is required');
-      }
-      if (!dto.bankId) {
-        throw new BadRequestException('Bank is required');
-      }
-      if (!dto.dealerId) {
-        throw new BadRequestException('Dealer is required');
-      }
+    // A case always needs a name and a phone number to be identifiable (a draft needs nothing more). Everything
+    // else is required only when Form Builder says so: an active field marked "required" on the New Case form.
+    if (!dto.customer?.firstName || dto.customer.firstName.trim().length === 0) {
+      throw new BadRequestException(status === CaseStatus.Draft ? 'First Name (or name) is required to save draft' : 'First Name is required');
+    }
+    if (!dto.customer?.contact || dto.customer.contact.trim().length === 0) {
+      throw new BadRequestException(status === CaseStatus.Draft ? 'Contact number is required to save draft' : 'Contact number is required');
+    }
+    if (status !== CaseStatus.Draft) {
+      await this.assertRequiredCaseFields(dto);
       await this.assertRequiredProductFields(dto.product, dto.customFields);
     }
 
@@ -501,8 +697,10 @@ export class CasesService {
 
     const oldStatus = existing.status;
     const update: Record<string, any> = { status: dto.status };
-    if (dto.status === CaseStatus.Disbursed && dto.disbursementDate) {
-      update.disbursementDate = new Date(dto.disbursementDate);
+    if (dto.status === CaseStatus.Disbursed) {
+      // Always stamp a disbursement date so analytics and date filters can place the case.
+      if (dto.disbursementDate) update.disbursementDate = new Date(dto.disbursementDate);
+      else if (!existing.disbursementDate) update.disbursementDate = new Date();
     }
 
     const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).lean();
@@ -946,7 +1144,12 @@ export class CasesService {
     const rangeEnd = to ? new Date(new Date(to).getTime() + 86_400_000 - 1) : new Date();
 
     const leadsMatch = { ...baseMatch, ...(hasRange ? { createdAt: { $gte: rangeStart, $lte: rangeEnd } } : {}) };
-    const disbursedMatch = { ...baseMatch, status: CaseStatus.Disbursed, disbursementDate: { $gte: rangeStart, $lte: rangeEnd } };
+    // Disbursed cases with no saved disbursement date fall back to their created date, so they still count.
+    const disbursedMatch = {
+      ...baseMatch,
+      status: CaseStatus.Disbursed,
+      $and: [{ $or: [{ disbursementDate: { $gte: rangeStart, $lte: rangeEnd } }, { disbursementDate: null, createdAt: { $gte: rangeStart, $lte: rangeEnd } }] }],
+    };
     const activeMatch = { ...baseMatch, status: { $nin: [CaseStatus.Disbursed, CaseStatus.Rejected, CaseStatus.Cancelled] } };
 
     const [totalLeads, disbursedMTD, activeCases, statusBreakdown] = await Promise.all([
@@ -1027,8 +1230,14 @@ export class CasesService {
         { $group: { _id: { $dateToString: { format: dateFormat, date: '$createdAt' } }, count: { $sum: 1 } } },
       ]),
       this.model.aggregate([
-        { $match: { ...baseMatch, status: CaseStatus.Disbursed, disbursementDate: { $gte: fromDate, $lte: toDate } } },
-        { $group: { _id: { $dateToString: { format: dateFormat, date: '$disbursementDate' } }, count: { $sum: 1 }, volume: { $sum: '$loanAmount' } } },
+        {
+          $match: {
+            ...baseMatch,
+            status: CaseStatus.Disbursed,
+            $and: [{ $or: [{ disbursementDate: { $gte: fromDate, $lte: toDate } }, { disbursementDate: null, createdAt: { $gte: fromDate, $lte: toDate } }] }],
+          },
+        },
+        { $group: { _id: { $dateToString: { format: dateFormat, date: { $ifNull: ['$disbursementDate', '$createdAt'] } } }, count: { $sum: 1 }, volume: { $sum: '$loanAmount' } } },
       ]),
     ]);
 

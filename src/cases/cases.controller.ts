@@ -17,6 +17,7 @@ import {
   UploadDocSchema, UploadDocDto,
   EditDocSchema, EditDocDto,
   UpdatePipelineStageSchema, UpdatePipelineStageDto,
+  parseCaseFilter,
 } from './cases.dto';
 import { isSalesRole, UserRole } from '../common/enums';
 import { isRtoCoordinator } from '../rbac/permissions';
@@ -24,6 +25,17 @@ import { isRtoCoordinator } from '../rbac/permissions';
 @Controller('cases')
 export class CasesController {
   constructor(private readonly svc: CasesService) {}
+
+  /** The caller's access scope: sales see their own, coordinators their reps', RTO coordinators disbursed vehicle files. */
+  private scopeOf(actor: AuthUser) {
+    const rtoOnly = isRtoCoordinator(actor);
+    return {
+      userId: actor.id,
+      scopeToUser: isSalesRole(actor.role),
+      coordinatorId: actor.role === UserRole.Coordinator && !rtoOnly ? actor.id : undefined,
+      rtoOnly,
+    };
+  }
 
   @Get('stats')
   @RequirePermissions('cases.read')
@@ -67,30 +79,29 @@ export class CasesController {
 
   @Get()
   @RequirePermissions('cases.read')
-  list(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('bankId') bankId?: string,
-    @Query('dealerId') dealerId?: string,
-    @Query('product') product?: string,
-    @Query('firm') firm?: string,
-    @Query('assignedTo') assignedTo?: string,
-    @CurrentUser() actor?: AuthUser,
-  ) {
-    const isSales = actor ? isSalesRole(actor.role) : false;
-    const rtoOnly = actor ? isRtoCoordinator(actor) : false;
-    const isCoordinator = actor?.role === UserRole.Coordinator && !rtoOnly;
-    return this.svc.list({
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 25,
-      search, status, bankId, dealerId, product, firm,
-      assignedTo,
-      userId: actor?.id,
-      scopeToUser: isSales,
-      coordinatorId: isCoordinator ? actor!.id : undefined, rtoOnly,
-    });
+  list(@Query() query: Record<string, string>, @CurrentUser() actor: AuthUser) {
+    return this.svc.list({ filter: parseCaseFilter(query), ...this.scopeOf(actor) });
+  }
+
+  // Per-status counts under the current filters — drives the status tabs.
+  @Get('status-counts')
+  @RequirePermissions('cases.read')
+  statusCounts(@Query() query: Record<string, string>, @CurrentUser() actor: AuthUser) {
+    return this.svc.statusCounts({ filter: parseCaseFilter(query), ...this.scopeOf(actor) });
+  }
+
+  // Distinct values for every filter dropdown, limited to the cases the caller can see.
+  @Get('facets')
+  @RequirePermissions('cases.read')
+  facets(@CurrentUser() actor: AuthUser) {
+    return this.svc.facets(this.scopeOf(actor));
+  }
+
+  // Disbursed-amount analytics — same filters as the list.
+  @Get('analytics/disbursed')
+  @RequirePermissions('cases.read')
+  disbursedAnalytics(@Query() query: Record<string, string>, @CurrentUser() actor: AuthUser) {
+    return this.svc.disbursedAnalytics({ filter: parseCaseFilter(query), ...this.scopeOf(actor) });
   }
 
   @Get(':id')
