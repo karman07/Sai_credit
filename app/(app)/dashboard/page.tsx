@@ -17,6 +17,7 @@ import {
   casesApi, banksApi, mastersApi,
   type DashboardStats, type LoanCase, type CaseTrendPoint, type Bank, type MasterItem,
 } from "../../../lib/api";
+import { DisbursementAnalytics } from "../../../components/DisbursementAnalytics";
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
@@ -657,6 +658,8 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      <DisbursementAnalytics />
     </div>
   );
 }

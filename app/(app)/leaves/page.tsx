@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, Clock, CalendarOff, X, Users } from "lucide-reac
 import { Button } from "../../../components/ui";
 import { leavesApi, usersApi, type Leave, type AdminUser } from "../../../lib/api";
 import { MonthPicker } from "../../../components/MonthPicker";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   pending:   { label: "Pending",   icon: Clock,        color: "text-yellow-700 bg-yellow-50 border-yellow-200" },
@@ -30,6 +31,12 @@ function nowMonth() { return new Date().toISOString().slice(0, 7); }
 
 export default function AdminLeavesPage() {
   const [leaves, setLeaves]           = useState<Leave[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(leaves, lf, {
+    text: (l) => `${userName(l.userId)} ${l.reason} ${l.type} ${l.status} ${l.reviewNote ?? ""}`,
+    sel: { type: (l) => l.type },
+    date: (l) => l.startDate,
+  });
   const [total, setTotal]             = useState(0);
   const [users, setUsers]             = useState<AdminUser[]>([]);
   const [filterMonth, setFilterMonth] = useState(nowMonth());
@@ -113,6 +120,10 @@ export default function AdminLeavesPage() {
           {users.map((u) => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
         </select>
       </div>
+      <ListFilterBar
+        value={lf} onChange={setLf} placeholder="Search staff, reason…" dateLabel="Leave dates" shown={shown.length} total={leaves.length}
+        selects={[{ key: "type", label: "Type", options: ["casual", "sick", "earned", "unpaid"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }]}
+      />
 
       {/* Table */}
       <div className="card overflow-hidden">
@@ -134,7 +145,7 @@ export default function AdminLeavesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {leaves.map((l) => {
+                {shown.map((l) => {
                   const cfg = STATUS_CONFIG[l.status];
                   const Icon = cfg.icon;
                   return (

@@ -1,5 +1,8 @@
 "use client";
 
+import { DatePicker } from "../../../components/DatePicker";
+import { SchemaCaseForm, type CaseFormCtx } from "../../../components/SchemaCaseForm";
+import { buildCasePayload, defaultValues, firstMissing, valuesFromCase, type CaseValues } from "../../../lib/caseForm";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Download, Filter, X, Eye, FileText, Calendar, Building2, Users, MapPin, Banknote, UserCheck, CheckCircle2, AlertCircle, UploadCloud, Pencil, Trash2, Edit2, Info, Save, Upload, ExternalLink } from "lucide-react";
@@ -18,16 +21,41 @@ import {
 } from "../../../lib/api";
 import { FileFieldInput } from "../../../components/FileFieldInput";
 import { CaseChatThread } from "../../../components/CaseChatThread";
-import { downloadXlsxSheets } from "../../../lib/excel";
-import { buildCaseSheets, customLabels } from "../../../lib/exportSheets";
+import { ExportButton } from "../../../components/ExportButton";
+import { CaseFilterPanel, useCaseFacets } from "../../../components/CaseFilterPanel";
+import { EMPTY_FILTERS, filtersToQuery, type CaseFilters } from "../../../lib/caseFilters";
+import { buildCaseSheets, loadCustomDefs } from "../../../lib/exportSheets";
+import { coreFields } from "../../../lib/coreFields";
 
 function fmt(n?: number) { return n ? `₹${n.toLocaleString("en-IN")}` : "—"; }
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"; }
 function isVehicleProduct(product?: string) { return !!product && VEHICLE_PRODUCTS.includes(product); }
 
-/** Exports every case field (plus Documents and Document Requests sheets) — see lib/exportSheets.ts. */
-async function exportCasesToExcel(rows: LoanCase[], filename: string) {
-  await downloadXlsxSheets(buildCaseSheets(rows, await customLabels()), filename);
+const CORE_KEY_MAP: Record<string, (c: LoanCase) => string | undefined> = {
+  firstName: (c) => c.customer.firstName, lastName: (c) => c.customer.lastName, fatherName: (c) => c.customer.fatherName,
+  contact: (c) => c.customer.contact, altContact: (c) => c.customer.altContact, state: (c) => c.customer.state,
+  location: (c) => c.customer.location, residentialStatus: (c) => c.customer.residentialStatus,
+  ebillOwner: (c) => (c.customer.ebillOwner != null ? (c.customer.ebillOwner ? "Yes" : "No") : undefined),
+  product: (c) => c.product, loanType: (c) => c.loanType, vehicleModel: (c) => c.vehicleModel, regNumber: (c) => c.regNumber,
+  ownerSerial: (c) => c.ownerSerial, existingInsurer: (c) => c.existingInsurer,
+  hypothecation: (c) => (c.hypothecation != null ? (c.hypothecation ? "Yes" : "No") : undefined),
+  nocRequired: (c) => (c.nocRequired != null ? (c.nocRequired ? "Yes" : "No") : undefined),
+  challanCount: (c) => (c.challanCount != null ? String(c.challanCount) : undefined),
+  loanAmount: (c) => (c.loanAmount ? `₹${c.loanAmount.toLocaleString("en-IN")}` : undefined),
+  bank: (c) => c.bankName, branch: (c) => c.bankBranch, bmName: (c) => c.bmName, bmContact: (c) => c.bmContact,
+  executive: (c) => c.bankExecutive, dealer: (c) => c.dealerName,
+  payoutPct: (c) => (c.payoutPct != null ? `${c.payoutPct}%` : undefined),
+};
+
+/** A case field's display value for a Form Builder field key (core fields from the case, custom fields from customFields). */
+function getCaseFieldValue(c: LoanCase, key: string): string | undefined {
+  if (key in CORE_KEY_MAP) {
+    const val = CORE_KEY_MAP[key](c);
+    return val != null && val !== "" ? val : undefined;
+  }
+  const raw = c.customFields?.[key];
+  if (raw == null || raw === "") return undefined;
+  return typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw);
 }
 
 function ProductDynField({ field, value, onChange }: { field: FieldDef; value: string; onChange: (v: string) => void }) {
@@ -45,7 +73,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
       <option value="No">No</option>
     </select>
   );
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "date") return <DatePicker type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
   if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
@@ -165,6 +193,9 @@ function CasesPageInner() {
   const [newCaseProductFields, setNewCaseProductFields] = useState<FieldDef[]>([]);
   const [editProductFields, setEditProductFields] = useState<FieldDef[]>([]);
   const [caseSchema, setCaseSchema] = useState<FormSchema | null>(null);
+  const cf = coreFields(caseSchema);
+  // Bumped whenever Form Builder is re-read, so product-specific fields refresh too.
+  const [schemaTick, setSchemaTick] = useState(0);
 
   // Custom fields added via Form Builder on the "New Case" form itself (not tied
   // to a specific product) — e.g. extra fields under Customer / Loan / Bank sections.
@@ -186,18 +217,24 @@ function CasesPageInner() {
   }
 
   // Filters
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [bankFilter, setBankFilter] = useState("");
-  const [productFilter, setProductFilter] = useState("");
-  const [firmFilter, setFirmFilter] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
+  // Filters: `filters` drives the query; the search box is debounced through `searchText`.
+  const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
+  const [searchText, setSearchText] = useState("");
+  const facets = useCaseFacets();
+  const statusFilter = filters.status.length === 0 ? "All" : filters.status.length === 1 ? filters.status[0] : "";
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
 
   // UI state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [exporting, setExporting] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText }));
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchText]);
+  const applyFilters = (f: CaseFilters) => { setFilters(f); setSearchText(f.search); setPage(1); };
   const [drawerCase, setDrawerCase] = useState<LoanCase | null>(null);
   const [drawerTab, setDrawerTab] = useState("overview");
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -210,13 +247,9 @@ function CasesPageInner() {
 
   // New Case modal
   const [newCaseOpen, setNewCaseOpen] = useState(false);
-  const [newCaseForm, setNewCaseForm] = useState<EditForm & { status: string }>({
-    firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
-    location: "", state: "", pinCode: "", residentialStatus: "",
-    product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
-    loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
-  });
+  const [newCaseStatus, setNewCaseStatus] = useState("Sales");
+  const [newCaseValues, setNewCaseValues] = useState<CaseValues>({});
+  const resetNewCase = () => { setNewCaseStatus("Sales"); setNewCaseValues(defaultValues(caseSchema, [])); };
   const [newCaseSaving, setNewCaseSaving] = useState(false);
 
   // Existing-customer search (New Case modal)
@@ -240,7 +273,7 @@ function CasesPageInner() {
 
   function selectExistingCustomer(c: Customer) {
     setSelectedCustomer(c);
-    setNewCaseForm(p => ({
+    setNewCaseValues(p => ({
       ...p,
       firstName: c.firstName, lastName: c.lastName ?? "",
       contact: c.phone, altContact: c.alternatePhone ?? "",
@@ -257,13 +290,7 @@ function CasesPageInner() {
 
   // Edit modal
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState<EditForm>({
-    firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
-    location: "", state: "", pinCode: "", residentialStatus: "",
-    product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
-    loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    dealerId: "", payoutPct: "", remarks: "", customFields: {},
-  });
+  const [editValues, setEditValues] = useState<CaseValues>({});
   const [editSaving, setEditSaving] = useState(false);
 
   // Inline "add new dealer" from either New Case or Edit Case modal
@@ -271,6 +298,10 @@ function CasesPageInner() {
   const [newDealer, setNewDealer] = useState({ name: "", contact: "", location: "", address: "" });
   const [savingDealer, setSavingDealer] = useState(false);
   const [dealerTarget, setDealerTarget] = useState<"new" | "edit">("new");
+  const [insurerOptions, setInsurerOptions] = useState<string[]>([]);
+  const ctxFor = (mode: "new" | "edit"): CaseFormCtx => ({
+    products, banks, dealers, states, cities, insurers: insurerOptions, onAddDealer: () => openAddDealer(mode),
+  });
 
   function openAddDealer(target: "new" | "edit") {
     setDealerTarget(target);
@@ -289,8 +320,8 @@ function CasesPageInner() {
         address: newDealer.address || undefined,
       });
       setDealers((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-      if (dealerTarget === "new") setNewCaseForm(p => ({ ...p, dealerId: data._id }));
-      else setEditForm(p => ({ ...p, dealerId: data._id }));
+      if (dealerTarget === "new") setNewCaseValues(v => ({ ...v, dealer: data._id }));
+      else setEditValues(v => ({ ...v, dealer: data._id }));
       setAddDealerOpen(false);
       toast("success", `Dealer "${data.name}" added`);
     } catch (e: any) {
@@ -330,34 +361,29 @@ function CasesPageInner() {
   const [customStatuses, setCustomStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
   const [customRtoStatuses, setCustomRtoStatuses] = useState<{ name: string; colorClass?: string }[]>([]);
 
+  // Status-tab counts follow the active filters (everything except the status filter itself).
   const loadStats = useCallback(async () => {
-    try { const { data } = await casesApi.stats(); setStatusCounts(data.statusBreakdown ?? {}); } catch {}
-  }, []);
+    try { const { data } = await casesApi.statusCounts(filtersToQuery({ ...filters, status: [] })); setStatusCounts(data ?? {}); } catch {}
+  }, [filters]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, meta: m } = await casesApi.listWithMeta({
-        page, limit, search: search || undefined,
-        status: statusFilter !== "All" ? statusFilter : undefined,
-        bankId: bankFilter || undefined,
-        product: productFilter || undefined,
-        firm: firmFilter || undefined,
-      });
+      const { data, meta: m } = await casesApi.listWithMeta(filtersToQuery(filters, { page, limit }));
       setCases(data as unknown as LoanCase[]);
       if (m) setMeta(m);
       loadStats();
     } catch (e: any) {
       toast("error", e.message ?? "Failed to load cases");
     } finally { setLoading(false); }
-  }, [page, limit, search, statusFilter, bankFilter, productFilter, firmFilter, toast, loadStats]);
+  }, [page, limit, filters, toast, loadStats]);
 
   const [cities, setCities] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
 
   const loadRef = useCallback(async () => {
     try {
-      const [bl, dl, ul, cul, dtl, citl, stl, csl, rsl, pl, fsl] = await Promise.all([
+      const [bl, dl, ul, cul, dtl, citl, stl, csl, rsl, pl, fsl, insl] = await Promise.all([
         banksApi.list(), dealersApi.list(),
         usersApi.list({ role: "sales_executive" }), usersApi.list({ role: "coordinator" }),
         mastersApi.list("document-types"),
@@ -365,7 +391,9 @@ function CasesPageInner() {
         mastersApi.list("case-statuses"), mastersApi.list("rto-statuses").catch(() => ({ data: [] })),
         mastersApi.list("products").catch(() => ({ data: [] })),
         formSchemasApi.get("new-case").catch(() => ({ data: null as unknown as FormSchema })),
+        mastersApi.list("insurance-companies").catch(() => ({ data: [] })),
       ]);
+      setInsurerOptions(insl.data.filter((d: any) => d.isActive).map((d: any) => d.name));
       setBanks(bl.data); setDealers(dl.data);
       setSalesUsers(ul.data); setCoordinatorUsers(cul.data); setDocTypes(dtl.data.filter((d: any) => d.isActive));
       setCities([...new Set<string>(citl.data.filter((d: any) => d.isActive).map((d: any) => d.name as string))].sort());
@@ -395,16 +423,16 @@ function CasesPageInner() {
   useEffect(() => { setRtoForm(drawerRTO ? rtoRecordToForm(drawerRTO) : { ...BLANK_RTO }); }, [drawerRTO]);
 
   useEffect(() => {
-    if (!newCaseForm.product || products.length === 0) { setNewCaseProductFields([]); return; }
-    loadProductFields(newCaseForm.product).then(setNewCaseProductFields);
+    if (!newCaseValues.product || products.length === 0) { setNewCaseProductFields([]); return; }
+    loadProductFields(newCaseValues.product).then(setNewCaseProductFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newCaseForm.product, products]);
+  }, [newCaseValues.product, products, schemaTick]);
 
   useEffect(() => {
-    if (!editForm.product || products.length === 0) { setEditProductFields([]); return; }
-    loadProductFields(editForm.product).then(setEditProductFields);
+    if (!editValues.product || products.length === 0) { setEditProductFields([]); return; }
+    loadProductFields(editValues.product).then(setEditProductFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.product, products]);
+  }, [editValues.product, products, schemaTick]);
 
   async function openDrawer(c: LoanCase) {
     setDrawerCase(c); setDrawerTab("overview"); setDrawerRTO(null);
@@ -574,13 +602,14 @@ function CasesPageInner() {
     sectionTitle("Case Details");
     fieldRow([
       { label: "Customer", value: `${c.customer.firstName} ${c.customer.lastName}` },
-      { label: "Contact", value: c.customer.contact ?? "—" },
-      { label: "Product", value: c.product ?? "—" },
+      ...(cf.show("contact") ? [{ label: "Contact", value: c.customer.contact ?? "—" }] : []),
+      ...(cf.show("product") ? [{ label: "Product", value: c.product ?? "—" }] : []),
       { label: "Firm", value: (c as any).firm ?? "—" },
-      { label: "Loan Amount", value: c.loanAmount ? `Rs. ${c.loanAmount.toLocaleString("en-IN")}` : "—" },
-      { label: "Bank", value: c.bankName ?? "—" },
-      { label: "Dealer", value: c.dealerName ?? "—" },
-      { label: "Location", value: c.customer.location ?? "—" },
+      ...(cf.show("loanAmount") ? [{ label: "Loan Amount", value: c.loanAmount ? `Rs. ${c.loanAmount.toLocaleString("en-IN")}` : "—" }] : []),
+      ...(cf.show("bank") ? [{ label: "Bank", value: c.bankName ?? "—" }] : []),
+      ...(cf.show("dealer") ? [{ label: "Dealer", value: c.dealerName ?? "—" }] : []),
+      ...(cf.show("state") ? [{ label: cf.label("state", "State"), value: c.customer.state ?? "—" }] : []),
+      ...(cf.show("location") ? [{ label: cf.label("location", "City"), value: c.customer.location ?? "—" }] : []),
       { label: "Entry Date", value: fmtDate(c.date) },
       { label: "Disbursal Date", value: fmtDate(c.disbursementDate) },
     ]);
@@ -608,47 +637,17 @@ function CasesPageInner() {
 
   // ── Edit case ──────────────────────────────────────────────────────
   function openEditModal(c: LoanCase) {
-    setEditForm({
-      firstName: c.customer.firstName ?? "", lastName: c.customer.lastName ?? "",
-      fatherName: c.customer.fatherName ?? "", contact: c.customer.contact ?? "",
-      altContact: c.customer.altContact ?? "", location: c.customer.location ?? "",
-      state: c.customer.state ?? "",
-      pinCode: c.customer.pinCode ?? "", residentialStatus: c.customer.residentialStatus ?? "",
-      product: c.product ?? "", loanType: (c as any).loanType ?? "", firm: (c as any).firm ?? "",
-      vehicleModel: (c as any).vehicleModel ?? "", regNumber: (c as any).regNumber ?? "",
-      loanAmount: c.loanAmount ? String(c.loanAmount) : "",
-      bankId: c.bankId ?? "", bankBranch: c.bankBranch ?? "",
-      bmName: c.bmName ?? "", bmContact: c.bmContact ?? "", bankExecutive: c.bankExecutive ?? "",
-      dealerId: c.dealerId ?? "", payoutPct: c.payoutPct !== undefined ? String(c.payoutPct) : "",
-      remarks: c.remarks ?? "",
-      customFields: Object.fromEntries(Object.entries(c.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])),
-    });
+    setEditValues(valuesFromCase(c));
     setEditOpen(true);
   }
 
   async function saveEdit() {
     if (!drawerCase) return;
+    const problem = firstMissing(editValues, caseSchema, editProductFields);
+    if (problem) { toast("error", problem); return; }
     setEditSaving(true);
     try {
-      const { data } = await casesApi.update(drawerCase._id, {
-        customer: {
-          firstName: editForm.firstName, lastName: editForm.lastName,
-          fatherName: editForm.fatherName || undefined, contact: editForm.contact,
-          altContact: editForm.altContact || undefined, location: editForm.location || undefined,
-          state: editForm.state || undefined,
-          pinCode: editForm.pinCode || undefined, residentialStatus: editForm.residentialStatus || undefined,
-        },
-        product: editForm.product || undefined, loanType: editForm.loanType || undefined, firm: editForm.firm || undefined,
-        vehicleModel: editForm.vehicleModel || undefined, regNumber: editForm.regNumber || undefined,
-        loanAmount: editForm.loanAmount ? Number(editForm.loanAmount) : undefined,
-        bankId: editForm.bankId || undefined, bankBranch: editForm.bankBranch || undefined,
-        bmName: editForm.bmName || undefined, bmContact: editForm.bmContact || undefined,
-        bankExecutive: editForm.bankExecutive || undefined,
-        dealerId: editForm.dealerId || undefined,
-        payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
-        remarks: editForm.remarks || undefined,
-        customFields: buildCustomFieldsPayload([...genericCustomFields, ...editProductFields], editForm.customFields),
-      });
+      const { data } = await casesApi.update(drawerCase._id, buildCasePayload(editValues, caseSchema, editProductFields, { banks, dealers }, drawerCase) as any);
       setDrawerCase(data);
       toast("success", "Case updated successfully");
       setEditOpen(false);
@@ -659,40 +658,14 @@ function CasesPageInner() {
 
   // ── New Case ───────────────────────────────────────────────────────
   async function saveNewCase() {
-    const f = newCaseForm;
-    if (!f.firstName.trim()) { toast("error", "First name is required"); return; }
-    if (!f.contact.trim()) { toast("error", "Contact number is required"); return; }
+    const problem = firstMissing(newCaseValues, caseSchema, newCaseProductFields);
+    if (problem) { toast("error", problem); return; }
     setNewCaseSaving(true);
     try {
-      await casesApi.create({
-        status: f.status || "Sales",
-        customer: {
-          firstName: f.firstName, lastName: f.lastName || undefined,
-          fatherName: f.fatherName || undefined, contact: f.contact,
-          altContact: f.altContact || undefined, location: f.location || undefined,
-          state: f.state || undefined, pinCode: f.pinCode || undefined,
-          residentialStatus: f.residentialStatus || undefined,
-        },
-        product: f.product || undefined, loanType: f.loanType || undefined, firm: f.firm || undefined,
-        vehicleModel: f.vehicleModel || undefined, regNumber: f.regNumber || undefined,
-        loanAmount: f.loanAmount ? Number(f.loanAmount) : undefined,
-        bankId: f.bankId || undefined, bankBranch: f.bankBranch || undefined,
-        bmName: f.bmName || undefined, bmContact: f.bmContact || undefined,
-        bankExecutive: f.bankExecutive || undefined,
-        dealerId: f.dealerId || undefined,
-        payoutPct: f.payoutPct ? Number(f.payoutPct) : undefined,
-        remarks: f.remarks || undefined,
-        customFields: buildCustomFieldsPayload([...genericCustomFields, ...newCaseProductFields], f.customFields),
-      });
+      await casesApi.create({ status: newCaseStatus || "Sales", ...buildCasePayload(newCaseValues, caseSchema, newCaseProductFields, { banks, dealers }) } as any);
       toast("success", "Case created successfully");
       setNewCaseOpen(false);
-      setNewCaseForm({
-        firstName: "", lastName: "", fatherName: "", contact: "", altContact: "",
-        location: "", state: "", pinCode: "", residentialStatus: "",
-        product: "", loanType: "", firm: "", vehicleModel: "", regNumber: "",
-        loanAmount: "", bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-        dealerId: "", payoutPct: "", remarks: "", status: "Sales", customFields: {},
-      });
+      resetNewCase();
       clearSelectedCustomer();
       load();
     } catch (e: any) { toast("error", e.message ?? "Failed to create case"); }
@@ -766,12 +739,12 @@ function CasesPageInner() {
     } catch (e: any) { toast("error", e.message ?? "Failed to resolve"); }
   }
 
-  const hasFilters = bankFilter || productFilter || firmFilter;
   // Built-in statuses are now seeded into the case-statuses catalog alongside
   // custom ones, so this list is already complete and in the admin's chosen
   // drag-and-drop order — CASE_STATUSES is only a fallback if the catalog
   // hasn't loaded yet.
-  const allStatuses: string[] = customStatuses.length > 0 ? customStatuses.map((c) => c.name) : CASE_STATUSES;
+  // De-duplicated: the catalog can list the same status name twice (built-in + custom).
+  const allStatuses: string[] = [...new Set(customStatuses.length > 0 ? customStatuses.map((c) => c.name) : CASE_STATUSES)];
   const customStatusColorMap: Record<string, string | undefined> = Object.fromEntries(
     customStatuses.map((c) => [c.name, c.colorClass])
   );
@@ -792,32 +765,21 @@ function CasesPageInner() {
     else { const n = new Set(selectedIds); cases.forEach((c) => n.add(c._id)); setSelectedIds(n); }
   }
 
-  async function handleExport() {
-    setExporting(true);
-    try {
-      let rows: LoanCase[];
-      if (selectedIds.size > 0) {
-        rows = cases.filter((c) => selectedIds.has(c._id));
-      } else {
-        const { data } = await casesApi.listWithMeta({
-          page: 1, limit: meta.total || 1000,
-          search: search || undefined,
-          status: statusFilter !== "All" ? statusFilter : undefined,
-          bankId: bankFilter || undefined,
-          product: productFilter || undefined,
-          firm: firmFilter || undefined,
-        });
-        rows = data as unknown as LoanCase[];
-      }
-      if (rows.length === 0) { toast("error", "No cases to export"); return; }
-      await exportCasesToExcel(rows, `cases-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast("success", `Exported ${rows.length} case${rows.length !== 1 ? "s" : ""} to Excel`);
-    } catch (e: any) {
-      toast("error", e.message ?? "Failed to export cases");
-    } finally {
-      setExporting(false);
-    }
-  }
+  /** Selected rows if any are ticked, otherwise every case matching a filter set (not just this page). */
+  const loadExportSheets = async (f?: CaseFilters) => {
+    const rows = selectedIds.size > 0
+      ? cases.filter((c) => selectedIds.has(c._id))
+      : ((await casesApi.listWithMeta(filtersToQuery(f ?? filters, { page: 1, limit: 10000 }))).data as unknown as LoanCase[]);
+    return buildCaseSheets(rows, await loadCustomDefs("case"));
+  };
+
+  // Re-read Form Builder every time a case dialog opens, so a hidden field or changed dropdown options show up
+  // without reloading the page (the schema is otherwise only fetched once when the page loads).
+  const caseDialogOpen = editOpen || newCaseOpen;
+  useEffect(() => {
+    if (!caseDialogOpen) return;
+    formSchemasApi.get("new-case").then(({ data }) => { setCaseSchema(data); setSchemaTick((t) => t + 1); }).catch(() => {});
+  }, [caseDialogOpen]);
 
   return (
     <div className="space-y-4 animate-fadeIn">
@@ -828,10 +790,12 @@ function CasesPageInner() {
           <p className="text-sm text-muted mt-0.5">Track and manage all loan cases</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={handleExport} loading={exporting}>
-            <Download className="size-3.5" /> Export{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
-          </Button>
-          <Button size="sm" onClick={() => { clearSelectedCustomer(); setNewCaseOpen(true); }}><FileText className="size-3.5" /> New Case</Button>
+          <ExportButton
+            label={selectedIds.size > 0 ? `Export (${selectedIds.size})` : "Export"} title="Export cases" storageKey="cases" filename="cases-export"
+            loadSheets={loadExportSheets}
+            filters={selectedIds.size > 0 ? undefined : { initial: filters, facets }}
+          />
+          <Button size="sm" onClick={() => { resetNewCase(); clearSelectedCustomer(); setNewCaseOpen(true); }}><FileText className="size-3.5" /> New Case</Button>
         </div>
       </div>
 
@@ -844,50 +808,24 @@ function CasesPageInner() {
       )}
 
       <div className="card p-0 overflow-hidden">
-        <div className="flex items-center gap-2 p-3 border-b border-border flex-wrap">
-          <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name or case ID…" className="w-64" />
-          <Button variant={filterOpen ? "outline" : "secondary"} size="sm" onClick={() => setFilterOpen((o) => !o)}>
-            <Filter className="size-3.5" /> Filters
-            {hasFilters && <span className="size-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">!</span>}
-          </Button>
-          {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setBankFilter(""); setProductFilter(""); setFirmFilter(""); }}><X className="size-3" /> Clear</Button>}
+        <div className="flex items-start gap-2 p-3 border-b border-border">
+          <CaseFilterPanel
+            className="flex-1"
+            value={{ ...filters, search: searchText }}
+            onChange={applyFilters}
+            onSearchChange={setSearchText}
+            facets={facets}
+          />
           <button
             onClick={() => setStatusGuideOpen(true)}
             title="How statuses work"
-            className="ml-auto size-7 grid place-items-center rounded-full text-muted hover:text-primary hover:bg-primary/10 transition-colors"
+            className="size-7 mt-1 grid place-items-center rounded-full text-muted hover:text-primary hover:bg-primary/10 transition-colors"
           >
             <Info className="size-4" />
           </button>
         </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap gap-3 px-4 py-3 bg-surface-2 border-b border-border animate-fadeIn">
-            <div className="flex flex-col gap-1 min-w-[140px]">
-              <Label>Bank</Label>
-              <Select className="!h-8 text-xs" value={bankFilter} onChange={(e) => { setBankFilter(e.target.value); setPage(1); }}>
-                <option value="">All Banks</option>
-                {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1 min-w-[140px]">
-              <Label>Product</Label>
-              <Select className="!h-8 text-xs" value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
-                <option value="">All Products</option>
-                {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1 min-w-[180px]">
-              <Label>Firm</Label>
-              <Select className="!h-8 text-xs" value={firmFilter} onChange={(e) => { setFirmFilter(e.target.value); setPage(1); }}>
-                <option value="">All Firms</option>
-                {FIRMS.map((f) => <option key={f} value={f}>{f}</option>)}
-              </Select>
-            </div>
-          </div>
-        )}
-
         <div className="overflow-x-auto">
-          <Tabs tabs={statusTabs} active={statusFilter} onChange={(id) => { setStatusFilter(id); setPage(1); }} />
+          <Tabs tabs={statusTabs} active={statusFilter} onChange={(id) => applyFilters({ ...filters, status: id === "All" ? [] : [id] })} />
         </div>
 
         <div className="overflow-x-auto">
@@ -1028,6 +966,44 @@ function CasesPageInner() {
                     </div>
                   </div>
 
+                  {/* Fields follow Form Builder (hidden fields stay hidden, labels as configured) — same as the coordinator and sales portals. */}
+                  {caseSchema ? (
+                    <div className="space-y-5">
+                      {caseSchema.sections.map((section) => {
+                        const active = section.fields.filter((f) => f.isActive !== false);
+                        if (active.length === 0) return null;
+                        return (
+                          <div key={section.id} className="space-y-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">{section.title}</p>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                              {active.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{field.label}</p>
+                                  <span className="text-sm font-medium text-foreground">{getCaseFieldValue(drawerCase, field.key) ?? "—"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Case Info</p>
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                          {[
+                            ["Case ID", drawerCase.caseCode], ["Entry Date", fmtDate(drawerCase.date)], ["Firm", drawerCase.firm ?? "—"],
+                            ["Sales Rep", drawerCase.assignedToName ?? "Unassigned"], ["Coordinator", drawerCase.coordinatorName ?? "Unassigned"],
+                            ["Disbursal Date", fmtDate(drawerCase.disbursementDate)],
+                          ].map(([label, value]) => (
+                            <div key={label} className="space-y-1">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted">{label}</p>
+                              <span className="text-sm font-medium text-foreground">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   {/* Fields grid — matching screenshot style */}
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                     {[
@@ -1067,6 +1043,8 @@ function CasesPageInner() {
                         })}
                       </div>
                     </div>
+                  )}
+                    </>
                   )}
                   {drawerCase.remarks && (
                     <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{drawerCase.remarks}</div>
@@ -1526,148 +1504,7 @@ function CasesPageInner() {
       {/* ── Edit Case Modal (full details) ────────────────────────── */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Case Details" size="xl">
         <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
-
-          {/* Customer */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Customer Information</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div><Label>First Name *</Label><Input value={editForm.firstName} onChange={(e) => setEditForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
-              <div><Label>Last Name *</Label><Input value={editForm.lastName} onChange={(e) => setEditForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
-              <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
-              <div><Label>Contact *</Label><PhoneInput value={editForm.contact} onChange={(v) => setEditForm(p => ({ ...p, contact: v }))} /></div>
-              <div><Label>Alt Contact</Label><PhoneInput value={editForm.altContact} onChange={(v) => setEditForm(p => ({ ...p, altContact: v }))} placeholder="Optional" /></div>
-              <div>
-                <Label>State</Label>
-                <Select value={editForm.state} onChange={(e) => setEditForm(p => ({ ...p, state: e.target.value }))}>
-                  <option value="">Select state…</option>
-                  {states.map(s => <option key={s} value={s}>{s}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>City</Label>
-                {cities.length > 0 ? (
-                  <Select value={editForm.location} onChange={(e) => setEditForm(p => ({ ...p, location: e.target.value }))}>
-                    <option value="">Select city…</option>
-                    {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                  </Select>
-                ) : (
-                  <Input value={editForm.location} onChange={(e) => setEditForm(p => ({ ...p, location: e.target.value }))} placeholder="City / Area" />
-                )}
-              </div>
-              <div><Label>Pin Code</Label><Input value={editForm.pinCode} onChange={(e) => setEditForm(p => ({ ...p, pinCode: e.target.value }))} placeholder="6-digit PIN" /></div>
-              <div>
-                <Label>Residential Status</Label>
-                <Select value={editForm.residentialStatus} onChange={(e) => setEditForm(p => ({ ...p, residentialStatus: e.target.value }))}>
-                  <option value="">Select…</option>
-                  <option>Own</option><option>Rented</option><option>Family Owned</option>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          {/* Loan Details */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Firm</Label>
-                <Select value={editForm.firm} onChange={(e) => setEditForm(p => ({ ...p, firm: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {FIRMS.map(f => <option key={f}>{f}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>Product</Label>
-                <Select value={editForm.product} onChange={(e) => setEditForm(p => ({ ...p, product: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {products.map(p => <option key={p._id} value={p.name}>{p.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Loan Amount</Label><Input type="number" value={editForm.loanAmount} onChange={(e) => setEditForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
-              {isVehicleProduct(editForm.product) && (
-                <>
-                  <div>
-                    <Label>Loan Type</Label>
-                    <Select value={editForm.loanType} onChange={(e) => setEditForm(p => ({ ...p, loanType: e.target.value }))}>
-                      <option value="">Select…</option>
-                      {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
-                    </Select>
-                  </div>
-                  <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-                  <div><Label>Reg Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
-                </>
-              )}
-              {editProductFields.map(field => (
-                <div key={field.key}>
-                  <Label>{field.label}</Label>
-                  <ProductDynField
-                    field={field}
-                    value={editForm.customFields[field.key] ?? ""}
-                    onChange={v => setEditForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {genericCustomFields.length > 0 && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Additional Fields</p>
-              <div className="grid grid-cols-3 gap-3">
-                {genericCustomFields.map(field => (
-                  <div key={field.key}>
-                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
-                    <ProductDynField
-                      field={field}
-                      value={editForm.customFields[field.key] ?? ""}
-                      onChange={v => setEditForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Bank & Dealer */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Bank</Label>
-                <Select value={editForm.bankId} onChange={(e) => setEditForm(p => ({ ...p, bankId: e.target.value }))}>
-                  <option value="">Select bank…</option>
-                  {banks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
-              <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-              <div><Label>BM Contact</Label><PhoneInput value={editForm.bmContact} onChange={(v) => setEditForm(p => ({ ...p, bmContact: v }))} /></div>
-              <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label>Dealer</Label>
-                  <button type="button" onClick={() => openAddDealer("edit")} className="text-[11px] font-semibold text-primary hover:underline">
-                    + Add new dealer
-                  </button>
-                </div>
-                <Select value={editForm.dealerId} onChange={(e) => setEditForm(p => ({ ...p, dealerId: e.target.value }))}>
-                  <option value="">Select dealer…</option>
-                  {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Payout %</Label><Input type="number" min="0" max="100" value={editForm.payoutPct} onChange={(e) => setEditForm(p => ({ ...p, payoutPct: e.target.value }))} placeholder="0" /></div>
-            </div>
-          </div>
-
-          {/* Remarks */}
-          <div>
-            <Label>Remarks</Label>
-            <textarea
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[70px] mt-1"
-              value={editForm.remarks} onChange={(e) => setEditForm(p => ({ ...p, remarks: e.target.value }))}
-              placeholder="Any additional remarks..."
-            />
-          </div>
+          <SchemaCaseForm schema={caseSchema} productFields={editProductFields} values={editValues} setValues={setEditValues} ctx={ctxFor("edit")} cols={3} />
         </div>
 
         <div className="flex gap-2 justify-end border-t border-border pt-4 mt-4">
@@ -1744,7 +1581,7 @@ function CasesPageInner() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Initial Status</p>
             <div className="w-48">
               <Label>Status</Label>
-              <Select value={newCaseForm.status} onChange={(e) => setNewCaseForm(p => ({ ...p, status: e.target.value }))}>
+              <Select value={newCaseStatus} onChange={(e) => setNewCaseStatus(e.target.value)}>
                 {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
               </Select>
             </div>
@@ -1807,144 +1644,9 @@ function CasesPageInner() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div><Label>First Name *</Label><Input value={newCaseForm.firstName} onChange={(e) => setNewCaseForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" /></div>
-              <div><Label>Last Name</Label><Input value={newCaseForm.lastName} onChange={(e) => setNewCaseForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" /></div>
-              <div><Label>Father's Name</Label><Input value={newCaseForm.fatherName} onChange={(e) => setNewCaseForm(p => ({ ...p, fatherName: e.target.value }))} placeholder="Father's name" /></div>
-              <div><Label>Contact *</Label><PhoneInput value={newCaseForm.contact} onChange={(v) => setNewCaseForm(p => ({ ...p, contact: v }))} /></div>
-              <div><Label>Alt Contact</Label><PhoneInput value={newCaseForm.altContact} onChange={(v) => setNewCaseForm(p => ({ ...p, altContact: v }))} placeholder="Optional" /></div>
-              <div>
-                <Label>State</Label>
-                <Select value={newCaseForm.state} onChange={(e) => setNewCaseForm(p => ({ ...p, state: e.target.value }))}>
-                  <option value="">Select state…</option>
-                  {states.map(s => <option key={s} value={s}>{s}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>City</Label>
-                {cities.length > 0 ? (
-                  <Select value={newCaseForm.location} onChange={(e) => setNewCaseForm(p => ({ ...p, location: e.target.value }))}>
-                    <option value="">Select city…</option>
-                    {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                  </Select>
-                ) : (
-                  <Input value={newCaseForm.location} onChange={(e) => setNewCaseForm(p => ({ ...p, location: e.target.value }))} placeholder="City / Area" />
-                )}
-              </div>
-              <div><Label>Pin Code</Label><Input value={newCaseForm.pinCode} onChange={(e) => setNewCaseForm(p => ({ ...p, pinCode: e.target.value }))} placeholder="6-digit PIN" /></div>
-              <div>
-                <Label>Residential Status</Label>
-                <Select value={newCaseForm.residentialStatus} onChange={(e) => setNewCaseForm(p => ({ ...p, residentialStatus: e.target.value }))}>
-                  <option value="">Select…</option>
-                  <option>Own</option><option>Rented</option><option>Family Owned</option>
-                </Select>
-              </div>
-            </div>
           </div>
 
-          {/* Loan Details */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Loan Details</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Firm</Label>
-                <Select value={newCaseForm.firm} onChange={(e) => setNewCaseForm(p => ({ ...p, firm: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {FIRMS.map(f => <option key={f}>{f}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>Product</Label>
-                <Select value={newCaseForm.product} onChange={(e) => setNewCaseForm(p => ({ ...p, product: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {products.map(p => <option key={p._id} value={p.name}>{p.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Loan Amount</Label><Input type="number" value={newCaseForm.loanAmount} onChange={(e) => setNewCaseForm(p => ({ ...p, loanAmount: e.target.value }))} placeholder="0" /></div>
-              {isVehicleProduct(newCaseForm.product) && (
-                <>
-                  <div>
-                    <Label>Loan Type</Label>
-                    <Select value={newCaseForm.loanType} onChange={(e) => setNewCaseForm(p => ({ ...p, loanType: e.target.value }))}>
-                      <option value="">Select…</option>
-                      {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
-                    </Select>
-                  </div>
-                  <div><Label>Vehicle Model</Label><Input value={newCaseForm.vehicleModel} onChange={(e) => setNewCaseForm(p => ({ ...p, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-                  <div><Label>Reg Number</Label><Input value={newCaseForm.regNumber} onChange={(e) => setNewCaseForm(p => ({ ...p, regNumber: e.target.value }))} placeholder="e.g. DL01AB1234" /></div>
-                </>
-              )}
-              {newCaseProductFields.map(field => (
-                <div key={field.key}>
-                  <Label>{field.label}</Label>
-                  <ProductDynField
-                    field={field}
-                    value={newCaseForm.customFields[field.key] ?? ""}
-                    onChange={v => setNewCaseForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {genericCustomFields.length > 0 && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Additional Fields</p>
-              <div className="grid grid-cols-3 gap-3">
-                {genericCustomFields.map(field => (
-                  <div key={field.key}>
-                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
-                    <ProductDynField
-                      field={field}
-                      value={newCaseForm.customFields[field.key] ?? ""}
-                      onChange={v => setNewCaseForm(p => ({ ...p, customFields: { ...p.customFields, [field.key]: v } }))}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Bank & Dealer */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 pb-1 border-b border-border">Bank & Dealer</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Bank</Label>
-                <Select value={newCaseForm.bankId} onChange={(e) => setNewCaseForm(p => ({ ...p, bankId: e.target.value }))}>
-                  <option value="">Select bank…</option>
-                  {banks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Branch</Label><Input value={newCaseForm.bankBranch} onChange={(e) => setNewCaseForm(p => ({ ...p, bankBranch: e.target.value }))} placeholder="Branch name" /></div>
-              <div><Label>BM Name</Label><Input value={newCaseForm.bmName} onChange={(e) => setNewCaseForm(p => ({ ...p, bmName: e.target.value }))} placeholder="Business Manager" /></div>
-              <div><Label>BM Contact</Label><PhoneInput value={newCaseForm.bmContact} onChange={(v) => setNewCaseForm(p => ({ ...p, bmContact: v }))} /></div>
-              <div><Label>Bank Executive</Label><Input value={newCaseForm.bankExecutive} onChange={(e) => setNewCaseForm(p => ({ ...p, bankExecutive: e.target.value }))} placeholder="Executive name" /></div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label>Dealer</Label>
-                  <button type="button" onClick={() => openAddDealer("new")} className="text-[11px] font-semibold text-primary hover:underline">
-                    + Add new dealer
-                  </button>
-                </div>
-                <Select value={newCaseForm.dealerId} onChange={(e) => setNewCaseForm(p => ({ ...p, dealerId: e.target.value }))}>
-                  <option value="">Select dealer…</option>
-                  {dealers.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Payout %</Label><Input type="number" min="0" max="100" value={newCaseForm.payoutPct} onChange={(e) => setNewCaseForm(p => ({ ...p, payoutPct: e.target.value }))} placeholder="0" /></div>
-            </div>
-          </div>
-
-          {/* Remarks */}
-          <div>
-            <Label>Remarks</Label>
-            <textarea
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none min-h-[70px] mt-1"
-              value={newCaseForm.remarks} onChange={(e) => setNewCaseForm(p => ({ ...p, remarks: e.target.value }))}
-              placeholder="Any additional remarks..."
-            />
-          </div>
+          <SchemaCaseForm schema={caseSchema} productFields={newCaseProductFields} values={newCaseValues} setValues={setNewCaseValues} ctx={ctxFor("new")} cols={3} />
         </div>
 
         <div className="flex gap-2 justify-end border-t border-border pt-4 mt-4">

@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, Clock, Receipt, X, FileText, Image, ExternalLink
 import { MonthPicker } from "../../../components/MonthPicker";
 import { Button } from "../../../components/ui";
 import { claimsApi, usersApi, type Claim, type AdminUser, API_BASE } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   pending:  { label: "Pending",  icon: Clock,        color: "text-yellow-700 bg-yellow-50 border-yellow-200" },
@@ -42,6 +43,12 @@ function BillLink({ url }: { url: string }) {
 
 export default function AdminClaimsPage() {
   const [claims, setClaims]           = useState<Claim[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(claims, lf, {
+    text: (c) => `${userName(c.userId)} ${c.description} ${c.type} ${c.status} ${c.month} ${c.amount} ${c.reviewNote ?? ""}`,
+    sel: { type: (c) => c.type },
+    date: (c) => c.createdAt,
+  });
   const [total, setTotal]             = useState(0);
   const [users, setUsers]             = useState<AdminUser[]>([]);
   const [filterMonth, setFilterMonth] = useState(nowMonth());
@@ -138,6 +145,10 @@ export default function AdminClaimsPage() {
           {users.map((u) => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
         </select>
       </div>
+      <ListFilterBar
+        value={lf} onChange={setLf} placeholder="Search staff, description, amount…" dateLabel="Submitted" shown={shown.length} total={claims.length}
+        selects={[{ key: "type", label: "Type", options: ["travel", "food", "accommodation", "other"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }]}
+      />
 
       {/* Claims table */}
       <div className="card overflow-hidden">
@@ -159,7 +170,7 @@ export default function AdminClaimsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {claims.map((c) => {
+                {shown.map((c) => {
                   const cfg = STATUS_CONFIG[c.status];
                   const Icon = cfg.icon;
                   return (

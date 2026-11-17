@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell, ShieldCheck, FileText, Clock, Check, CheckCircle2, RefreshCw, Plus, EyeOff } from "lucide-react";
 import { Button, Badge, Tabs, SectionHeader, Skeleton, EmptyState, useToast, type BadgeTone } from "../../../components/ui";
 import { notificationsApi, type AppNotification } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const TYPE_META: Record<string, { label: string; icon: React.ElementType; tone: BadgeTone }> = {
   insurance_reminder: { label: "Insurance",  icon: ShieldCheck,   tone: "danger"   },
@@ -40,6 +41,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
   const [tab, setTab] = useState("all");
+  const [lf, setLf] = useListFilter();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,11 +89,17 @@ export default function NotificationsPage() {
     typeGroups[n.type] = (typeGroups[n.type] ?? 0) + 1;
   }
 
-  const filtered = notifications.filter(n => {
+  const tabbed = notifications.filter(n => {
     if (tab === "all") return true;
     if (tab === "unread") return !n.isRead;
     return n.type === tab;
   });
+  const filtered = filterList(tabbed, lf, {
+    text: (n) => `${n.title} ${n.message} ${n.caseCode ?? ""} ${n.type}`,
+    sel: { type: (n) => n.type, read: (n) => (n.isRead ? "read" : "unread") },
+    date: (n) => n.createdAt,
+  });
+  const typeOptions = [...new Set(notifications.map((n) => n.type))].map((t) => ({ value: t, label: t.replace(/_/g, " ") }));
 
   const knownTypes = Object.keys(TYPE_META).filter(t => t !== "default" && (typeGroups[t] ?? 0) > 0);
 
@@ -156,6 +164,14 @@ export default function NotificationsPage() {
         ]}
         active={tab}
         onChange={setTab}
+      />
+
+      <ListFilterBar
+        value={lf} onChange={setLf} placeholder="Search notifications, case ID…" dateLabel="Received" shown={filtered.length} total={tabbed.length}
+        selects={[
+          { key: "type", label: "Type", options: typeOptions },
+          { key: "read", label: "Read state", options: [{ value: "unread", label: "Unread" }, { value: "read", label: "Read" }] },
+        ]}
       />
 
       {loading ? (

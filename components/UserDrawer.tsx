@@ -67,7 +67,6 @@ export function UserDrawer({ user, onClose }: Props) {
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-40 bg-[var(--overlay)] backdrop-blur-sm"
-        onClick={onClose}
       />
 
       {/* Drawer */}

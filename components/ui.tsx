@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "./DatePicker";
 import { forwardRef, createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle, CheckCircle2, Info, XCircle, Loader2, Search, Inbox, Phone } from "lucide-react";
@@ -58,9 +59,16 @@ Button.displayName = "Button";
 // INPUT / TEXTAREA / SELECT
 // ═══════════════════════════════════════════════════════════════════
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => (
-    <input ref={ref} className={cn("input-base", className)} {...props} />
-  )
+  ({ className, ...props }, ref) =>
+    props.type === "date" || props.type === "month" ? (
+      <DatePicker
+        type={props.type as "date" | "month"} value={String(props.value ?? "")} min={props.min as string | undefined} max={props.max as string | undefined}
+        disabled={props.disabled} required={props.required} placeholder={props.placeholder} id={props.id} name={props.name} title={props.title}
+        onChange={props.onChange as any} className={cn("input-base", className)}
+      />
+    ) : (
+      <input ref={ref} className={cn("input-base", className)} {...props} />
+    )
 );
 Input.displayName = "Input";
 
@@ -375,7 +383,6 @@ export function Drawer({
     <div className="fixed inset-0 z-[100] flex">
       <div
         className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn"
-        onClick={onClose}
       />
       <div className={cn(
         "absolute inset-y-0 right-0 w-full bg-surface flex flex-col shadow-2xl animate-slideIn",
@@ -435,7 +442,7 @@ export function Modal({
 
   const content = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" />
       <div className={cn("relative w-full card animate-slideUp p-0 flex flex-col", sizeClass, "max-h-[90vh]")}>
         {(title || description) && (
           <div className="flex items-start justify-between p-5 border-b border-border shrink-0">

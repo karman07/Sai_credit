@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "../../../components/DatePicker";
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronRight, RefreshCw, Upload, ExternalLink, Save } from "lucide-react";
 import {
@@ -10,7 +11,12 @@ import {
   rtoApi, casesApi, formSchemasApi, mastersApi, API_BASE, RTO_OWNERSHIP_TYPES, RTO_STATUSES,
   type RTORecord, type LoanCase, type SectionDef, type FieldDef, type MasterItem,
 } from "../../../lib/api";
+import { RtoFilterPanel } from "../../../components/RtoFilterPanel";
+import { EMPTY_RTO_FILTERS, matchesRto, type RtoFilters } from "../../../lib/rtoFilters";
+import { CaseDetailsView } from "../../../components/CaseDetailsView";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { ExportButton } from "../../../components/ExportButton";
+import { buildRtoSheets, loadCustomDefs } from "../../../lib/exportSheets";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -151,7 +157,7 @@ function DynField({ field, value, onChange }: { field: FieldDef; value: string; 
       </div>
     );
   }
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={base} />;
+  if (field.type === "date") return <DatePicker type="date" value={value} onChange={e => onChange(e.target.value)} className={base} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
   if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={base} />;
@@ -170,6 +176,7 @@ export default function RTOTrackerPage() {
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [rtoStatusFilter, setRtoStatusFilter] = useState("");
+  const [rtoFilters, setRtoFilters] = useState<RtoFilters>(EMPTY_RTO_FILTERS);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [forms, setForms]       = useState<Record<string, RTOForm>>({});
   const [saving, setSaving]     = useState<string | null>(null);
@@ -235,6 +242,15 @@ export default function RTOTrackerPage() {
       if (f) return f.label;
     }
     return fallback;
+  }
+
+  /** False only when Form Builder has hidden this RTO field — keeps admin consistent with the coordinator and sales views. */
+  function rShow(fieldKey: string): boolean {
+    for (const sec of sections) {
+      const f = sec.fields.find(f => f.key === fieldKey && f.isCore);
+      if (f) return f.isActive !== false;
+    }
+    return true;
   }
 
   function customFieldsForSection(sectionId: string): FieldDef[] {
@@ -311,7 +327,7 @@ export default function RTOTrackerPage() {
       filterStatus === "started"  ? r !== null && pct < 100 :
       filterStatus === "new"      ? r === null : true;
     const matchRtoStatus = !rtoStatusFilter || (forms[c._id]?.status ?? "Pending") === rtoStatusFilter;
-    return matchSearch && matchStatus && matchRtoStatus;
+    return matchSearch && matchStatus && matchRtoStatus && matchesRto(c, r, rtoFilters);
   });
 
   const paged         = filtered.slice((page - 1) * limit, page * limit);
@@ -326,7 +342,12 @@ export default function RTOTrackerPage() {
       <SectionHeader
         title="RTO & Documentation Tracker"
         description="All vehicle loan cases — track RTO compliance inline"
-        action={<Button variant="secondary" size="sm" onClick={load}><RefreshCw className="size-3.5" /> Refresh</Button>}
+        action={<div className="flex items-center gap-2">
+          <ExportButton storageKey="rto-tracker" filename="rto-tracker" loadSheets={async () =>
+            buildRtoSheets(filtered.map(({ loanCase, rtoRecord }) => ({ c: loanCase, r: rtoRecord })), await loadCustomDefs("rto"),
+              (r) => (r ? calcProgress({ ...r, rtoOwnership: (r as any).rtoOwnership }).pct : 0))} />
+          <Button variant="secondary" size="sm" onClick={load}><RefreshCw className="size-3.5" /> Refresh</Button>
+        </div>}
       />
 
       <div className="grid grid-cols-4 gap-3">
@@ -351,6 +372,14 @@ export default function RTOTrackerPage() {
         {rtoStatusFilter && (
           <Button variant="ghost" size="sm" onClick={() => setRtoStatusFilter("")}>Clear</Button>
         )}
+      </div>
+
+      <div className="card p-3">
+        <RtoFilterPanel
+          value={rtoFilters} onChange={(f) => { setRtoFilters(f); setPage(1); }}
+          items={rows.map((r) => ({ c: r.loanCase, r: r.rtoRecord }))} hideSearch
+        />
+        <p className="text-xs text-muted mt-2">{filtered.length} of {rows.length} vehicle loan cases shown</p>
       </div>
 
       {loading ? (
@@ -396,6 +425,14 @@ export default function RTOTrackerPage() {
                 {isOpen && (
                   <div className="border-t border-border p-4 animate-fadeIn space-y-5 bg-surface-2/40">
 
+                    {/* ── Full case details ── */}
+                    <details className="group rounded-lg border border-border bg-surface">
+                      <summary className="cursor-pointer list-none px-3.5 py-2.5 text-sm font-semibold flex items-center gap-2">
+                        <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" /> Case details
+                      </summary>
+                      <div className="border-t border-border p-4"><CaseDetailsView c={c} /></div>
+                    </details>
+
                     {/* ── RTO coordinator's work (stages + requests to sales) ── */}
                     {r?.stages && r.stages.length > 0 && (
                       <section className="space-y-2">
@@ -438,24 +475,30 @@ export default function RTOTrackerPage() {
                         {sectionTitle("ownership", "Ownership")}
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {rShow("rtoOwnershipType") && (
                         <div>
                           <Label>{schemaLabel("rtoOwnershipType", "Ownership Type")}</Label>
                           <Select value={f.rtoOwnershipType} onChange={e => setField(caseId, "rtoOwnershipType", e.target.value)}>
                             {RTO_OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                           </Select>
                         </div>
+                        )}
+                        {rShow("rtoOwnership") && (
                         <div>
                           <Label>{schemaLabel("rtoOwnership", "RTO Ownership")}</Label>
                           <Select value={f.rtoOwnership} onChange={e => setField(caseId, "rtoOwnership", e.target.value)}>
                             {CHECKLIST_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
                           </Select>
                         </div>
+                        )}
+                        {rShow("rtoReceiving") && (
                         <div className="flex items-center gap-2 pt-5">
                           <input type="checkbox" id={`recv-${caseId}`} checked={f.rtoReceiving} onChange={e => setField(caseId, "rtoReceiving", e.target.checked)} className="size-4 rounded" />
                           <label htmlFor={`recv-${caseId}`} className="text-sm font-medium cursor-pointer">
                             {schemaLabel("rtoReceiving", "RTO Receiving")}
                           </label>
                         </div>
+                        )}
                         {customFieldsForSection("ownership").map(field => (
                           <div key={field.key}>
                             <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
@@ -477,7 +520,7 @@ export default function RTOTrackerPage() {
                           ["insuranceCheck", "Insurance Check"],
                           ["hypothecation",  "Hypothecation"],
                           ["aadhaarMatch",   "Aadhaar Match"],
-                        ] as const).map(([key, fallback]) => (
+                        ] as const).filter(([key]) => rShow(key)).map(([key, fallback]) => (
                           <div key={key}>
                             <Label>{schemaLabel(key, fallback)}</Label>
                             <Select value={f[key]} onChange={e => setField(caseId, key, e.target.value)}>
@@ -485,10 +528,12 @@ export default function RTOTrackerPage() {
                             </Select>
                           </div>
                         ))}
+                        {rShow("aadhaarMismatchNote") && (
                         <div>
                           <Label>{schemaLabel("aadhaarMismatchNote", "Aadhaar Mismatch Note")}</Label>
                           <Input value={f.aadhaarMismatchNote} onChange={e => setField(caseId, "aadhaarMismatchNote", e.target.value)} placeholder="Optional note" />
                         </div>
+                        )}
                         {customFieldsForSection("document-checklist").map(field => (
                           <div key={field.key}>
                             <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
@@ -500,18 +545,24 @@ export default function RTOTrackerPage() {
 
                     {/* ── Pending docs + Financials ── */}
                     <section className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {rShow("pendingDocuments") && (
                       <div className="col-span-2 sm:col-span-1">
                         <Label>{schemaLabel("pendingDocuments", "Pending Documents")}</Label>
                         <Input value={f.pendingDocuments} onChange={e => setField(caseId, "pendingDocuments", e.target.value)} placeholder="RC, Form 35, Insurance…" />
                       </div>
+                      )}
+                      {rShow("nocHoldAmt") && (
                       <div>
                         <Label>{schemaLabel("nocHoldAmt", "NOC Hold (₹)")}</Label>
                         <Input type="number" value={f.nocHoldAmt} onChange={e => setField(caseId, "nocHoldAmt", e.target.value)} />
                       </div>
+                      )}
+                      {rShow("balancePayment") && (
                       <div>
                         <Label>{schemaLabel("balancePayment", "Balance Payment (₹)")}</Label>
                         <Input type="number" value={f.balancePayment} onChange={e => setField(caseId, "balancePayment", e.target.value)} />
                       </div>
+                      )}
                     </section>
 
                     {/* ── Verification & Approval ── */}
@@ -520,28 +571,36 @@ export default function RTOTrackerPage() {
                         {sectionTitle("verification-approval", "Verification & Approval")}
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {rShow("verification") && (
                         <div>
                           <Label>{schemaLabel("verification", "Verification")}</Label>
                           <Select value={f.verification} onChange={e => setField(caseId, "verification", e.target.value)}>
                             {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
                           </Select>
                         </div>
+                        )}
+                        {rShow("approval") && (
                         <div>
                           <Label>{schemaLabel("approval", "Approval")}</Label>
                           <Select value={f.approval} onChange={e => setField(caseId, "approval", e.target.value)}>
                             {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
                           </Select>
                         </div>
+                        )}
+                        {rShow("approvalDate") && (
                         <div>
                           <Label>{schemaLabel("approvalDate", "Approval Date")}</Label>
                           <Input type="date" value={f.approvalDate} onChange={e => setField(caseId, "approvalDate", e.target.value)} />
                         </div>
+                        )}
+                        {rShow("insuranceEndorsement") && (
                         <div>
                           <Label>{schemaLabel("insuranceEndorsement", "Insurance Endorsement")}</Label>
                           <Select value={f.insuranceEndorsement} onChange={e => setField(caseId, "insuranceEndorsement", e.target.value)}>
                             {STAGE_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
                           </Select>
                         </div>
+                        )}
                         {customFieldsForSection("verification-approval").map(field => (
                           <div key={field.key}>
                             <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>

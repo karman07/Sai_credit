@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "./DatePicker";
 import { useState, useEffect, useCallback } from "react";
 import {
   FileText, Calendar, Building2, Users, MapPin, Banknote,
@@ -84,7 +85,7 @@ function RTODynField({ field, value, onChange }: { field: FieldDef; value: strin
       <span className="text-sm">{field.label}</span>
     </div>
   );
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "date") return <DatePicker type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
   if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
@@ -267,7 +268,7 @@ function RTOTab({ caseId, loanCase }: { caseId: string; loanCase: LoanCase }) {
           ))}
           <div>
             <Label>{schemaLabel("approvalDate", "Approval Date")}</Label>
-            <input type="date" value={form.approvalDate} onChange={e => sf("approvalDate", e.target.value)} className={inp} />
+            <DatePicker type="date" value={form.approvalDate} onChange={e => sf("approvalDate", e.target.value)} className={inp} />
           </div>
           {customFieldsFor("verification-approval").map(field => (
             <div key={field.key}>
@@ -334,7 +335,7 @@ function ProductDynField({ field, value, onChange }: { field: FieldDef; value: s
       <option value="No">No</option>
     </select>
   );
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "date") return <DatePicker type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
   if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;

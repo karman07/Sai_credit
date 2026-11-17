@@ -266,7 +266,7 @@ function CreateCustomerDrawer({ onClose, onCreated }: { onClose: () => void; onC
 
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
-      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm" />
       <div className="relative w-full max-w-md h-full bg-surface border-l border-border shadow-xl flex flex-col">
         <div className="h-14 flex items-center justify-between px-5 border-b border-border">
           <h2 className="font-semibold">New Customer</h2>
