@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "../../../components/DatePicker";
 import { useState, useEffect, useCallback } from "react";
 import {
   Plus, CheckCircle2, XCircle, Clock, CalendarOff, CalendarDays,
@@ -7,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../components/ui";
 import { leavesApi, type Leave, type LeaveBalance } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 // ── Types / constants ─────────────────────────────────────────────────────────
 
@@ -279,13 +281,13 @@ function ApplyLeaveModal({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted uppercase tracking-wide">From</label>
-              <input type="date" value={form.startDate} min={todayStr()}
+              <DatePicker type="date" value={form.startDate} min={todayStr()}
                 onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
                 className="input w-full text-sm" required />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted uppercase tracking-wide">To</label>
-              <input type="date" value={form.endDate} min={form.startDate}
+              <DatePicker type="date" value={form.endDate} min={form.startDate}
                 onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
                 className="input w-full text-sm" required />
             </div>
@@ -334,6 +336,12 @@ function ApplyLeaveModal({
 
 export default function LeavesPage() {
   const [leaves, setLeaves]           = useState<Leave[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(leaves, lf, {
+    text: (l) => `${l.reason} ${l.type} ${l.status} ${l.reviewNote ?? ""}`,
+    sel: { type: (l) => l.type },
+    date: (l) => l.startDate,
+  });
   const [total, setTotal]             = useState(0);
   const [balance, setBalance]         = useState<LeaveBalance | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
@@ -400,6 +408,10 @@ export default function LeavesPage() {
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
+        <ListFilterBar
+          value={lf} onChange={setLf} placeholder="Search reason, type…" dateLabel="Leave dates" shown={shown.length} total={leaves.length}
+          selects={[{ key: "type", label: "Type", options: ["casual", "sick", "earned", "unpaid"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }]}
+        />
 
         <div className="card overflow-hidden">
           {loading ? (
@@ -414,7 +426,7 @@ export default function LeavesPage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {leaves.map((l) => {
+              {shown.map((l) => {
                 const cfg  = STATUS_CONFIG[l.status];
                 const Icon = cfg.icon;
                 const isPaid = l.type !== "unpaid";

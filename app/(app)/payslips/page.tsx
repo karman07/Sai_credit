@@ -6,6 +6,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Calendar, TrendingDown,
 } from "lucide-react";
 import { payslipsApi, type PayrollRecord } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const STATUS_COLORS: Record<string, string> = {
   draft:     "text-yellow-600 bg-yellow-50 border-yellow-200",
@@ -189,6 +190,12 @@ function PayslipCard({ p }: { p: PayrollRecord }) {
 
 export default function PayslipsPage() {
   const [payrolls, setPayrolls] = useState<PayrollRecord[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(payrolls, lf, {
+    text: (p) => `${p.month} ${p.status} ${p.remarks ?? ""} ${p.netPay}`,
+    sel: { status: (p) => p.status },
+    date: (p) => `${p.month}-01`,
+  });
   const [total, setTotal]       = useState(0);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
@@ -267,7 +274,13 @@ export default function PayslipsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {payrolls.map((p) => <PayslipCard key={p._id} p={p} />)}
+          <div className="card p-3">
+            <ListFilterBar
+              value={lf} onChange={setLf} placeholder="Search month, status…" dateLabel="Month" shown={shown.length} total={payrolls.length}
+              selects={[{ key: "status", label: "Status", options: ["draft", "processed", "paid"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }]}
+            />
+          </div>
+          {shown.map((p) => <PayslipCard key={p._id} p={p} />)}
         </div>
       )}
     </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { SchemaCaseForm, type CaseFormCtx } from "../../../components/SchemaCaseForm";
+import { applyChange, buildCasePayload, defaultValues, firstMissing, valuesFromCase, type CaseValues } from "../../../lib/caseForm";
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { FileText, Plus, Eye, MessageSquare, AlertCircle, UploadCloud, Edit2, Trash2, CheckCircle2, X, Phone, User, Search, Building2 } from "lucide-react";
@@ -14,6 +16,11 @@ import {
 } from "../../../lib/api";
 import { FileFieldInput } from "../../../components/FileFieldInput";
 import { CaseChatThread } from "../../../components/CaseChatThread";
+import { ExportButton } from "../../../components/ExportButton";
+import { CaseFilterPanel, useCaseFacets } from "../../../components/CaseFilterPanel";
+import { EMPTY_FILTERS, filtersToQuery, type CaseFilters } from "../../../lib/caseFilters";
+import { buildCaseSheets, loadCustomDefs } from "../../../lib/exportSheets";
+import { coreFields } from "../../../lib/coreFields";
 
 const STATUS_TABS = ["All", "Draft", "Sales", "Pending", "In Credit", "Incomplete", "Approved", "Disbursed", "Hold", "Rejected", "Cancelled"];
 
@@ -147,14 +154,25 @@ function MyCasesPageInner() {
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusTab, setStatusTab] = useState("All");
+  // Filters: `filters` drives the query; the search box is debounced through `searchText`.
+  const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
+  const [searchText, setSearchText] = useState("");
+  const facets = useCaseFacets();
+  const statusTab = filters.status.length === 0 ? "All" : filters.status.length === 1 ? filters.status[0] : "";
   const [detailCase, setDetailCase] = useState<LoanCase | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
   const [remarkCase, setRemarkCase] = useState<LoanCase | null>(null);
   const [remark, setRemark] = useState("");
   const [remarkSaving, setRemarkSaving] = useState(false);
   const [page, setPage] = useState(1);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText }));
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchText]);
+  const applyFilters = (f: CaseFilters) => { setFilters(f); setSearchText(f.search); setPage(1); };
   const limit = 25;
 
   // Reference data
@@ -162,6 +180,10 @@ function MyCasesPageInner() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [caseSchema, setCaseSchema] = useState<FormSchema | null>(null);
+  const cf = coreFields(caseSchema);
+
+  // Bumped whenever Form Builder is re-read, so product-specific fields refresh too.
+  const [schemaTick, setSchemaTick] = useState(0);
   const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [insurerOptions, setInsurerOptions] = useState<string[]>([]);
@@ -207,19 +229,17 @@ function MyCasesPageInner() {
   const [phoneResults, setPhoneResults] = useState<SalesCustomer[]>([]);
   const [phoneSearching, setPhoneSearching] = useState(false);
   const [phoneDropdownOpen, setPhoneDropdownOpen] = useState(false);
-  const [leadCustomer, setLeadCustomer] = useState({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
-  const [leadCase, setLeadCase] = useState({
-    product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "",
-    vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
-    bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    date: new Date().toISOString().slice(0, 10), customFields: {} as Record<string, string>,
-  });
+  const [leadValues, setLeadValues] = useState<CaseValues>({});
   const [creatingLead, setCreatingLead] = useState(false);
 
   // Inline "add new dealer" from the lead wizard
   const [addDealerOpen, setAddDealerOpen] = useState(false);
   const [newDealer, setNewDealer] = useState({ name: "", contact: "", location: "", address: "" });
   const [savingDealer, setSavingDealer] = useState(false);
+  const formCtx: CaseFormCtx = {
+    products, banks, dealers, states: stateOptions, cities: cityOptions, insurers: insurerOptions,
+    onAddDealer: () => setAddDealerOpen(true),
+  };
 
   async function saveNewDealer() {
     if (!newDealer.name.trim()) { toast("error", "Dealer name is required"); return; }
@@ -232,7 +252,7 @@ function MyCasesPageInner() {
         address: newDealer.address || undefined,
       });
       setDealers((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-      setLeadCase((f) => ({ ...f, dealerId: data._id }));
+      setLeadValues((v) => ({ ...v, dealer: data._id }));
       setNewDealer({ name: "", contact: "", location: "", address: "" });
       setAddDealerOpen(false);
       toast("success", `Dealer "${data.name}" added`);
@@ -246,13 +266,7 @@ function MyCasesPageInner() {
   function openNewLead() {
     setLeadPhone(""); setFoundCustomer(null); setPhoneChecked(false);
     setPhoneResults([]); setPhoneDropdownOpen(false);
-    setLeadCustomer({ firstName: "", lastName: "", fatherName: "", altContact: "", location: "", residentialStatus: "" });
-    setLeadCase({
-      product: "", loanType: "", firm: "", loanAmount: "", bankId: "", dealerId: "",
-      vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
-      bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-      date: new Date().toISOString().slice(0, 10), customFields: {},
-    });
+    setLeadValues({});
     setLeadStep("phone");
   }
 
@@ -280,14 +294,21 @@ function MyCasesPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadPhone, leadStep]);
 
-  function selectFoundCustomer(c: SalesCustomer) {
-    setFoundCustomer(c);
-    setLeadPhone(c.phone);
-    setLeadCustomer({ firstName: c.firstName, lastName: c.lastName, fatherName: "", altContact: c.alternatePhone ?? "", location: "", residentialStatus: "" });
+  // Starts the case form for a phone number (and the matching customer, if there is one).
+  function startLead(phone: string, found: SalesCustomer | null) {
+    setLeadPhone(phone);
+    setFoundCustomer(found);
+    setLeadValues({
+      ...defaultValues(caseSchema, []),
+      contact: phone,
+      ...(found ? { firstName: found.firstName, lastName: found.lastName, altContact: found.alternatePhone ?? "" } : {}),
+    });
     setPhoneDropdownOpen(false);
     setPhoneChecked(true);
-    setLeadStep("customer");
+    setLeadStep("details");
   }
+
+  function selectFoundCustomer(c: SalesCustomer) { startLead(c.phone, c); }
 
   async function lookupPhone() {
     const phone = leadPhone.trim();
@@ -298,62 +319,28 @@ function MyCasesPageInner() {
       const match = (data as unknown as SalesCustomer[]).find(
         (c) => c.phone === phone || c.phone?.replace(/\D/g, "").endsWith(phone.replace(/\D/g, ""))
       );
-      setFoundCustomer(match ?? null);
-      if (match) {
-        setLeadCustomer({ firstName: match.firstName, lastName: match.lastName, fatherName: "", altContact: match.alternatePhone ?? "", location: "", residentialStatus: "" });
-      } else if (!/^\d{7,15}$/.test(onlyDigits(phone))) {
-        // The search box doubles as "name or phone" — no existing customer matched,
-        // so this must become the new customer's phone number. Reject if it isn't one
-        // instead of silently letting a typed name flow through as the contact number.
+      if (match) { setLookingUp(false); startLead(match.phone, match); return; }
+      if (!/^\d{7,15}$/.test(onlyDigits(phone))) {
+        // The search box doubles as "name or phone" — with no match this must be a new customer's phone number.
         toast("error", "No matching customer found. Enter a valid phone number (digits only) to create a new lead.");
         setLookingUp(false);
         return;
-      } else {
-        setLeadPhone(onlyDigits(phone));
       }
+      setLookingUp(false);
+      startLead(onlyDigits(phone), null);
+      return;
     } catch {
-      setFoundCustomer(null);
+      setLookingUp(false);
+      if (/^\d{7,15}$/.test(onlyDigits(phone))) startLead(onlyDigits(phone), null);
     }
-    setLookingUp(false);
-    setPhoneChecked(true);
-    setLeadStep("customer");
   }
 
   async function createLead() {
-    if (!leadCase.firm) { toast("error", "Please select a firm"); return; }
+    const problem = firstMissing(leadValues, caseSchema, leadProductFields);
+    if (problem) { toast("error", problem); return; }
     setCreatingLead(true);
     try {
-      const bank = banks.find((b) => b._id === leadCase.bankId);
-      const dealer = dealers.find((d) => d._id === leadCase.dealerId);
-      await casesApi.create({
-        date: leadCase.date,
-        product: leadCase.product || "Car Loan",
-        loanType: leadCase.loanType || undefined,
-        firm: leadCase.firm || undefined,
-        loanAmount: leadCase.loanAmount ? Number(leadCase.loanAmount) : undefined,
-        bankId: leadCase.bankId || undefined,
-        bankName: bank?.name,
-        bankBranch: leadCase.bankBranch || undefined,
-        bmName: leadCase.bmName || undefined,
-        bmContact: leadCase.bmContact || undefined,
-        bankExecutive: leadCase.bankExecutive || undefined,
-        dealerId: leadCase.dealerId || undefined,
-        dealerName: dealer?.name,
-        vehicleModel: leadCase.vehicleModel || undefined,
-        regNumber: leadCase.regNumber || undefined,
-        ownerSerial: leadCase.ownerSerial || undefined,
-        existingInsurer: leadCase.existingInsurer || undefined,
-        customFields: buildCustomFieldsPayload([...genericCustomFields, ...leadProductFields], leadCase.customFields),
-        customer: {
-          firstName: leadCustomer.firstName,
-          lastName: leadCustomer.lastName,
-          contact: leadPhone.trim(),
-          altContact: leadCustomer.altContact || undefined,
-          fatherName: leadCustomer.fatherName || undefined,
-          location: leadCustomer.location || undefined,
-          residentialStatus: leadCustomer.residentialStatus || undefined,
-        },
-      });
+      await casesApi.create(buildCasePayload(leadValues, caseSchema, leadProductFields, { banks, dealers }) as any);
       toast("success", "Lead created successfully");
       closeNewLead();
       load();
@@ -366,19 +353,7 @@ function MyCasesPageInner() {
 
   // Edit overview state
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({
-    // Customer
-    firstName: "", lastName: "", fatherName: "",
-    contact: "", altContact: "", state: "", location: "", residentialStatus: "",
-    // Case
-    product: "", loanType: "", loanAmount: "",
-    vehicleModel: "", regNumber: "", ownerSerial: "", existingInsurer: "",
-    // Bank
-    bankId: "", bankBranch: "", bmName: "", bmContact: "", bankExecutive: "",
-    // Dealer
-    dealerId: "", payoutPct: "",
-    customFields: {} as Record<string, string>,
-  });
+  const [editValues, setEditValues] = useState<CaseValues>({});
   const [editSaving, setEditSaving] = useState(false);
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
@@ -386,11 +361,7 @@ function MyCasesPageInner() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, meta: m } = await casesApi.list({
-        page, limit,
-        search: search || undefined,
-        status: statusTab !== "All" ? statusTab : undefined,
-      });
+      const { data, meta: m } = await casesApi.list(filtersToQuery(filters, { page, limit }));
       setCases(data as unknown as LoanCase[]);
       if (m) setMeta(m);
     } catch (e: any) {
@@ -398,7 +369,7 @@ function MyCasesPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusTab, toast]);
+  }, [page, limit, filters, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -436,16 +407,16 @@ function MyCasesPageInner() {
   }, []);
 
   useEffect(() => {
-    if (!leadCase.product || products.length === 0) { setLeadProductFields([]); return; }
-    loadProductFields(leadCase.product).then(setLeadProductFields);
+    if (!leadValues.product || products.length === 0) { setLeadProductFields([]); return; }
+    loadProductFields(leadValues.product).then(setLeadProductFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadCase.product, products]);
+  }, [leadValues.product, products, schemaTick]);
 
   useEffect(() => {
-    if (!editForm.product || products.length === 0) { setEditProductFields([]); return; }
-    loadProductFields(editForm.product).then(setEditProductFields);
+    if (!editValues.product || products.length === 0) { setEditProductFields([]); return; }
+    loadProductFields(editValues.product).then(setEditProductFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.product, products]);
+  }, [editValues.product, products, schemaTick]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -463,59 +434,17 @@ function MyCasesPageInner() {
   }
 
   function enterEditMode(c: LoanCase) {
-    setEditForm({
-      firstName: c.customer.firstName ?? "", lastName: c.customer.lastName ?? "",
-      fatherName: c.customer.fatherName ?? "", contact: c.customer.contact ?? "",
-      altContact: c.customer.altContact ?? "", state: c.customer.state ?? "",
-      location: c.customer.location ?? "", residentialStatus: c.customer.residentialStatus ?? "",
-      product: c.product ?? "", loanType: c.loanType ?? "",
-      loanAmount: c.loanAmount?.toString() ?? "",
-      vehicleModel: c.vehicleModel ?? "", regNumber: c.regNumber ?? "",
-      ownerSerial: c.ownerSerial ?? "", existingInsurer: c.existingInsurer ?? "",
-      bankId: c.bankId ?? "", bankBranch: c.bankBranch ?? "",
-      bmName: c.bmName ?? "", bmContact: c.bmContact ?? "", bankExecutive: c.bankExecutive ?? "",
-      dealerId: c.dealerId ?? "", payoutPct: c.payoutPct?.toString() ?? "",
-      customFields: Object.fromEntries(Object.entries(c.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])),
-    });
+    setEditValues(valuesFromCase(c));
     setEditMode(true);
   }
 
   async function saveEdit() {
     if (!detailCase) return;
+    const problem = firstMissing(editValues, caseSchema, editProductFields);
+    if (problem) { toast("error", problem); return; }
     setEditSaving(true);
     try {
-      const bank = banks.find((b) => b._id === editForm.bankId);
-      const dealer = dealers.find((d) => d._id === editForm.dealerId);
-      const body: Record<string, any> = {
-        product: editForm.product || undefined,
-        loanType: editForm.loanType || undefined,
-        loanAmount: editForm.loanAmount ? Number(editForm.loanAmount) : undefined,
-        vehicleModel: editForm.vehicleModel || undefined,
-        regNumber: editForm.regNumber || undefined,
-        ownerSerial: editForm.ownerSerial || undefined,
-        existingInsurer: editForm.existingInsurer || undefined,
-        bankId: editForm.bankId || undefined,
-        bankName: bank?.name,
-        bankBranch: editForm.bankBranch || undefined,
-        bmName: editForm.bmName || undefined,
-        bmContact: editForm.bmContact || undefined,
-        bankExecutive: editForm.bankExecutive || undefined,
-        dealerId: editForm.dealerId || undefined,
-        dealerName: dealer?.name,
-        payoutPct: editForm.payoutPct ? Number(editForm.payoutPct) : undefined,
-        customFields: buildCustomFieldsPayload([...genericCustomFields, ...editProductFields], editForm.customFields),
-        customer: {
-          ...detailCase.customer,
-          firstName: editForm.firstName || detailCase.customer.firstName,
-          lastName: editForm.lastName || detailCase.customer.lastName,
-          fatherName: editForm.fatherName || undefined,
-          contact: editForm.contact || detailCase.customer.contact,
-          altContact: editForm.altContact || undefined,
-          state: editForm.state || undefined,
-          location: editForm.location || undefined,
-          residentialStatus: editForm.residentialStatus || undefined,
-        },
-      };
+      const body = buildCasePayload(editValues, caseSchema, editProductFields, { banks, dealers }, detailCase);
       const { data } = await casesApi.update(detailCase._id, body);
       setDetailCase(data);
       setCases((prev) => prev.map((c) => c._id === data._id ? data : c));
@@ -624,6 +553,14 @@ function MyCasesPageInner() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  // Re-read Form Builder every time a case dialog opens, so a hidden field or changed dropdown options show up
+  // without reloading the page (the schema is otherwise only fetched once when the page loads).
+  const caseDialogOpen = editMode || leadStep !== null;
+  useEffect(() => {
+    if (!caseDialogOpen) return;
+    formSchemasApi.get("new-case").then(({ data }) => { setCaseSchema(data); setSchemaTick((t) => t + 1); }).catch(() => {});
+  }, [caseDialogOpen]);
+
   return (
     <div className="space-y-4 animate-fadeIn">
       <div className="flex items-center justify-between">
@@ -631,15 +568,31 @@ function MyCasesPageInner() {
           <h1 className="text-xl font-bold tracking-tight">My Cases</h1>
           <p className="text-sm text-muted mt-0.5">{meta.total} total cases</p>
         </div>
-        <Button size="sm" onClick={openNewLead}><Plus className="size-3.5" /> New Lead</Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            label="Export" title="Export my cases" storageKey="cases" filename="my-cases"
+            loadSheets={async (f) => {
+              const { data } = await casesApi.list(filtersToQuery(f ?? filters, { page: 1, limit: 10000 }));
+              return buildCaseSheets(data as unknown as LoanCase[], await loadCustomDefs("case"));
+            }}
+            filters={{ initial: filters, facets, hide: ["assignedTo", "coordinatorId"] }}
+          />
+          <Button size="sm" onClick={openNewLead}><Plus className="size-3.5" /> New Lead</Button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
-        <div className="flex items-center gap-2 p-3 border-b border-border">
-          <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name, ID, or reg…" className="w-64" />
+        <div className="p-3 border-b border-border">
+          <CaseFilterPanel
+            value={{ ...filters, search: searchText }}
+            onChange={applyFilters}
+            onSearchChange={setSearchText}
+            facets={facets}
+            hide={["assignedTo", "coordinatorId"]}
+          />
         </div>
         <div className="overflow-x-auto">
-          <Tabs tabs={STATUS_TABS.map((s) => ({ id: s, label: s }))} active={statusTab} onChange={(s) => { setStatusTab(s); setPage(1); }} />
+          <Tabs tabs={STATUS_TABS.map((s) => ({ id: s, label: s }))} active={statusTab} onChange={(s) => applyFilters({ ...filters, status: s === "All" ? [] : [s] })} />
         </div>
         <div className="overflow-x-auto">
           <table className="data-table">
@@ -732,125 +685,9 @@ function MyCasesPageInner() {
             {detailTab === "overview" && (
               <div className="space-y-4">
                 {editMode ? (
-                  /* ── Edit form ── */
+                  /* ── Edit form — built entirely from Form Builder ── */
                   <div className="space-y-5">
-                    {/* Customer */}
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Customer</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>First Name</Label><Input value={editForm.firstName} onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))} /></div>
-                        <div><Label>Last Name</Label><Input value={editForm.lastName} onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))} /></div>
-                        <div><Label>Father's Name</Label><Input value={editForm.fatherName} onChange={(e) => setEditForm((f) => ({ ...f, fatherName: e.target.value }))} /></div>
-                        <div><Label>Contact</Label><PhoneInput value={editForm.contact} onChange={(v) => setEditForm((f) => ({ ...f, contact: v }))} /></div>
-                        <div><Label>Alt Contact</Label><PhoneInput value={editForm.altContact} onChange={(v) => setEditForm((f) => ({ ...f, altContact: v }))} placeholder="Optional" /></div>
-                        <div><Label>State</Label>
-                          <Select value={editForm.state} onChange={(e) => setEditForm((f) => ({ ...f, state: e.target.value }))}>
-                            <option value="">Select state…</option>
-                            {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                          </Select>
-                        </div>
-                        <div><Label>Location</Label>
-                          <Select value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))}>
-                            <option value="">Select city…</option>
-                            {cityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                          </Select>
-                        </div>
-                        <div><Label>Residential Status</Label>
-                          <Select value={editForm.residentialStatus} onChange={(e) => setEditForm((f) => ({ ...f, residentialStatus: e.target.value }))}>
-                            <option value="">Select…</option>
-                            {RESIDENTIAL_STATUSES.map((s) => <option key={s}>{s}</option>)}
-                          </Select>
-                        </div>
-                      </div>
-                    </div>
-                    {/* Case / Loan */}
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Loan Details</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>Product</Label>
-                          <Select value={editForm.product} onChange={(e) => setEditForm((f) => ({ ...f, product: e.target.value }))}>
-                            <option value="">Select product…</option>
-                            {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
-                          </Select>
-                        </div>
-                        <div><Label>Loan Amount (₹)</Label><Input type="number" min="0" value={editForm.loanAmount} onChange={(e) => setEditForm((f) => ({ ...f, loanAmount: e.target.value }))} placeholder="e.g. 850000" /></div>
-                        {isVehicleProduct(editForm.product) && (
-                          <>
-                            <div><Label>Loan Type</Label>
-                              <Select value={editForm.loanType} onChange={(e) => setEditForm((f) => ({ ...f, loanType: e.target.value }))}>
-                                <option value="">Select type…</option>
-                                {LOAN_TYPES.map((t) => <option key={t}>{t}</option>)}
-                              </Select>
-                            </div>
-                            <div><Label>Vehicle Model</Label><Input value={editForm.vehicleModel} onChange={(e) => setEditForm((f) => ({ ...f, vehicleModel: e.target.value }))} placeholder="e.g. Swift Dzire" /></div>
-                            <div><Label>Reg. Number</Label><Input value={editForm.regNumber} onChange={(e) => setEditForm((f) => ({ ...f, regNumber: e.target.value }))} placeholder="e.g. HR05AB1234" /></div>
-                            <div><Label>Owner Serial</Label><Input value={editForm.ownerSerial} onChange={(e) => setEditForm((f) => ({ ...f, ownerSerial: e.target.value }))} placeholder="1st, 2nd…" /></div>
-                            <div className="col-span-2"><Label>Existing Insurer</Label>
-                              <Select value={editForm.existingInsurer} onChange={(e) => setEditForm((f) => ({ ...f, existingInsurer: e.target.value }))}>
-                                <option value="">Select insurer…</option>
-                                {insurerOptions.map((ins) => <option key={ins} value={ins}>{ins}</option>)}
-                              </Select>
-                            </div>
-                          </>
-                        )}
-                        {editProductFields.map((field) => (
-                          <div key={field.key}>
-                            <Label>{field.label}</Label>
-                            <ProductDynField
-                              field={field}
-                              value={editForm.customFields[field.key] ?? ""}
-                              onChange={(v) => setEditForm((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {genericCustomFields.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Additional Fields</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          {genericCustomFields.map((field) => (
-                            <div key={field.key}>
-                              <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
-                              <ProductDynField
-                                field={field}
-                                value={editForm.customFields[field.key] ?? ""}
-                                onChange={(v) => setEditForm((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {/* Bank */}
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Bank / NBFC</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-2"><Label>Bank / NBFC</Label>
-                          <Select value={editForm.bankId} onChange={(e) => setEditForm((f) => ({ ...f, bankId: e.target.value }))}>
-                            <option value="">Select bank…</option>
-                            {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-                          </Select>
-                        </div>
-                        <div><Label>Branch</Label><Input value={editForm.bankBranch} onChange={(e) => setEditForm((f) => ({ ...f, bankBranch: e.target.value }))} /></div>
-                        <div><Label>BM Name</Label><Input value={editForm.bmName} onChange={(e) => setEditForm((f) => ({ ...f, bmName: e.target.value }))} /></div>
-                        <div><Label>BM Contact</Label><PhoneInput value={editForm.bmContact} onChange={(v) => setEditForm((f) => ({ ...f, bmContact: v }))} /></div>
-                        <div><Label>Bank Executive</Label><Input value={editForm.bankExecutive} onChange={(e) => setEditForm((f) => ({ ...f, bankExecutive: e.target.value }))} /></div>
-                      </div>
-                    </div>
-                    {/* Dealer */}
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted border-b border-border pb-1">Dealer</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>Dealer</Label>
-                          <Select value={editForm.dealerId} onChange={(e) => setEditForm((f) => ({ ...f, dealerId: e.target.value }))}>
-                            <option value="">Select dealer…</option>
-                            {dealers.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
-                          </Select>
-                        </div>
-                        <div><Label>Payout %</Label><Input type="number" min="0" max="100" step="0.1" value={editForm.payoutPct} onChange={(e) => setEditForm((f) => ({ ...f, payoutPct: e.target.value }))} placeholder="e.g. 1.5" /></div>
-                      </div>
-                    </div>
+                    <SchemaCaseForm schema={caseSchema} productFields={editProductFields} values={editValues} setValues={setEditValues} ctx={formCtx} />
                     <div className="flex gap-2 justify-end pt-1 border-t border-border">
                       <Button variant="secondary" size="sm" onClick={() => setEditMode(false)}>Cancel</Button>
                       <Button size="sm" loading={editSaving} onClick={saveEdit}>Save Changes</Button>
@@ -1173,308 +1010,34 @@ function MyCasesPageInner() {
             </div>
           )}
 
-          {/* Step 2 — Customer confirmation */}
-          {leadStep === "customer" && (
+          {/* Step 2 — the case form, exactly as Form Builder defines it */}
+          {leadStep === "details" && (
             <div className="space-y-4">
-              {/* Existing customer found */}
-              {foundCustomer ? (
-                <div className="rounded-xl border border-success-border bg-success-subtle p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-5 text-success shrink-0" />
-                    <p className="text-sm font-semibold text-success">Existing customer found</p>
-                  </div>
-                  <div className="bg-surface rounded-lg border border-border p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-sm">{foundCustomer.firstName} {foundCustomer.lastName}</p>
-                      <span className="text-xs font-mono text-primary">{foundCustomer.customerCode}</span>
+              <SchemaCaseForm
+                schema={caseSchema} productFields={leadProductFields} values={leadValues} setValues={setLeadValues} ctx={formCtx}
+                readOnly={["contact"]}
+                lead={
+                  foundCustomer ? (
+                    <div className="flex items-center gap-3 px-3 py-2.5 bg-success-subtle rounded-lg border border-success-border">
+                      <CheckCircle2 className="size-4 text-success shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold">Existing customer — {foundCustomer.firstName} {foundCustomer.lastName}</p>
+                        <p className="text-xs text-muted">{foundCustomer.phone} · {foundCustomer.customerCode} · {foundCustomer.totalCases} case{foundCustomer.totalCases !== 1 ? "s" : ""}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-muted">
-                      <span className="flex items-center gap-1"><Phone className="size-3" />{foundCustomer.phone}</span>
-                      <span>{foundCustomer.totalCases} case{foundCustomer.totalCases !== 1 ? "s" : ""}</span>
-                      {foundCustomer.latestCaseStatus && (
-                        <span className="px-2 py-0.5 rounded-full bg-surface-2 border border-border capitalize">{foundCustomer.latestCaseStatus}</span>
-                      )}
+                  ) : (
+                    <div className="flex items-center gap-3 px-3 py-2.5 bg-warning-subtle rounded-lg border border-warning-border">
+                      <User className="size-4 text-warning shrink-0" />
+                      <p className="text-sm font-semibold text-warning">New customer — {leadPhone}</p>
                     </div>
-                  </div>
-                  <p className="text-xs text-success/80">Customer details are pre-filled. Proceed to enter case details.</p>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-warning-border bg-warning-subtle p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <User className="size-5 text-warning shrink-0" />
-                    <p className="text-sm font-semibold text-warning">New customer — {leadPhone}</p>
-                  </div>
-                  <p className="text-xs text-warning/80">No existing customer found for this number. Fill in the details below.</p>
-                </div>
-              )}
-
-              {/* Customer detail form */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>First Name</Label>
-                    <Input
-                      value={leadCustomer.firstName}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, firstName: e.target.value }))}
-                      placeholder="First name"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Last Name</Label>
-                    <Input
-                      value={leadCustomer.lastName}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, lastName: e.target.value }))}
-                      placeholder="Last name"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Father's Name <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <Input
-                      value={leadCustomer.fatherName}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, fatherName: e.target.value }))}
-                      placeholder="Father's name"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Alt. Phone <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <PhoneInput
-                      value={leadCustomer.altContact}
-                      onChange={(v) => setLeadCustomer((f) => ({ ...f, altContact: v }))}
-                      placeholder="Optional"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Location <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <Input
-                      value={leadCustomer.location}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, location: e.target.value }))}
-                      placeholder="City / Area"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Residential Status <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <Select
-                      value={leadCustomer.residentialStatus}
-                      onChange={(e) => setLeadCustomer((f) => ({ ...f, residentialStatus: e.target.value }))}
-                    >
-                      <option value="">Select…</option>
-                      <option>Own</option>
-                      <option>Rented</option>
-                      <option>Family Owned</option>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-between pt-1">
+                  )
+                }
+              />
+              <div className="flex gap-2 justify-between pt-1 border-t border-border">
                 <Button variant="ghost" size="sm" onClick={() => { setLeadStep("phone"); setPhoneChecked(false); }}>← Back</Button>
                 <div className="flex gap-2">
                   <Button variant="secondary" size="sm" onClick={closeNewLead}>Cancel</Button>
-                  <Button
-                    size="sm"
-                    onClick={() => setLeadStep("details")}
-                    disabled={!leadCustomer.firstName.trim() || !leadCustomer.lastName.trim()}
-                  >
-                    Next: Case Details →
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3 — Case details */}
-          {leadStep === "details" && (
-            <div className="space-y-4">
-              {/* Customer summary strip */}
-              <div className="flex items-center gap-3 px-3 py-2.5 bg-primary-subtle rounded-lg border border-primary/20">
-                <div className="size-8 rounded-full bg-primary text-primary-foreground grid place-items-center text-xs font-bold shrink-0">
-                  {leadCustomer.firstName[0]}{leadCustomer.lastName[0]}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{leadCustomer.firstName} {leadCustomer.lastName}</p>
-                  <p className="text-xs text-muted">{leadPhone} {foundCustomer ? `· ${foundCustomer.customerCode}` : "· New customer"}</p>
-                </div>
-                {foundCustomer && <CheckCircle2 className="size-4 text-success ml-auto shrink-0" />}
-              </div>
-
-              {/* Firm selection */}
-              <div className="space-y-1.5">
-                <Label>Firm</Label>
-                <div className="space-y-1.5">
-                  {FIRMS.map((f) => {
-                    const selected = leadCase.firm === f;
-                    return (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => setLeadCase((c) => ({ ...c, firm: f }))}
-                        className={cn(
-                          "w-full flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
-                          selected
-                            ? "border-primary bg-primary-subtle text-primary font-semibold"
-                            : "border-border hover:border-primary/40 hover:bg-muted/40"
-                        )}
-                      >
-                        <Building2 className="size-4 shrink-0" />
-                        <span className="flex-1">{f}</span>
-                        {selected && <CheckCircle2 className="size-4 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Product</Label>
-                  <Select value={leadCase.product} onChange={(e) => setLeadCase((f) => ({ ...f, product: e.target.value }))}>
-                    <option value="">Select product…</option>
-                    {products.map((p) => <option key={p._id} value={p.name}>{p.name}</option>)}
-                  </Select>
-                </div>
-                {isVehicleProduct(leadCase.product) && (
-                  <div className="space-y-1.5">
-                    <Label>Loan Type <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <Select value={leadCase.loanType} onChange={(e) => setLeadCase((f) => ({ ...f, loanType: e.target.value }))}>
-                      <option value="">Select type…</option>
-                      <option>New</option>
-                      <option>Used</option>
-                      <option>Refinance</option>
-                    </Select>
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  <Label>Loan Amount (₹) <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm select-none pointer-events-none">₹</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={leadCase.loanAmount}
-                      onChange={(e) => setLeadCase((f) => ({ ...f, loanAmount: e.target.value }))}
-                      placeholder="e.g. 850000"
-                      className="!pl-7"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Date</Label>
-                  <Input
-                    type="date"
-                    value={leadCase.date}
-                    onChange={(e) => setLeadCase((f) => ({ ...f, date: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Bank / NBFC <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <Select
-                    value={leadCase.bankId}
-                    onChange={(e) => {
-                      const bankId = e.target.value;
-                      const b = banks.find((x) => x._id === bankId);
-                      setLeadCase((f) => ({
-                        ...f, bankId,
-                        bankBranch: b?.branch ?? "", bmName: b?.bmName ?? "",
-                        bmContact: b?.bmContact ?? "", bankExecutive: b?.executive ?? "",
-                      }));
-                    }}
-                  >
-                    <option value="">Select bank…</option>
-                    {banks.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Branch <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <Input value={leadCase.bankBranch} onChange={(e) => setLeadCase((f) => ({ ...f, bankBranch: e.target.value }))} placeholder="Branch name" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>BM Name <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <Input value={leadCase.bmName} onChange={(e) => setLeadCase((f) => ({ ...f, bmName: e.target.value }))} placeholder="Business Manager" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>BM Contact <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <PhoneInput value={leadCase.bmContact} onChange={(v) => setLeadCase((f) => ({ ...f, bmContact: v }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Bank Executive <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                  <Input value={leadCase.bankExecutive} onChange={(e) => setLeadCase((f) => ({ ...f, bankExecutive: e.target.value }))} placeholder="Executive name" />
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label>Dealer <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                    <button type="button" onClick={() => setAddDealerOpen(true)} className="text-[11px] font-semibold text-primary hover:underline">
-                      + Add new dealer
-                    </button>
-                  </div>
-                  <Select value={leadCase.dealerId} onChange={(e) => setLeadCase((f) => ({ ...f, dealerId: e.target.value }))}>
-                    <option value="">Select dealer…</option>
-                    {dealers.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
-                  </Select>
-                </div>
-                {isVehicleProduct(leadCase.product) && (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label>Vehicle Model <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                      <Input
-                        value={leadCase.vehicleModel}
-                        onChange={(e) => setLeadCase((f) => ({ ...f, vehicleModel: e.target.value }))}
-                        placeholder="e.g. Swift Dzire"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Reg. Number <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                      <Input
-                        value={leadCase.regNumber}
-                        onChange={(e) => setLeadCase((f) => ({ ...f, regNumber: e.target.value }))}
-                        placeholder="e.g. HR05AB1234"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Owner Serial <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                      <Input
-                        value={leadCase.ownerSerial}
-                        onChange={(e) => setLeadCase((f) => ({ ...f, ownerSerial: e.target.value }))}
-                        placeholder="1st, 2nd…"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Existing Insurer <span className="font-normal normal-case text-muted/70">(optional)</span></Label>
-                      <Select value={leadCase.existingInsurer} onChange={(e) => setLeadCase((f) => ({ ...f, existingInsurer: e.target.value }))}>
-                        <option value="">Select insurer…</option>
-                        {insurerOptions.map((ins) => <option key={ins} value={ins}>{ins}</option>)}
-                      </Select>
-                    </div>
-                  </>
-                )}
-                {leadProductFields.map((field) => (
-                  <div key={field.key} className="space-y-1.5">
-                    <Label>{field.label}</Label>
-                    <ProductDynField
-                      field={field}
-                      value={leadCase.customFields[field.key] ?? ""}
-                      onChange={(v) => setLeadCase((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
-                    />
-                  </div>
-                ))}
-                {genericCustomFields.map((field) => (
-                  <div key={field.key} className="space-y-1.5">
-                    <Label>{field.label}{field.required && <span className="text-danger ml-0.5">*</span>}</Label>
-                    <ProductDynField
-                      field={field}
-                      value={leadCase.customFields[field.key] ?? ""}
-                      onChange={(v) => setLeadCase((f) => ({ ...f, customFields: { ...f.customFields, [field.key]: v } }))}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex gap-2 justify-between pt-1 border-t border-border">
-                <Button variant="ghost" size="sm" onClick={() => setLeadStep("customer")}>← Back</Button>
-                <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={closeNewLead}>Cancel</Button>
-                  <Button size="sm" loading={creatingLead} onClick={createLead}>
-                    Create Lead
-                  </Button>
+                  <Button size="sm" loading={creatingLead} onClick={createLead}>Create Lead</Button>
                 </div>
               </div>
             </div>

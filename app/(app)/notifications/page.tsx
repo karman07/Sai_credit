@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { notificationsApi, type Notification } from "../../../lib/api";
 import { cn } from "../../../components/ui";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 type NotifCategory = "all" | "unread" | "hr" | "case";
 
@@ -99,6 +100,14 @@ export default function NotificationsPage() {
     tab === "hr"     ? hrItems :
     caseItems;
 
+  const [lf, setLf] = useListFilter();
+  const shownN = filterList(filtered, lf, {
+    text: (n) => `${n.title} ${n.message} ${n.caseCode ?? ""} ${n.type}`,
+    sel: { type: (n) => n.type, read: (n) => (n.isRead ? "read" : "unread") },
+    date: (n) => n.createdAt,
+  });
+  const typeOptions = [...new Set(notifications.map((n) => n.type))].map((t) => ({ value: t, label: t.replace(/_/g, " ") }));
+
   return (
     <div className="space-y-5 animate-fadeIn max-w-2xl">
       <div className="flex items-center justify-between">
@@ -115,6 +124,14 @@ export default function NotificationsPage() {
           </button>
         )}
       </div>
+
+      <ListFilterBar
+        value={lf} onChange={setLf} placeholder="Search notifications, case ID…" dateLabel="Received" shown={shownN.length} total={filtered.length}
+        selects={[
+          { key: "type", label: "Type", options: typeOptions },
+          { key: "read", label: "Read state", options: [{ value: "unread", label: "Unread" }, { value: "read", label: "Read" }] },
+        ]}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto border-b border-border">
@@ -147,12 +164,12 @@ export default function NotificationsPage() {
           <div className="card flex items-center justify-center h-28">
             <p className="text-sm text-muted">Loading…</p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : shownN.length === 0 ? (
           <div className="card flex flex-col items-center justify-center h-28 gap-2">
             <Bell className="size-8 text-muted/30" />
             <p className="text-sm text-muted">No notifications here.</p>
           </div>
-        ) : filtered.map((n) => {
+        ) : shownN.map((n) => {
           const cfg  = getConfig(n.type);
           const Icon = cfg.icon;
           return (

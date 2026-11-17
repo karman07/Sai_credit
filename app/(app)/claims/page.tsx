@@ -5,6 +5,7 @@ import { Plus, Receipt, CheckCircle2, XCircle, Clock, Trash2, X, Upload, FileTex
 import { Button, Input, Select, Textarea, Label } from "../../../components/ui";
 import { api, claimsApi, type Claim, API_BASE } from "../../../lib/api";
 import { MonthPicker } from "../../../components/MonthPicker";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const CLAIM_TYPES = [
   { value: "travel",        label: "Travel" },
@@ -49,6 +50,12 @@ interface FormState {
 
 export default function ClaimsPage() {
   const [claims, setClaims]         = useState<Claim[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(claims, lf, {
+    text: (c) => `${c.description} ${c.type} ${c.status} ${c.month} ${c.amount} ${c.reviewNote ?? ""}`,
+    sel: { type: (c) => c.type, status: (c) => c.status },
+    date: (c) => c.createdAt,
+  });
   const [total, setTotal]           = useState(0);
   const [filterMonth, setFilterMonth] = useState(nowMonth());
   const [filterStatus, setFilterStatus] = useState("");
@@ -185,6 +192,16 @@ export default function ClaimsPage() {
         </Select>
       </div>
 
+      <div className="card p-3">
+        <ListFilterBar
+          value={lf} onChange={setLf} placeholder="Search description, type, amount…" dateLabel="Submitted" shown={shown.length} total={claims.length}
+          selects={[
+            { key: "type", label: "Type", options: ["travel", "food", "accommodation", "other"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) },
+            { key: "status", label: "Status", options: ["pending", "approved", "rejected"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) },
+          ]}
+        />
+      </div>
+
       {/* Claims list */}
       <div className="card overflow-hidden">
         {loading ? (
@@ -199,7 +216,7 @@ export default function ClaimsPage() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {claims.map((c) => {
+            {shown.map((c) => {
               const cfg = STATUS_CONFIG[c.status];
               const Icon = cfg.icon;
               return (

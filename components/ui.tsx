@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "./DatePicker";
 import { forwardRef, createContext, useContext, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, CheckCircle2, XCircle, AlertTriangle, Info, Loader2, Search, Inbox, Phone } from "lucide-react";
@@ -37,7 +38,16 @@ export const Button = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<H
 Button.displayName = "Button";
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => <input ref={ref} className={cn("input-base", className)} {...props} />
+  ({ className, ...props }, ref) =>
+    props.type === "date" || props.type === "month" ? (
+      <DatePicker
+        type={props.type as "date" | "month"} value={String(props.value ?? "")} min={props.min as string | undefined} max={props.max as string | undefined}
+        disabled={props.disabled} required={props.required} placeholder={props.placeholder} id={props.id} name={props.name} title={props.title}
+        onChange={props.onChange as any} className={cn("input-base", className)}
+      />
+    ) : (
+      <input ref={ref} className={cn("input-base", className)} {...props} />
+    )
 );
 Input.displayName = "Input";
 
@@ -153,7 +163,7 @@ export function Modal({ open, onClose, title, description, size = "md", children
   if (!open) return null;
   const content = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" />
       <div className={cn("relative w-full card animate-slideUp p-0 flex flex-col max-h-[90vh]", sizeClass)}>
         {(title || description) && (
           <div className="flex items-start justify-between p-5 border-b border-border shrink-0">
@@ -182,7 +192,7 @@ export function Drawer({ open, onClose, title, description, size = "lg", childre
   if (!open) return null;
   const content = (
     <div className="fixed inset-0 z-[100] flex justify-end">
-      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-fadeIn" />
       <div className={cn("relative w-full h-full bg-surface border-l border-border flex flex-col animate-drawerIn shadow-2xl", sizeClass)}>
         {(title || description) && (
           <div className="flex items-start justify-between p-5 border-b border-border shrink-0">

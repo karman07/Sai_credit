@@ -227,9 +227,25 @@ export interface SalesCustomer {
 
 // ── Domain API helpers ─────────────────────────────────────────────────
 
+export interface DisbursedBucket { name: string; count: number; amount: number }
+export interface DisbursedAnalytics {
+  kpi: { count: number; amount: number; avgTicket: number; max: number; min: number };
+  previous: { count: number; amount: number } | null;
+  byMonth: (DisbursedBucket & { month: string })[];
+  byDay: (DisbursedBucket & { date: string })[];
+  byBank: DisbursedBucket[]; byProduct: DisbursedBucket[]; byDealer: DisbursedBucket[]; byRep: DisbursedBucket[];
+  byCoordinator: DisbursedBucket[]; byFirm: DisbursedBucket[]; byLoanType: DisbursedBucket[];
+  byState: DisbursedBucket[]; byCity: DisbursedBucket[]; bands: DisbursedBucket[];
+  topCases: { _id: string; caseCode: string; customer: string; bankName?: string; product?: string; loanAmount?: number; disbursementDate?: string }[];
+}
+
 export const casesApi = {
   list: (q?: Record<string, string | number | boolean | undefined>) => api.get<LoanCase[]>("/cases", q),
   get: (id: string) => api.get<LoanCase>(`/cases/${id}`),
+  /** Distinct values for every filter dropdown, limited to the cases the caller can see. */
+  facets: () => api.get<import("./caseFilters").CaseFacets>("/cases/facets"),
+  statusCounts: (q?: Record<string, string | number | boolean | undefined>) => api.get<Record<string, number>>("/cases/status-counts", q),
+  disbursedAnalytics: (q?: Record<string, string | number | boolean | undefined>) => api.get<DisbursedAnalytics>("/cases/analytics/disbursed", q),
   stats: (q?: StatsFilters) => api.get<DashboardStats>("/cases/stats", q as Record<string, string | undefined>),
   trend: (q?: StatsFilters & { groupBy?: "day" | "month"; status?: string }) =>
     api.get<CaseTrendPoint[]>("/cases/stats/trend", q as Record<string, string | undefined>),
@@ -342,6 +358,7 @@ export interface FormSchema {
 }
 
 export const formSchemasApi = {
+  list: () => api.get<FormSchema[]>(`/form-schemas`),
   get: (formId: string) => api.get<FormSchema>(`/form-schemas/${formId}`),
 };
 

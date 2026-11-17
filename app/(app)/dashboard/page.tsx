@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useAuth } from "../../../lib/auth-context";
 import { KpiCard, CaseStatusBadge, Skeleton, type CaseStatus } from "../../../components/ui";
 import { casesApi, type LoanCase } from "../../../lib/api";
+import { DisbursementAnalytics } from "../../../components/DisbursementAnalytics";
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 
@@ -388,6 +389,8 @@ export default function SalesDashboard() {
           </div>
         </div>
       </div>
+
+      <DisbursementAnalytics hide={["assignedTo", "coordinatorId"]} />
     </div>
   );
 }

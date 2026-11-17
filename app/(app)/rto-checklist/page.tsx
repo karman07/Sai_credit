@@ -10,7 +10,10 @@ import {
   casesApi, rtoApi, uploadsApi, fileUrl,
   type LoanCase, type RTORecord, type RTODocRequest, type RTOStageStatus,
 } from "../../../lib/api";
+import { CaseDetailsView } from "../../../components/CaseDetailsView";
 import { CaseChatThread } from "../../../components/CaseChatThread";
+import { RtoFilterPanel } from "../../../components/RtoFilterPanel";
+import { EMPTY_RTO_FILTERS, matchesRto, type RtoFilters } from "../../../lib/rtoFilters";
 
 function StageIcon({ status }: { status: RTOStageStatus }) {
   if (status === "Done") return <CheckCircle2 className="size-4 text-success" />;
@@ -102,6 +105,8 @@ function RequestCard({ record, req, onChange }: { record: RTORecord; req: RTODoc
 export default function RTOStatusPage() {
   const [cases, setCases] = useState<LoanCase[]>([]);
   const [records, setRecords] = useState<Record<string, RTORecord>>({});
+  const [rf, setRf] = useState<RtoFilters>(EMPTY_RTO_FILTERS);
+  const shown = cases.filter((c) => matchesRto(c, records[c._id], rf));
   const [expanded, setExpanded] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -143,9 +148,14 @@ export default function RTOStatusPage() {
 
       {error && <div className="card p-4 border-danger-border bg-danger-subtle text-sm text-danger">{error}</div>}
 
+      <div className="card p-3">
+        <RtoFilterPanel value={rf} onChange={setRf} items={cases.map((c) => ({ c, r: records[c._id] }))} />
+        <p className="text-xs text-muted mt-2">{shown.length} of {cases.length} disbursed vehicle loans shown</p>
+      </div>
+
       {loading ? [1, 2, 3].map(i => <div key={i} className="h-16 bg-surface-2 rounded-xl animate-pulse" />)
         : cases.length === 0 ? <EmptyState title="No disbursed vehicle loans yet" description="Cases show up here once they are disbursed." />
-        : cases.map(c => {
+        : shown.map(c => {
           const r = records[c._id];
           const stages = [...(r?.stages ?? [])].sort((a, b) => a.order - b.order);
           const active = stages.filter(s => s.status !== "NA");
@@ -171,6 +181,13 @@ export default function RTOStatusPage() {
 
               {isOpen && (
                 <div className="border-t border-border p-4 space-y-5 bg-surface-2/30">
+                  <details className="group rounded-lg border border-border bg-surface">
+                    <summary className="cursor-pointer list-none px-3.5 py-2.5 text-sm font-semibold flex items-center gap-2">
+                      <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" /> Case details
+                    </summary>
+                    <div className="border-t border-border p-4"><CaseDetailsView c={c} /></div>
+                  </details>
+
                   {!r ? (
                     <p className="text-sm text-muted">The RTO team hasn't picked this file up yet.</p>
                   ) : (
