@@ -1,9 +1,9 @@
 "use client";
 
+import { DatePicker } from "../../../components/DatePicker";
 import { useState, useEffect, useCallback } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsxSheets, stampedName } from "../../../lib/excel";
-import { buildInsuranceSheets, customLabels } from "../../../lib/exportSheets";
+import { buildInsuranceSheets, loadCustomDefs } from "../../../lib/exportSheets";
 import { ShieldCheck, Plus, Car, RefreshCw, Trash2, Calendar, IndianRupee, RotateCw } from "lucide-react";
 import {
   Button, Badge, Input, Label, Select, Modal, EmptyState, Skeleton,
@@ -122,9 +122,8 @@ export default function InsurancePage() {
           <p className="text-sm text-muted mt-0.5">Insurance policies logged across all loan cases</p>
         </div>
         <div className="flex gap-2">
-          <ExportButton onExport={async () => {
-            await downloadXlsxSheets(buildInsuranceSheets(filtered, await customLabels()), stampedName("insurance"));
-            return filtered.length;
+          <ExportButton storageKey="insurance" filename={"insurance"} loadSheets={async () => {
+            return buildInsuranceSheets(filtered, await loadCustomDefs("insurance"));
           }} />
           <Button variant="secondary" size="sm" onClick={load}>
             <RefreshCw className="size-3.5" /> Refresh
@@ -448,7 +447,7 @@ function InsDynField({ field, value, onChange }: { field: FieldDef; value: strin
       <span className="text-sm">{field.label}</span>
     </div>
   );
-  if (field.type === "date") return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
+  if (field.type === "date") return <DatePicker type="date" value={value} onChange={e => onChange(e.target.value)} className={cls} />;
   if (field.type === "number") return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;
   if (field.type === "file") return <FileFieldInput value={value} onChange={onChange} />;
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className={cls} />;

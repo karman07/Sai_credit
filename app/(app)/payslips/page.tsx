@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
+import { xlDate } from "../../../lib/excel";
 import {
   IndianRupee, FileText, ChevronDown, ChevronUp,
   CheckCircle2, Clock, AlertTriangle, Calendar, TrendingDown,
 } from "lucide-react";
 import { payslipsApi, type PayrollRecord } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const STATUS_COLORS: Record<string, string> = {
   draft:     "text-yellow-600 bg-yellow-50 border-yellow-200",
@@ -191,6 +192,12 @@ function PayslipCard({ p }: { p: PayrollRecord }) {
 
 export default function PayslipsPage() {
   const [payrolls, setPayrolls] = useState<PayrollRecord[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(payrolls, lf, {
+    text: (p) => `${p.month} ${p.status} ${p.remarks ?? ""} ${p.netPay}`,
+    sel: { status: (p) => p.status },
+    date: (p) => `${p.month}-01`,
+  });
   const [total, setTotal]       = useState(0);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
@@ -218,18 +225,12 @@ export default function PayslipsPage() {
           <h1 className="text-xl font-bold">My Payslips</h1>
           <p className="text-sm text-muted mt-0.5">Monthly salary breakdown with attendance & deductions</p>
         </div>
-        <ExportButton onExport={async () => {
-          await downloadXlsx(
-            "Payslips",
-            ["Month", "Basic", "HRA", "Travel", "DA", "Medical", "Other Allowance", "Incentives", "Reimbursements", "LOP Deduction", "Gross Pay", "Net Pay", "Working Days", "Present", "Half Days", "Absent", "Leave Days", "Status", "Paid On", "Remarks"],
-            payrolls.map((p) => [
+        <ExportButton storageKey="payslips" filename={"payslips"} loadSheets={async () => {
+          return [{ name: "Payslips", headers: ["Month", "Basic", "HRA", "Travel", "DA", "Medical", "Other Allowance", "Incentives", "Reimbursements", "LOP Deduction", "Gross Pay", "Net Pay", "Working Days", "Present", "Half Days", "Absent", "Leave Days", "Status", "Paid On", "Remarks"], rows: payrolls.map((p) => [
               p.month, p.basicSalary, p.hra ?? 0, p.travelAllowance ?? 0, p.da ?? 0, p.medicalAllowance ?? 0, p.otherAllowance ?? 0,
               p.incentives.reduce((s, i) => s + i.amount, 0), p.reimbursementTotal, p.lopDeduction, p.grossPay, p.netPay,
               p.workingDaysInMonth, p.presentDays, p.halfDays, p.absentDays, p.leaveDays, p.status, xlDate(p.paidAt), p.remarks ?? "",
-            ]),
-            stampedName("payslips"),
-          );
-          return payrolls.length;
+            ]) }];
         }} />
       </div>
 
@@ -284,7 +285,13 @@ export default function PayslipsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {payrolls.map((p) => <PayslipCard key={p._id} p={p} />)}
+          <div className="card p-3">
+            <ListFilterBar
+              value={lf} onChange={setLf} placeholder="Search month, status…" dateLabel="Month" shown={shown.length} total={payrolls.length}
+              selects={[{ key: "status", label: "Status", options: ["draft", "processed", "paid"].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }]}
+            />
+          </div>
+          {shown.map((p) => <PayslipCard key={p._id} p={p} />)}
         </div>
       )}
     </div>

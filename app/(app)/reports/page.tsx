@@ -13,8 +13,8 @@ import {
   Button, Badge, Input, Label, Select, SectionHeader, Pagination,
   EmptyState, Skeleton, useToast, type BadgeTone,
 } from "../../../components/ui";
-import { downloadXlsxSheets } from "../../../lib/excel";
-import { buildCaseSheets, buildInsuranceSheets, buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
+import { ExportButton } from "../../../components/ExportButton";
+import { buildCaseSheets, buildInsuranceSheets, buildPayoutSheets, loadCustomDefs } from "../../../lib/exportSheets";
 import { DateRangePicker, type DateRange } from "../../../components/DateRangePicker";
 import {
   casesApi, payoutApi, insuranceApi, banksApi, mastersApi, ApiError,
@@ -201,30 +201,20 @@ export default function ReportsPage() {
     }
   }, [selected, dateFrom, dateTo, productFilter, bankFilter]);
 
-  const exportExcel = async () => {
-    if (!data) return;
-    const rt = REPORT_TYPES.find((r) => r.id === selected)!;
-    const fname = `${rt.id}-${dateFrom}-to-${dateTo}.xlsx`;
-
-    const labels = await customLabels();
-    // Every report exports the full underlying records (not just the columns shown on screen).
-    if (data.type === "disbursement" || data.type === "rejection") {
-      await downloadXlsxSheets(buildCaseSheets(data.cases, labels), fname);
-    } else if (data.type === "payout") {
-      await downloadXlsxSheets(buildPayoutSheets(data.records, labels), fname);
-    } else if (data.type === "insurance") {
-      await downloadXlsxSheets(buildInsuranceSheets(data.records, labels), fname);
-    } else if (data.type === "bank") {
-      await downloadXlsxSheets([
-        {
-          name: "Bank Summary",
-          headers: ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
-          rows: data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
-        },
-        ...buildCaseSheets(data.cases, labels),
-      ], fname);
-    }
-    toast("success", "Excel file exported");
+  /** Sheets for the current report — every underlying record, not just the columns shown on screen. */
+  const loadReportSheets = async () => {
+    if (!data) return [];
+    if (data.type === "disbursement" || data.type === "rejection") return buildCaseSheets(data.cases, await loadCustomDefs("case"));
+    if (data.type === "payout") return buildPayoutSheets(data.records, await loadCustomDefs("payout"));
+    if (data.type === "insurance") return buildInsuranceSheets(data.records, await loadCustomDefs("insurance"));
+    return [
+      {
+        name: "Bank Summary",
+        headers: ["Bank", "Total Cases", "Approved", "Disbursed", "Rejected", "Disbursed Volume", "Approval %"],
+        rows: data.rows.map((r) => [r.bank, r.total, r.approved, r.disbursed, r.rejected, r.volume, `${r.pct}%`]),
+      },
+      ...buildCaseSheets(data.cases, await loadCustomDefs("case")),
+    ];
   };
 
   // ── Summary stats ───────────────────────────────────────────────────────────
@@ -556,9 +546,10 @@ export default function ReportsPage() {
                 <BarChart3 className="size-3.5" /> Generate
               </Button>
               {data && !loading && (
-                <Button variant="secondary" onClick={() => exportExcel().catch((e) => toast("error", e?.message ?? "Failed to export"))}>
-                  <Download className="size-3.5" /> Export Excel
-                </Button>
+                <ExportButton
+                  storageKey={`report-${selected}`} title="Export report"
+                  filename={`${selected}-${dateFrom}-to-${dateTo}`} loadSheets={loadReportSheets}
+                />
               )}
             </div>
 

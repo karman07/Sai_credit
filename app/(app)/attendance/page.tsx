@@ -1,10 +1,12 @@
 "use client";
 
+import { DatePicker } from "../../../components/DatePicker";
 import { useState, useEffect, useCallback } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
+import { xlDate } from "../../../lib/excel";
 import { Clock, LogIn, LogOut, Calendar, Timer } from "lucide-react";
 import { attendanceApi, type AttendanceRecord, type AttendanceSummary } from "../../../lib/api";
+import { ListFilterBar, filterList, useListFilter } from "../../../components/ListFilterBar";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   present:  { label: "Present",  color: "text-green-600 bg-green-50 border-green-200" },
@@ -31,6 +33,12 @@ function nowMonth() { return new Date().toISOString().slice(0, 7); }
 
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [lf, setLf] = useListFilter();
+  const shown = filterList(records, lf, {
+    text: (r) => `${r.status} ${r.note ?? ""} ${r.date}`,
+    sel: { status: (r) => r.status },
+    date: (r) => r.date,
+  });
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [month, setMonth] = useState(nowMonth());
   const [loading, setLoading] = useState(true);
@@ -70,17 +78,11 @@ export default function AttendancePage() {
           <h1 className="text-xl font-bold">My Attendance</h1>
           <p className="text-sm text-muted mt-0.5">Track your daily attendance and work hours</p>
         </div>
-        <ExportButton onExport={async () => {
+        <ExportButton storageKey="attendance" filename={`attendance-${month}`} loadSheets={async () => {
           const t = (v?: string) => (v ? new Date(v).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "");
-          await downloadXlsx(
-            "Attendance",
-            ["Date", "Clock In", "Clock Out", "Work Hours", "Status", "Note"],
-            records.map((r) => [xlDate(r.date), t(r.clockIn), t(r.clockOut), r.workHours, r.status.replace("_", " "), r.note ?? ""]),
-            stampedName(`attendance-${month}`),
-          );
-          return records.length;
+          return [{ name: "Attendance", headers: ["Date", "Clock In", "Clock Out", "Work Hours", "Status", "Note"], rows: records.map((r) => [xlDate(r.date), t(r.clockIn), t(r.clockOut), r.workHours, r.status.replace("_", " "), r.note ?? ""]) }];
         }} />
-        <input
+        <DatePicker
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
@@ -134,13 +136,19 @@ export default function AttendancePage() {
           <Calendar className="size-4 text-muted" />
           <h2 className="font-semibold text-sm">Daily Log — {month}</h2>
         </div>
+        <div className="px-4 py-3 border-b border-border">
+          <ListFilterBar
+            value={lf} onChange={setLf} placeholder="Search note, status…" dateLabel="Date" shown={shown.length} total={records.length}
+            selects={[{ key: "status", label: "Status", options: [["present", "Present"], ["absent", "Absent"], ["half_day", "Half day"], ["on_leave", "On leave"], ["holiday", "Holiday"]].map(([value, label]) => ({ value, label })) }]}
+          />
+        </div>
         {loading ? (
           <div className="p-8 text-center text-sm text-muted">Loading…</div>
         ) : records.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted">No attendance records for this month</div>
         ) : (
           <div className="divide-y divide-border">
-            {records.map((r) => {
+            {shown.map((r) => {
               const s = STATUS_LABELS[r.status] ?? { label: r.status, color: "text-muted bg-surface-2 border-border" };
               return (
                 <div key={r._id} className="flex items-center gap-4 px-4 py-3 hover:bg-surface-2/40 transition-colors">

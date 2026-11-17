@@ -2,31 +2,33 @@
 
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { Button, useToast } from "./ui";
+import { Button } from "./ui";
+import { ExportDialog } from "./ExportDialog";
+import type { FilterHide } from "./CaseFilterPanel";
+import type { XlsxSheet } from "../lib/excel";
+import type { CaseFacets, CaseFilters } from "../lib/caseFilters";
 
 /**
- * "Export" button for any list. `onExport` builds and downloads the workbook (see lib/excel.ts)
- * and may return a row count for the success toast; errors surface as a toast.
+ * "Export" button for any list. Opens the export dialog (column picker, optional filters) and downloads
+ * the sheets returned by `loadSheets` — build them with the helpers in lib/exportSheets.ts or by hand.
  */
-export function ExportButton({ onExport, label = "Export Excel" }: { onExport: () => Promise<number | void>; label?: string }) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      const n = await onExport();
-      toast("success", typeof n === "number" ? `Exported ${n} row${n !== 1 ? "s" : ""} to Excel` : "Excel file exported");
-    } catch (e: any) {
-      toast("error", e?.message ?? "Failed to export");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+export function ExportButton({
+  loadSheets, filename, storageKey, label = "Export Excel", title, filters,
+}: {
+  loadSheets: (filters?: CaseFilters) => Promise<XlsxSheet[]>;
+  filename: string;
+  storageKey: string;
+  label?: string;
+  title?: string;
+  filters?: { initial: CaseFilters; facets: CaseFacets; hide?: FilterHide[] };
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <Button variant="secondary" size="sm" onClick={run} loading={busy}>
-      <Download className="size-3.5" /> {label}
-    </Button>
+    <>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+        <Download className="size-3.5" /> {label}
+      </Button>
+      <ExportDialog open={open} onClose={() => setOpen(false)} title={title} filename={filename} storageKey={storageKey} loadSheets={loadSheets} filters={filters} />
+    </>
   );
 }

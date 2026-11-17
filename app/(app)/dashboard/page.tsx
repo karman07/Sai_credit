@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useAuth } from "../../../lib/auth-context";
 import { KpiCard, CaseStatusBadge, Skeleton, EmptyState, type CaseStatus } from "../../../components/ui";
 import { casesApi, usersApi, type LoanCase, type TeamMember } from "../../../lib/api";
+import { DisbursementAnalytics } from "../../../components/DisbursementAnalytics";
 
 const C = {
   primary: "#0F766E",
@@ -319,6 +320,8 @@ export default function CoordinatorDashboard() {
           </div>
         </div>
       </div>
+
+      <DisbursementAnalytics hide={["coordinatorId"]} />
     </div>
   );
 }

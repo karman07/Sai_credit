@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, downloadXlsxSheets, xlDate, stampedName } from "../../../lib/excel";
 import { Building2, Car, Phone, User, MapPin } from "lucide-react";
 import { SearchInput, Badge, Tabs, EmptyState, Skeleton } from "../../../components/ui";
 import { banksApi, dealersApi, type Bank, type Dealer } from "../../../lib/api";
@@ -45,14 +44,13 @@ export default function BanksDealersPage() {
           <h1 className="text-xl font-bold tracking-tight">Bank & Dealer Directory</h1>
           <p className="text-sm text-muted mt-0.5">Reference contacts for banks, NBFCs, and dealer partners</p>
         </div>
-        <ExportButton onExport={async () => {
-          await downloadXlsxSheets([
+        <ExportButton storageKey="banks-dealers" filename={"banks-dealers"} loadSheets={async () => {
+          return [
             { name: "Banks", headers: ["Name", "Branch", "BM Name", "BM Contact", "Executive", "Active"],
               rows: banks.map((b) => [b.name, b.branch ?? "", b.bmName ?? "", b.bmContact ?? "", b.executive ?? "", b.isActive ? "Yes" : "No"]) },
             { name: "Dealers", headers: ["Name", "Contact", "Location", "Active"],
               rows: dealers.map((d) => [d.name, d.contact ?? "", d.location ?? "", d.isActive ? "Yes" : "No"]) },
-          ], stampedName("banks-dealers"));
-          return banks.length + dealers.length;
+          ];
         }} />
       </div>
 

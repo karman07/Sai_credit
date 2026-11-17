@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw, Lock, CheckCircle2, Circle, Loader2, MinusCircle, Send, Save,
-  MessageSquare, ListChecks, FileQuestion, ClipboardList, Paperclip, Check,
+  MessageSquare, ListChecks, FileQuestion, ClipboardList, Paperclip, Check, FileText,
 } from "lucide-react";
 import { Label, ProgressBar, Badge, CaseStatusBadge, EmptyState, SearchInput, cn, useToast } from "../../../components/ui";
 import { useAuth } from "../../../lib/auth-context";
@@ -12,9 +12,14 @@ import {
   type LoanCase, type RTORecord, type RTOStage, type RTOStageStatus, type FieldDef, type SectionDef,
 } from "../../../lib/api";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsx, xlDate, customKeys, stampedName } from "../../../lib/excel";
-import { customCell, customHead, customLabels } from "../../../lib/exportSheets";
+import { xlDate } from "../../../lib/excel";
+import { buildRtoSheets, loadCustomDefs } from "../../../lib/exportSheets";
 import { FileFieldInput } from "../../../components/FileFieldInput";
+import { CaseFilterPanel, useCaseFacets } from "../../../components/CaseFilterPanel";
+import { RtoFilterPanel } from "../../../components/RtoFilterPanel";
+import { EMPTY_RTO_FILTERS, matchesRto, type RtoFilters } from "../../../lib/rtoFilters";
+import { EMPTY_FILTERS, filtersToQuery, type CaseFilters } from "../../../lib/caseFilters";
+import { CaseDetailsView } from "../../../components/CaseDetailsView";
 import { CaseChatThread } from "../../../components/CaseChatThread";
 
 const STAGE_STATUSES: RTOStageStatus[] = ["Pending", "In Progress", "Done", "NA"];
@@ -23,7 +28,7 @@ const inp = "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm
 /** Core fields now covered by the Data Catalog stages — hidden from the details form. */
 const SUPERSEDED_KEYS = new Set(["verification", "approval", "insuranceEndorsement"]);
 
-type Tab = "stages" | "details" | "requests" | "chat";
+type Tab = "case" | "stages" | "details" | "requests" | "chat";
 
 function stageProgress(r?: RTORecord | null) {
   const active = (r?.stages ?? []).filter(s => s.status !== "NA");
@@ -355,8 +360,16 @@ export default function RTOPage() {
   const [sections, setSections] = useState<SectionDef[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
-  const [tab, setTab] = useState<Tab>("stages");
-  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<Tab>("case");
+  // Case-level filters run on the server (same panel as Cases); RTO-status / pending-stage filters are client-side.
+  const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
+  const [searchText, setSearchText] = useState("");
+  const facets = useCaseFacets();
+  const [rtoFilters, setRtoFilters] = useState<RtoFilters>(EMPTY_RTO_FILTERS);
+  useEffect(() => {
+    const t = setTimeout(() => setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText })), 350);
+    return () => clearTimeout(t);
+  }, [searchText]);
   const [filter, setFilter] = useState<"all" | "open" | "completed" | "waiting">("open");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -367,7 +380,7 @@ export default function RTOPage() {
     try {
       // The server already limits cases to Disbursed vehicle loans for RTO coordinators.
       const [caseRes, rtoRes, schemaRes] = await Promise.all([
-        casesApi.list({ limit: 500 }),
+        casesApi.list(filtersToQuery(filters, { limit: 1000 })),
         rtoApi.list(),
         formSchemasApi.get("rto"),
       ]);
@@ -379,13 +392,13 @@ export default function RTOPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => { if (hasAccess) load(); else setLoading(false); }, [load, hasAccess]);
 
   async function open(caseId: string) {
     setSelectedId(caseId);
-    setTab("stages");
+    setTab("case");
     setOpening(true);
     try {
       const { data } = await rtoApi.getByCase(caseId);
@@ -402,18 +415,17 @@ export default function RTOPage() {
   }
 
   const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return cases.filter(c => {
       const r = records[c._id];
-      if (q && !`${c.caseCode} ${c.customer.firstName} ${c.customer.lastName} ${c.regNumber ?? ""}`.toLowerCase().includes(q)) return false;
       const completed = r?.status === "Completed";
       const waiting = !!r?.docRequests?.some(d => !d.isResolved);
+      if (!matchesRto(c, r, rtoFilters)) return false;
       if (filter === "open") return !completed;
       if (filter === "completed") return completed;
       if (filter === "waiting") return waiting;
       return true;
     });
-  }, [cases, records, search, filter]);
+  }, [cases, records, filter, rtoFilters]);
 
   if (!hasAccess) {
     return (
@@ -427,6 +439,7 @@ export default function RTOPage() {
   const selectedRecord = selectedId ? records[selectedId] : undefined;
 
   const tabs: { id: Tab; label: string; icon: typeof ListChecks }[] = [
+    { id: "case", label: "Case details", icon: FileText },
     { id: "stages", label: "Stages", icon: ListChecks },
     { id: "details", label: "Details", icon: ClipboardList },
     { id: "requests", label: "Sales requests", icon: FileQuestion },
@@ -441,38 +454,8 @@ export default function RTOPage() {
           <p className="text-sm text-muted mt-0.5">Disbursed vehicle loans waiting on RTO. Work the stages, request documents from sales, and close each file.</p>
         </div>
         <div className="flex items-center gap-3 mt-1">
-          <ExportButton onExport={async () => {
-            // One row per case in the current list, with a column per catalog stage.
-            const stageNames = [...new Set(Object.values(records).flatMap((r) => (r.stages ?? []).map((st) => st.name)))];
-            const ck = customKeys(Object.values(records));
-            const labels = await customLabels();
-            await downloadXlsx(
-              "RTO",
-              ["Case ID", "Customer", "Phone", "Vehicle", "Reg. Number", "Bank", "Dealer", "Sales Rep", "RTO Status", "Progress %", "RTO Owner",
-                ...stageNames, "Open Doc Requests", "Total Doc Requests", "Completed On",
-                "Ownership Type", "RTO Ownership", "RTO Receiving", "Challan Check", "Bank NOC", "NOC Hold (₹)", "Insurance Check",
-                "Hypothecation", "Aadhaar Match", "Aadhaar Mismatch Note", "Pending Documents", "Balance Payment (₹)", "Approval Date",
-                "RTO Slip", "Remarks", ...ck.map((k) => customHead(k, labels))],
-              rows.map((c) => {
-                const r = records[c._id];
-                const byName = new Map((r?.stages ?? []).map((st) => [st.name, st.status]));
-                return [
-                  c.caseCode, `${c.customer.firstName} ${c.customer.lastName}`.trim(), c.customer.contact ?? "", c.vehicleModel ?? "",
-                  c.regNumber ?? "", c.bankName ?? "", c.dealerName ?? "", c.assignedToName ?? "", r?.status ?? "Not started",
-                  stageProgress(r).pct, r?.rtoOwnerName ?? "",
-                  ...stageNames.map((n) => byName.get(n) ?? ""),
-                  (r?.docRequests ?? []).filter((d) => !d.isResolved).length, (r?.docRequests ?? []).length,
-                  xlDate(r?.completedAt),
-                  r?.rtoOwnershipType ?? "", r?.rtoOwnership ?? "", r?.rtoReceiving ? "Yes" : "No", r?.challanCheck ?? "", r?.bankNocCheck ?? "",
-                  r?.nocHoldAmt ?? "", r?.insuranceCheck ?? "", r?.hypothecation ?? "", r?.aadhaarMatch ?? "", r?.aadhaarMismatchNote ?? "",
-                  (r?.pendingDocuments ?? []).join(", "), r?.balancePayment ?? "", xlDate(r?.approvalDate), r?.rtoSlipFileName ?? "",
-                  r?.remarks ?? "", ...ck.map((k) => customCell(r?.customFields?.[k])),
-                ];
-              }),
-              stampedName("rto"),
-            );
-            return rows.length;
-          }} />
+          <ExportButton storageKey="rto" filename={"rto"} loadSheets={async () =>
+            buildRtoSheets(rows.map((c) => ({ c, r: records[c._id] })), await loadCustomDefs("rto"), (r) => stageProgress(r ?? undefined).pct)} />
           <button onClick={load} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground">
             <RefreshCw className="size-3.5" /> Refresh
           </button>
@@ -486,10 +469,21 @@ export default function RTOPage() {
         </div>
       )}
 
+      <div className="card p-3 space-y-3">
+        <CaseFilterPanel
+          value={{ ...filters, search: searchText }}
+          onChange={(f) => { setFilters(f); setSearchText(f.search); }}
+          onSearchChange={setSearchText}
+          facets={facets}
+          hide={["status", "coordinatorId", "createdDate"]}
+        />
+        <RtoFilterPanel value={rtoFilters} onChange={setRtoFilters} items={cases.map((c) => ({ c, r: records[c._id] }))} hideSearch hideCase />
+        <p className="text-xs text-muted">{rows.length} of {cases.length} disbursed case{cases.length !== 1 ? "s" : ""} shown</p>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
         {/* Case list */}
         <div className="card p-3 space-y-3 lg:sticky lg:top-20">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search case, customer, reg. no." />
           <div className="flex gap-1.5 flex-wrap">
             {([["open", "Open"], ["waiting", "Waiting on sales"], ["completed", "Completed"], ["all", "All"]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setFilter(id)}
@@ -562,7 +556,9 @@ export default function RTOPage() {
               </div>
 
               <div className="p-4">
-                {opening && !selectedRecord ? (
+                {tab === "case" ? (
+                  <CaseDetailsView c={selectedCase} />
+                ) : opening && !selectedRecord ? (
                   <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-14 bg-surface-2 rounded-lg animate-pulse" />)}</div>
                 ) : !selectedRecord ? (
                   <p className="text-sm text-muted">Could not load the RTO file for this case.</p>

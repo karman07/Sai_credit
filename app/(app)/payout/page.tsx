@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { ExportButton } from "../../../components/ExportButton";
-import { downloadXlsxSheets, stampedName } from "../../../lib/excel";
-import { buildPayoutSheets, customLabels } from "../../../lib/exportSheets";
+import { buildPayoutSheets, loadCustomDefs } from "../../../lib/exportSheets";
 import { Plus, Check, Clock, Minus, Pencil, Trash2, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 import {
   Button, Badge, Tabs, SectionHeader, Pagination, Modal, Input, Label, Select,
@@ -250,9 +249,8 @@ export default function PayoutPage() {
         description="Track bank commissions, invoices, and payout status."
         action={
           <div className="flex items-center gap-2">
-            <ExportButton onExport={async () => {
-              await downloadXlsxSheets(buildPayoutSheets(rows, await customLabels()), stampedName(activeMonth === "all" ? "payouts" : `payouts-${activeMonth}`));
-              return rows.length;
+            <ExportButton storageKey="payout" filename={activeMonth === "all" ? "payouts" : `payouts-${activeMonth}`} loadSheets={async () => {
+              return buildPayoutSheets(rows, await loadCustomDefs("payout"));
             }} />
             <Button size="sm" onClick={openCreate}><Plus className="size-3.5" /> New Payout Record</Button>
           </div>
