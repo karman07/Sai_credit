@@ -54,6 +54,13 @@ const DEFAULT_NEW_CASE: any = {
         { key: 'payoutPct', label: 'Payout %',    type: 'number', required: false, placeholder: '',                 defaultValue: '1', options: [], order: 7, isCore: true, isActive: true },
       ],
     },
+    {
+      id: 'remarks',
+      title: 'Remarks',
+      fields: [
+        { key: 'remarks', label: 'Remarks', type: 'text', required: false, placeholder: 'Any additional remarks…', defaultValue: '', options: [], order: 1, isCore: true, isActive: true },
+      ],
+    },
   ],
 };
 
@@ -306,7 +313,22 @@ const DEFAULTS: Record<string, any> = {
 export class FormSchemasService {
   constructor(@InjectModel(FormSchema.name) private readonly model: Model<FormSchema>) {}
 
+  /**
+   * Built-in fields added after a schema was first saved. Adds each one (once) to the stored form so it shows up in
+   * Form Builder; an admin can then hide / rename / reorder it. A field the admin already hid is never re-added
+   * because its key stays in the schema.
+   */
+  private async addMissingCoreFields() {
+    const doc: any = await this.model.findOne({ formId: 'new-case' }).lean().exec();
+    if (!doc) return;
+    const has = doc.sections.some((sec: any) => sec.fields.some((f: any) => f.key === 'remarks'));
+    if (has) return;
+    const sections = [...doc.sections, { id: 'remarks', title: 'Remarks', fields: [{ key: 'remarks', label: 'Remarks', type: 'text', required: false, placeholder: 'Any additional remarks…', defaultValue: '', options: [], order: 1, isCore: true, isActive: true }] }];
+    await this.model.updateOne({ formId: 'new-case' }, { $set: { sections } }).exec();
+  }
+
   async list(): Promise<FormSchema[]> {
+    await this.addMissingCoreFields();
     const existing = await this.model.find().lean().exec();
     const existingIds = new Set(existing.map((d: any) => d.formId));
     for (const formId of Object.keys(DEFAULTS)) {
@@ -318,6 +340,7 @@ export class FormSchemasService {
   }
 
   async getOrCreate(formId: string): Promise<FormSchema> {
+    if (formId === 'new-case') await this.addMissingCoreFields();
     let doc = await this.model.findOne({ formId }).lean().exec();
     if (!doc) {
       const seed = DEFAULTS[formId] ?? { formId, sections: [] };

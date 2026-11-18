@@ -73,11 +73,11 @@ export class CasesService {
     ownerSerial: (d) => d.ownerSerial, existingInsurer: (d) => d.existingInsurer, hypothecation: (d) => d.hypothecation,
     nocRequired: (d) => d.nocRequired, challanCount: (d) => d.challanCount, loanAmount: (d) => d.loanAmount,
     bank: (d) => d.bankId, branch: (d) => d.bankBranch, bmName: (d) => d.bmName, bmContact: (d) => d.bmContact,
-    executive: (d) => d.bankExecutive, dealer: (d) => d.dealerId, payoutPct: (d) => d.payoutPct,
+    executive: (d) => d.bankExecutive, dealer: (d) => d.dealerId, payoutPct: (d) => d.payoutPct, remarks: (d) => d.remarks,
   };
 
   /** Form Builder is the source of truth: an active field flagged "required" must be filled; hidden or optional ones never block. */
-  private async assertRequiredCaseFields(dto: CreateCaseDto) {
+  private async assertRequiredCaseFields(dto: any) {
     const schema = await this.formSchemas.getOrCreate('new-case');
     for (const f of schema.sections.flatMap((s) => s.fields)) {
       if (!f.required || f.isActive === false) continue;
@@ -613,54 +613,26 @@ export class CasesService {
     if (!existing) throw new NotFoundException('Case not found');
     await this.assertCanAccessCase(actor, existing);
 
-    const merged = {
-      customer: { ...existing.customer, ...dto.customer },
-      product: dto.product !== undefined ? dto.product : existing.product,
-      firm: dto.firm !== undefined ? dto.firm : existing.firm,
-      loanAmount: dto.loanAmount !== undefined ? dto.loanAmount : existing.loanAmount,
-      bankId: dto.bankId !== undefined ? dto.bankId : existing.bankId,
-      dealerId: dto.dealerId !== undefined ? dto.dealerId : existing.dealerId,
+    const current: any = typeof (existing as any).toObject === 'function' ? (existing as any).toObject() : existing;
+    const defined = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
+    const merged: any = {
+      ...current,
+      ...defined,
+      customer: { ...current.customer, ...dto.customer },
+      customFields: dto.customFields !== undefined ? dto.customFields : current.customFields,
       status: dto.status !== undefined ? dto.status : existing.status,
     };
 
-    if (merged.status === CaseStatus.Draft) {
-      if (!merged.customer.firstName || merged.customer.firstName.trim().length === 0) {
-        throw new BadRequestException('First Name (or name) is required to save draft');
-      }
-      if (!merged.customer.contact || merged.customer.contact.trim().length === 0) {
-        throw new BadRequestException('Contact number is required to save draft');
-      }
-      if (!merged.dealerId) {
-        throw new BadRequestException('Dealer is required to save draft');
-      }
-    } else if (merged.status !== CaseStatus.Incomplete) {
-      if (!merged.customer.firstName || merged.customer.firstName.trim().length === 0) {
-        throw new BadRequestException('First Name is required');
-      }
-      if (!merged.customer.lastName || merged.customer.lastName.trim().length === 0) {
-        throw new BadRequestException('Last Name is required');
-      }
-      if (!merged.customer.contact || merged.customer.contact.trim().length === 0) {
-        throw new BadRequestException('Contact number is required');
-      }
-      if (!merged.customer.location || merged.customer.location.trim().length === 0) {
-        throw new BadRequestException('Location is required');
-      }
-      if (!merged.product) {
-        throw new BadRequestException('Product Type is required');
-      }
-      if (!merged.firm) {
-        throw new BadRequestException('Firm is required');
-      }
-      if (!merged.loanAmount) {
-        throw new BadRequestException('Loan Amount is required');
-      }
-      if (!merged.bankId) {
-        throw new BadRequestException('Bank is required');
-      }
-      if (!merged.dealerId) {
-        throw new BadRequestException('Dealer is required');
-      }
+    // Same rules as create: a name and phone always; everything else only if Form Builder marks the field required.
+    // (Drafts and Incomplete files may be saved part-filled.)
+    if (!merged.customer.firstName || String(merged.customer.firstName).trim().length === 0) {
+      throw new BadRequestException(merged.status === CaseStatus.Draft ? 'First Name (or name) is required to save draft' : 'First Name is required');
+    }
+    if (!merged.customer.contact || String(merged.customer.contact).trim().length === 0) {
+      throw new BadRequestException(merged.status === CaseStatus.Draft ? 'Contact number is required to save draft' : 'Contact number is required');
+    }
+    if (merged.status !== CaseStatus.Draft && merged.status !== CaseStatus.Incomplete) {
+      await this.assertRequiredCaseFields(merged);
     }
 
     // Re-denormalize if references changed
