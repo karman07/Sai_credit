@@ -45,7 +45,7 @@ export function valuesFromCase(c: LoanCase): CaseValues {
     product: s(c.product), loanType: s(c.loanType), firm: s(c.firm), vehicleModel: s(c.vehicleModel), regNumber: s(c.regNumber),
     ownerSerial: s(c.ownerSerial), existingInsurer: s(c.existingInsurer), hypothecation: b(c.hypothecation), nocRequired: b(c.nocRequired),
     challanCount: s(c.challanCount), loanAmount: s(c.loanAmount), bank: s(c.bankId), branch: s(c.bankBranch), bmName: s(c.bmName),
-    bmContact: s(c.bmContact), executive: s(c.bankExecutive), dealer: s(c.dealerId), payoutPct: s(a.payoutPct),
+    bmContact: s(c.bmContact), executive: s(c.bankExecutive), dealer: s(c.dealerId), payoutPct: s(a.payoutPct), remarks: s(c.remarks),
   };
   for (const [k, v] of Object.entries(c.customFields ?? {})) if (!(k in out) || !present(out[k])) out[k] = typeof v === "object" ? JSON.stringify(v) : s(v);
   return out;
@@ -129,6 +129,8 @@ export function buildCasePayload(
     bmContact: txt("bmContact"), bankExecutive: txt("executive"),
     dealerId: dealer ? dealer._id : undefined, dealerName: dealer?.name,
     payoutPct: has("payoutPct") ? num(values.payoutPct) : undefined,
+    // Remarks can be cleared on an edit (sent as ""), unlike the other optional fields.
+    remarks: has("remarks") ? (txt("remarks") ?? (base ? "" : undefined)) : undefined,
   };
 
   const custom: Record<string, any> = { ...(base?.customFields ?? {}) };
