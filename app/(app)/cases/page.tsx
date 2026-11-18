@@ -715,7 +715,7 @@ function TeamCasesPageInner() {
                         ))}
                       </div>
                     )}
-                    {detailCase.remarks && <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{detailCase.remarks}</div>}
+                    {detailCase.remarks && cf.show("remarks") && <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{detailCase.remarks}</div>}
                     <div className="flex justify-end pt-1 border-t border-border">
                       <Button variant="secondary" size="sm" onClick={() => enterEditMode(detailCase)}>
                         <Edit2 className="size-3.5" /> Edit Details

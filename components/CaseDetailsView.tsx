@@ -107,7 +107,7 @@ export function CaseDetailsView({ c }: { c: LoanCase }) {
         <Item label="Coordinator">{text(anyC.coordinatorName)}</Item>
         <Item label="Case date">{date(c.date)}</Item>
         <Item label="Created">{date(c.createdAt)}</Item>
-        <Item label="Remarks" wide>{text(c.remarks)}</Item>
+        <Item label="Remarks" k="remarks" cf={cf} wide>{text(c.remarks)}</Item>
       </Block>
 
       {keys.length > 0 && (
