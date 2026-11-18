@@ -625,7 +625,7 @@ function CasesPageInner() {
       );
     }
 
-    if (c.remarks) {
+    if (c.remarks && cf.show("remarks")) {
       sectionTitle("Remarks");
       ensureSpace(24);
       doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(60, 60, 70);
@@ -1046,7 +1046,7 @@ function CasesPageInner() {
                   )}
                     </>
                   )}
-                  {drawerCase.remarks && (
+                  {drawerCase.remarks && cf.show("remarks") && (
                     <div className="p-3 bg-surface-2 rounded-lg text-sm text-muted">{drawerCase.remarks}</div>
                   )}
                 </div>

@@ -66,7 +66,7 @@ export function SchemaCaseForm({
     const value = values[f.key] ?? "";
     const ro = readOnly.includes(f.key);
     return (
-      <div key={f.key} className="space-y-1.5" data-field={f.key}>
+      <div key={f.key} className={`space-y-1.5 ${f.isCore && f.key === "remarks" ? "col-span-full" : ""}`} data-field={f.key}>
         <div className="flex items-center justify-between gap-2">
           <Label>{f.label?.trim() || f.key}{f.required && <span className="text-danger ml-0.5">*</span>}</Label>
           {f.isCore && f.key === "dealer" && ctx.onAddDealer && !ro && (
@@ -105,6 +105,7 @@ export function SchemaCaseForm({
               {ctx.cities.length > 0 && <datalist id={`cities-${f.key}`}>{ctx.cities.map((c) => <option key={c} value={c} />)}</datalist>}
             </>
           );
+        case "remarks": return <Textarea value={value} disabled={ro} onChange={(e) => on(e.target.value)} placeholder={f.placeholder} rows={3} />;
         case "existingInsurer": return plain(opts(ctx.insurers));
         case "residentialStatus": case "loanType": return plain(opts(DEFAULTS[f.key]));
       }
